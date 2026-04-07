@@ -1,0 +1,18 @@
+# Datasets — downloaded externally, too large for git
+vision_detector/datasets/**/*
+!vision_detector/datasets/.gitkeep
+
+# Training runs — reproducible from train.py
+vision_detector/runs/
+
+# Pretrained / downloaded model weights
+*.pt
+*.onnx
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/

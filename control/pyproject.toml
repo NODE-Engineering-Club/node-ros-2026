@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "control"
+version = "0.1.0"
+description = "PID control chain for Njord 2026"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+nav-to-pid = "control.nav_to_pid:main"
+pid-controller = "control.pid_controller:main"
+actuator-driver = "control.actuator_driver:main"
+control-launch-all = "control.launch_all:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["control*"]

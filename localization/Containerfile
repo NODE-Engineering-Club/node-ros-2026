@@ -1,0 +1,17 @@
+FROM njord/ros2-mavros:latest
+
+ARG ROS_DISTRO=jazzy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-robot-localization \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY config/ /localization/config/
+COPY launch/ /localization/launch/
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV ROS_DISTRO=${ROS_DISTRO}
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["ros2", "launch", "/localization/launch/localization.launch.py"]

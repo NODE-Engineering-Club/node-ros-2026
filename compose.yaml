@@ -1,0 +1,174 @@
+# Njord 2026 - Autonomous Boat Stack
+# Target: Raspberry Pi 5 (arm64)
+#
+# Usage:
+#   podman compose build
+#   podman compose up -d
+#   podman compose logs -f
+
+name: njord2026
+
+networks:
+  blueos_net:
+    driver: bridge
+
+volumes:
+  ros2_data:
+  blueos_config:
+
+services:
+
+  # --- BlueOS – ArduPilot companion -------------------------------------------
+  blueos:
+    image: docker.io/bluerobotics/blueos-core:1.4
+    container_name: blueos
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    volumes:
+      - /run/udev:/run/udev:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - blueos_config:/usr/blueos/userdata
+    environment:
+      - BLUEOS_UID=1000
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
+  # --- ROS2 Jazzy + MAVROS2 --------------------------------------------------
+  ros2:
+    build:
+      context: ./ros2
+      dockerfile: Containerfile
+      args:
+        ROS_DISTRO: jazzy
+    image: njord/ros2-mavros:latest
+    container_name: ros2
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    pid: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    volumes:
+      - ros2_data:/ros2_ws
+    depends_on:
+      - blueos
+
+  # --- Sensors – camera, lidar, imu/gps relay --------------------------------
+  sensors:
+    build:
+      context: ./sensors
+      dockerfile: Containerfile
+    image: njord/sensors:latest
+    container_name: sensors
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    devices:
+      - /dev/video0:/dev/video0
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - ros2
+
+  # --- Vision – YOLO26n-seg ONNX inference ------------------------------------
+  vision_detector:
+    build:
+      context: ./vision_detector
+      dockerfile: Containerfile
+    image: njord/vision-detector:latest
+    container_name: vision_detector
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    volumes:
+      - ./models:/models:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - sensors
+
+  # --- Perception – lidar obstacles + sensor fusion ---------------------------
+  perception:
+    build:
+      context: ./perception
+      dockerfile: Containerfile
+    image: njord/perception:latest
+    container_name: perception
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - sensors
+      - vision_detector
+
+  # --- Localization – EKF + navsat_transform ----------------------------------
+  localization:
+    build:
+      context: ./localization
+      dockerfile: Containerfile
+    image: njord/localization:latest
+    container_name: localization
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - sensors
+
+  # --- Navigation – Nav2 stack ------------------------------------------------
+  navigation:
+    build:
+      context: ./navigation
+      dockerfile: Containerfile
+    image: njord/navigation:latest
+    container_name: navigation
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - perception
+      - localization
+
+  # --- Control – PID + actuator driver ----------------------------------------
+  control:
+    build:
+      context: ./control
+      dockerfile: Containerfile
+    image: njord/control:latest
+    container_name: control
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - navigation
+
+  # --- Mission – waypoint sequencer -------------------------------------------
+  mission:
+    build:
+      context: ./mission
+      dockerfile: Containerfile
+    image: njord/mission:latest
+    container_name: mission
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    depends_on:
+      - navigation

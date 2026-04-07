@@ -1,0 +1,20 @@
+FROM njord/ros2-mavros:latest
+
+ARG ROS_DISTRO=jazzy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    ros-${ROS_DISTRO}-nav2-msgs \
+    ros-${ROS_DISTRO}-robot-localization \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /mission
+RUN pip3 install --no-cache-dir /mission
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV ROS_DISTRO=${ROS_DISTRO}
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["mission-manager"]

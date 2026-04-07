@@ -1,0 +1,43 @@
+# ros2/Containerfile
+# ROS2 Jazzy base image with MAVROS2 baked in.
+# Connects to ArduPilot via the MAVLink UDP proxy exposed by BlueOS.
+#
+# FCU URL convention (BlueOS default proxy ports):
+#   udp://:14550@localhost:14555  – receive on 14550, send GCS traffic to 14555
+# Adjust fcu_url if your BlueOS MAVLink proxy is configured differently.
+
+FROM docker.io/ros:jazzy-ros-base
+
+ARG ROS_DISTRO=jazzy
+
+# Install MAVROS2, geographic lib datasets, and useful nav packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-${ROS_DISTRO}-mavros \
+    ros-${ROS_DISTRO}-mavros-extras \
+    ros-${ROS_DISTRO}-mavros-msgs \
+    ros-${ROS_DISTRO}-geographic-msgs \
+    ros-${ROS_DISTRO}-tf2-ros \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    python3-pip \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# GeographicLib datasets required by MAVROS EKF/GPS plugins
+RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts/install_geographiclib_datasets.sh \
+    && chmod +x install_geographiclib_datasets.sh \
+    && ./install_geographiclib_datasets.sh \
+    && rm install_geographiclib_datasets.sh
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV ROS_DISTRO=${ROS_DISTRO}
+
+ENTRYPOINT ["/entrypoint.sh"]
+# Default: launch MAVROS2 node pointing at BlueOS MAVLink proxy
+CMD ["ros2", "run", "mavros", "mavros_node", \
+     "--ros-args", \
+     "-p", "fcu_url:=udp://:14550@localhost:14555", \
+     "-p", "gcs_url:=udp://@localhost:14556", \
+     "-p", "tgt_system:=1", \
+     "-p", "tgt_component:=1"]

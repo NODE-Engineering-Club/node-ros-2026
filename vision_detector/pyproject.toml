@@ -8,8 +8,9 @@ version = "0.1.0"
 description = "YOLO26n-seg ROS2 detection node for Njord 2026"
 requires-python = ">=3.10"
 dependencies = [
-    "ultralytics>=8.4.24",
+    "onnxruntime",
     "opencv-python-headless",
+    "numpy",
 ]
 
 [project.scripts]

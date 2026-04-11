@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "njord"
+version = "0.1.0"
+description = "Njord 2026 autonomous surface vessel ROS 2 stack"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python-headless",
+    "numpy<2",
+    "onnxruntime",
+]
+
+[project.scripts]
+# Sensors
+camera-driver        = "sensors.camera_driver:main"
+lidar-driver         = "sensors.lidar_driver:main"
+imu-gps-driver       = "sensors.imu_gps_driver:main"
+sensors-launch-all   = "sensors.launch_all:main"
+# Perception
+lidar-obstacle-node  = "perception.lidar_obstacle_node:main"
+fusion-node          = "perception.fusion_node:main"
+perception-launch-all = "perception.launch_all:main"
+# Control
+nav-to-pid           = "control.nav_to_pid:main"
+pid-controller       = "control.pid_controller:main"
+actuator-driver      = "control.actuator_driver:main"
+control-launch-all   = "control.launch_all:main"
+# Mission
+mission-manager      = "mission.mission_manager:main"
+# Vision detector
+vision-detector-node = "vision_detector.node:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sensors*", "perception*", "control*", "mission*", "vision_detector*"]

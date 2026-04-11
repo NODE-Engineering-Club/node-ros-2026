@@ -19,7 +19,7 @@ services:
     network_mode: host
     volumes:
       - /run/udev:/run/udev:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/user/1000/podman/podman.sock:/var/run/docker.sock
       - blueos_config:/usr/blueos/userdata
     environment:
       - BLUEOS_UID=1000
@@ -31,6 +31,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      target: prod
     image: njord/njord:latest
     container_name: njord
     restart: unless-stopped

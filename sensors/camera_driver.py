@@ -11,16 +11,23 @@ class CameraDriver(Node):
     def __init__(self):
         super().__init__("camera_driver")
 
+        self._available = False
         self.cap = cv2.VideoCapture(DEVICE)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if not self.cap.isOpened():
-            raise RuntimeError(f"Cannot open {DEVICE}")
+            self.get_logger().warn(
+                f"Cannot open {DEVICE} — camera_driver running in degraded mode (no frames published)"
+            )
+        else:
+            self._available = True
 
         self.pub = self.create_publisher(Image, "/image_raw", 10)
         self.bridge = CvBridge()
         self.create_timer(1 / 30, self._cb)  # 30 Hz
 
     def _cb(self):
+        if not self._available:
+            return
         ret, frame = self.cap.read()
         if not ret:
             return

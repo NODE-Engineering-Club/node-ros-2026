@@ -1,32 +1,39 @@
-FROM docker.io/ros:jazzy-ros-base
-
-ARG ROS_DISTRO=jazzy
+FROM docker.io/ros:jazzy-ros-base AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # MAVROS2 + MAVLink
-    ros-${ROS_DISTRO}-mavros \
-    ros-${ROS_DISTRO}-mavros-extras \
-    ros-${ROS_DISTRO}-mavros-msgs \
-    ros-${ROS_DISTRO}-geographic-msgs \
-    ros-${ROS_DISTRO}-tf2-ros \
-    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-jazzy-mavros \
+    ros-jazzy-mavros-extras \
+    ros-jazzy-mavros-msgs \
+    ros-jazzy-geographic-msgs \
+    ros-jazzy-tf2-ros \
+    ros-jazzy-tf2-geometry-msgs \
     # Sensors
     python3-opencv \
     python3-venv \
     v4l-utils \
-    ros-${ROS_DISTRO}-cv-bridge \
+    ros-jazzy-cv-bridge \
     # Vision / Perception
     libgl1 \
-    ros-${ROS_DISTRO}-vision-msgs \
+    ros-jazzy-vision-msgs \
     # Localization
-    ros-${ROS_DISTRO}-robot-localization \
+    ros-jazzy-robot-localization \
     # Navigation
-    ros-${ROS_DISTRO}-nav2-bringup \
+    ros-jazzy-nav2-bringup \
     # Control / Mission
-    ros-${ROS_DISTRO}-nav2-msgs \
+    ros-jazzy-nav2-msgs \
     python3-pip \
-    wget \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# --- Dev target: workspace is bind-mounted, used by devcontainer ---------------
+FROM base AS dev
+ENV PYTHONPATH=/opt/ros/jazzy/lib/python3.12/site-packages
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc
+WORKDIR /workspace
+
+# --- Prod target: code baked in, used by compose.yaml -------------------------
+FROM base AS prod
 
 # GeographicLib datasets required by MAVROS GPS plugins
 RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts/install_geographiclib_datasets.sh \
@@ -34,31 +41,21 @@ RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts
     && ./install_geographiclib_datasets.sh \
     && rm install_geographiclib_datasets.sh
 
-COPY sensors/       /sensors/
-COPY perception/    /perception/
-COPY control/       /control/
-COPY mission/       /mission/
-COPY vision_detector/ /vision_detector/
-COPY config/        /config/
-COPY launch/        /launch/
+COPY pyproject.toml  /app/
+COPY sensors/        /app/sensors/
+COPY perception/     /app/perception/
+COPY control/        /app/control/
+COPY mission/        /app/mission/
+COPY vision_detector/ /app/vision_detector/
+COPY config/         /config/
+COPY launch/         /launch/
 
-# Single venv inherits ROS Python bindings via --system-site-packages.
-# onnxruntime replaces the full ultralytics/torch stack for inference.
 RUN python3 -m venv /opt/venv --system-site-packages \
-    && /opt/venv/bin/pip install --no-cache-dir \
-        onnxruntime \
-        opencv-python-headless \
-        numpy \
-        /sensors \
-        /perception \
-        /control \
-        /mission \
-        /vision_detector
+    && /opt/venv/bin/pip install --no-cache-dir /app
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENV ROS_DISTRO=${ROS_DISTRO}
 ENV PATH="/opt/venv/bin:$PATH"
 
 ENTRYPOINT ["/entrypoint.sh"]

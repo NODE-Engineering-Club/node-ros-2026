@@ -3,6 +3,7 @@ import struct
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
 from vision_msgs.msg import Detection2DArray
 
@@ -19,9 +20,14 @@ class FusionNode(Node):
         self._lidar_pts: list[tuple[float, float, float]] = []
         self._vision_pts: list[tuple[float, float, float]] = []
 
+        _be_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self.pub = self.create_publisher(PointCloud2, "/obstacles/fused", 10)
         self.create_subscription(PointCloud2, "/obstacles/lidar", self._lidar_cb, 10)
-        self.create_subscription(Detection2DArray, "/yolo/detections", self._det_cb, 10)
+        self.create_subscription(Detection2DArray, "/yolo/detections", self._det_cb, _be_qos)
         self.create_timer(0.1, self._publish)  # 10 Hz
 
     def _lidar_cb(self, msg):
@@ -35,7 +41,7 @@ class FusionNode(Node):
         pts = []
         for det in msg.detections:
             # Estimate bearing from bbox center, project at conservative range
-            bearing = (det.bbox.center.x / IMAGE_WIDTH - 0.5) * CAMERA_HFOV
+            bearing = (det.bbox.center.position.x / IMAGE_WIDTH - 0.5) * CAMERA_HFOV
             x = DEFAULT_OBSTACLE_DISTANCE * math.cos(bearing)
             y = DEFAULT_OBSTACLE_DISTANCE * math.sin(bearing)
             pts.append((x, y, 0.0))

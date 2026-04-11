@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-tf2-geometry-msgs \
     # Sensors
     python3-opencv \
-    python3-venv \
     v4l-utils \
     ros-jazzy-cv-bridge \
     # Vision / Perception
@@ -28,11 +27,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- Dev target: workspace is bind-mounted, used by devcontainer ---------------
 FROM base AS dev
-ENV PYTHONPATH=/opt/ros/jazzy/lib/python3.12/site-packages
-RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc && \
+    echo '[ -f /workspace/install/setup.bash ] && source /workspace/install/setup.bash' >> /etc/bash.bashrc
 WORKDIR /workspace
 
-# --- Prod target: code baked in, used by compose.yaml -------------------------
+# --- Prod target: code baked in, built with colcon ----------------------------
 FROM base AS prod
 
 # GeographicLib datasets required by MAVROS GPS plugins
@@ -41,22 +40,22 @@ RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts
     && ./install_geographiclib_datasets.sh \
     && rm install_geographiclib_datasets.sh
 
-COPY pyproject.toml  /app/
-COPY sensors/        /app/sensors/
-COPY perception/     /app/perception/
-COPY control/        /app/control/
-COPY mission/        /app/mission/
-COPY vision_detector/ /app/vision_detector/
-COPY config/         /config/
-COPY launch/         /launch/
+# pip-only deps (no rosdep keys exist for these)
+RUN pip install --break-system-packages --no-cache-dir \
+    "numpy<2" \
+    onnxruntime \
+    opencv-python-headless
 
-RUN python3 -m venv /opt/venv --system-site-packages \
-    && /opt/venv/bin/pip install --no-cache-dir /app
+COPY src/ /ros2_ws/src/
+
+RUN . /opt/ros/jazzy/setup.sh && \
+    colcon build \
+        --base-paths /ros2_ws/src \
+        --install-base /opt/njord \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENV PATH="/opt/venv/bin:$PATH"
-
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["ros2", "launch", "/launch/njord.launch.py"]
+CMD ["ros2", "launch", "bringup", "njord.launch.py"]

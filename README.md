@@ -1,10 +1,13 @@
-# Node
+# Njord 2026
+
+ROS 2 Jazzy autonomous surface vessel (USV) stack.
 
 ## Getting Started
 
 **Prerequisites (one-time install):**
 1. [VSCode](https://code.visualstudio.com/)
-2. [Docker Desktop](https://www.docker.com/products/docker-desktop/) — Windows / macOS. On Linux, Docker Engine or Podman works too.
+2. [Docker Desktop](https://www.docker.com/products/docker-desktop/) — Windows / macOS. On Linux, Docker Engine or Podman works.
+   - Linux/Podman: set `"dev.containers.dockerPath": "podman"` in VSCode user settings.
 3. VSCode extension: [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 
 **To start developing:**
@@ -12,10 +15,73 @@
 2. Click **Reopen in Container** when prompted (or `Ctrl+Shift+P` → *Dev Containers: Reopen in Container*)
 3. First time takes ~5 minutes to build. After that it's instant.
 
-That's it. You'll have a full ROS 2 environment with linting, autocomplete, and all entry points available. Open the integrated terminal and run the stack:
+The `postCreateCommand` automatically runs `colcon build --symlink-install` and `source install/setup.bash` is added to the shell, so everything is ready on first open.
+
+> **Camera:** `/dev/video0` is passed through to the container via `runArgs` in `devcontainer.json`. If you don't have a webcam, the camera driver starts in degraded mode — everything else still works.
+
+**Run the full stack:**
+```bash
+ros2 launch bringup njord.launch.py
+```
+
+**Run with selective subsystems disabled (e.g. no FCU, no Nav2):**
+```bash
+ros2 launch bringup njord.launch.py enable_mavros:=false enable_localization:=false enable_nav2:=false
+```
+
+**Rebuild after adding new files** (`--symlink-install` means code edits don't need a rebuild):
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+## Debugging
+
+Run only the subsystems you care about by disabling everything else:
 
 ```bash
-ros2 launch /workspace/launch/njord.launch.py
+# Camera + vision only
+ros2 launch bringup njord.launch.py \
+  enable_mavros:=false \
+  enable_localization:=false \
+  enable_nav2:=false \
+  enable_perception:=false \
+  enable_control:=false \
+  enable_mission:=false
+```
+
+Then in separate terminals:
+
+```bash
+# See what's publishing
+ros2 topic list
+
+# Stream detections
+ros2 topic echo /yolo/detections
+
+# Check frame rate
+ros2 topic hz /yolo/detections
+
+# View the camera feed
+ros2 run rqt_image_view rqt_image_view
+```
+
+No model file? The vision node starts in degraded mode. Point it at your model:
+```bash
+ros2 run vision vision_node --ros-args -p model_path:=/workspace/models/your-model.onnx
+```
+
+## Workspace layout
+
+```
+src/
+├── sensors/      # camera_driver, lidar_driver, imu_gps_driver
+├── perception/   # lidar_obstacle_node, fusion_node
+├── control/      # nav_to_pid, pid_controller, actuator_driver
+├── mission/      # mission_manager
+├── vision/       # vision_node (YOLO ONNX inference)
+└── bringup/      # launch/njord.launch.py + config/
+models/           # ONNX weights (bind-mounted, gitignored)
 ```
 
 ## Architecture
@@ -23,15 +89,15 @@ ros2 launch /workspace/launch/njord.launch.py
 ```mermaid
 flowchart TD
     subgraph Sensors
-        L[lidar_driver] --> Scan[/scan or /points/]
+        L[lidar_driver] --> Scan[/scan/]
         C[camera_driver] --> Image[/image_raw/]
         I[imu_gps_driver]
     end
 
     subgraph Perception
-        Y[yolo_seg_node] --> Det[/yolo/masks + classes/]
+        Y[vision_node] --> Det[/yolo/detections/]
         O[lidar_obstacle_node]
-        F[fusion_node<br/>← PROJECTS segmented buoys/boats onto LIDAR]
+        F[fusion_node]
     end
 
     subgraph Localization
@@ -47,8 +113,8 @@ flowchart TD
     end
 
     subgraph Control
-        N2P[navigation_to_pid]
-        PID[pid_controller_node]
+        N2P[nav_to_pid]
+        PID[pid_controller]
         ACT[actuator_driver]
     end
 
@@ -58,7 +124,6 @@ flowchart TD
 
     C --> Y
     L --> O
-    L -.-> F
     Y --> F
     O --> F
     F --> CM
@@ -71,5 +136,13 @@ flowchart TD
     CS --> N2P
     N2P --> PID
     PID --> ACT
-    MM --> BT 
+    MM --> BT
+```
+
+## Production deploy
+
+```bash
+podman compose build
+podman compose up -d
+podman compose logs -f
 ```

@@ -1,5 +1,6 @@
 {
     "name": "njord",
+    "runArgs": ["--device=/dev/video0"],
     "build": {
         "dockerfile": "../Containerfile",
         "context": "..",
@@ -7,7 +8,7 @@
     },
     "workspaceFolder": "/workspace",
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-    "postCreateCommand": "pip install --break-system-packages -e /workspace",
+    "postCreateCommand": "bash -c 'source /opt/ros/jazzy/setup.bash && pip install --break-system-packages --no-cache-dir \"numpy<2\" onnxruntime opencv-python-headless && colcon build --symlink-install'",
     "customizations": {
         "vscode": {
             "extensions": [
@@ -18,7 +19,12 @@
             "settings": {
                 "python.defaultInterpreterPath": "/usr/bin/python3",
                 "python.analysis.extraPaths": [
-                    "/opt/ros/jazzy/lib/python3.12/site-packages"
+                    "/opt/ros/jazzy/lib/python3.12/site-packages",
+                    "/workspace/src/sensors",
+                    "/workspace/src/perception",
+                    "/workspace/src/control",
+                    "/workspace/src/mission",
+                    "/workspace/src/vision"
                 ],
                 "terminal.integrated.defaultProfile.linux": "bash"
             }

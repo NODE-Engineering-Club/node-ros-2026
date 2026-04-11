@@ -2,7 +2,12 @@
     "pythonVersion": "3.12",
     "pythonPlatform": "Linux",
     "extraPaths": [
-        "/opt/ros/jazzy/lib/python3.12/site-packages"
+        "/opt/ros/jazzy/lib/python3.12/site-packages",
+        "src/sensors",
+        "src/perception",
+        "src/control",
+        "src/mission",
+        "src/vision"
     ],
     "reportMissingTypeStubs": false
 }

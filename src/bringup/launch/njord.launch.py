@@ -131,6 +131,19 @@ def generate_launch_description():
             name="vision_node",
             condition=IfCondition(LaunchConfiguration("enable_vision")),
         ),
+        # Telemetry — rosbridge WebSocket (port 9090) + MJPEG video server (port 8080)
+        Node(
+            package="rosbridge_server",
+            executable="rosbridge_websocket",
+            name="rosbridge_websocket",
+            parameters=[{"port": 9090}],
+        ),
+        Node(
+            package="web_video_server",
+            executable="web_video_server",
+            name="web_video_server",
+            parameters=[{"port": 8080}],
+        ),
     ]
 
     return LaunchDescription(args + nodes)

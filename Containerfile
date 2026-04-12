@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-nav2-bringup \
     # Control / Mission
     ros-jazzy-nav2-msgs \
+    # Telemetry bridge
+    ros-jazzy-rosbridge-suite \
+    ros-jazzy-web-video-server \
     python3-pip \
     git \
     && rm -rf /var/lib/apt/lists/*

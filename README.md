@@ -61,9 +61,6 @@ ros2 topic echo /yolo/detections
 
 # Check frame rate
 ros2 topic hz /yolo/detections
-
-# View the camera feed
-ros2 run rqt_image_view rqt_image_view
 ```
 
 No model file? The vision node starts in degraded mode. Point it at your model:

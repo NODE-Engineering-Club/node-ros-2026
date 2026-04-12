@@ -20,6 +20,7 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_control",       default_value="true"),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
+        DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
     ]
     # fmt: on
 
@@ -130,6 +131,7 @@ def generate_launch_description():
             executable="vision_node",
             name="vision_node",
             condition=IfCondition(LaunchConfiguration("enable_vision")),
+            parameters=[{"confidence": LaunchConfiguration("vision_confidence")}],
         ),
         # Telemetry — rosbridge WebSocket (port 9090) + MJPEG video server (port 8080)
         Node(

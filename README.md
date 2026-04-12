@@ -47,10 +47,10 @@ ros2 launch bringup njord.launch.py \
   enable_nav2:=false \
   enable_perception:=false \
   enable_control:=false \
-  enable_mission:=false
+  enable_mission:=false \
 ```
 
-Then in separate terminals:
+Then in a separate terminal:
 
 ```bash
 # See what's publishing
@@ -61,11 +61,6 @@ ros2 topic echo /yolo/detections
 
 # Check frame rate
 ros2 topic hz /yolo/detections
-```
-
-No model file? The vision node starts in degraded mode. Point it at your model:
-```bash
-ros2 run vision vision_node --ros-args -p model_path:=/workspace/models/your-model.onnx
 ```
 
 ## Workspace layout

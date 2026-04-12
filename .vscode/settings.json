@@ -1,0 +1,15 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/workspace/build/vision",
+        "/workspace/install/vision/lib/python3.12/site-packages",
+        "/workspace/build/sensors",
+        "/workspace/install/sensors/lib/python3.12/site-packages",
+        "/workspace/build/perception",
+        "/workspace/install/perception/lib/python3.12/site-packages",
+        "/workspace/build/mission",
+        "/workspace/install/mission/lib/python3.12/site-packages",
+        "/workspace/build/control",
+        "/workspace/install/control/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
+}

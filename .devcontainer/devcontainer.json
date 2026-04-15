@@ -8,7 +8,7 @@
     },
     "workspaceFolder": "/workspace",
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-    "postCreateCommand": "bash -c 'source /opt/ros/jazzy/setup.bash && pip install --break-system-packages --no-cache-dir \"numpy<2\" onnxruntime opencv-python-headless && colcon build --symlink-install'",
+    "postCreateCommand": "bash -c 'source /opt/ros/jazzy/setup.bash && pip install --break-system-packages --no-cache-dir \"numpy<2\" onnxruntime opencv-python-headless pyrplidar && colcon build --symlink-install'",
     "customizations": {
         "vscode": {
             "extensions": [

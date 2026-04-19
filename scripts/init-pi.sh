@@ -85,20 +85,47 @@ if ! grep -q "^gpu_mem=" "$CONFIG"; then
   echo "gpu_mem=16" >> "$CONFIG"
 fi
 
+# ── Njord container ──────────────────────────────────────────────────────────
+IMAGE="ghcr.io/node-engineering-club/node-ros-2026:latest"
+
+echo "==> Pulling Njord image"
+sudo -u "$USERNAME" podman pull "$IMAGE"
+
+cat > /etc/systemd/system/njord.service << NJORD_EOF
+[Unit]
+Description=Njord ROS2 Stack
+After=network.target blueos.service
+Requires=blueos.service
+
+[Service]
+Restart=on-failure
+ExecStartPre=-/usr/bin/podman rm -f njord
+ExecStart=/usr/bin/podman run --rm \\
+  --name njord \\
+  --network host \\
+  --ipc host \\
+  --pid host \\
+  --device /dev/ttyUSB0 \\
+  --device /dev/video0 \\
+  -e ROS_DOMAIN_ID=0 \\
+  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \\
+  $IMAGE
+ExecStop=/usr/bin/podman stop njord
+
+[Install]
+WantedBy=multi-user.target
+NJORD_EOF
+
+systemctl daemon-reload
+systemctl enable njord.service
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "Initialization complete!"
-echo ""
-echo "Next steps:"
-echo "1. Reboot: sudo reboot"
-echo "2. After reboot, start services:"
-echo "   sudo systemctl start blueos.service"
-echo "3. Pull and run Njord container manually or set up as service"
+echo "Reboot to start all services: sudo reboot"
 
 if [ "$REBOOT_AFTER" = true ]; then
   echo "Rebooting in 5 seconds..."
   sleep 5
   reboot
-else
-  echo "Manual reboot required to apply all changes"
 fi

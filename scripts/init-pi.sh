@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: sudo bash init-pi.sh
+# Usage: sudo GHCR_TOKEN=<pat> bash init-pi.sh
 if [[ -z "${SUDO_USER:-}" ]]; then
-  echo "Run with sudo: sudo bash init-pi.sh" >&2
+  echo "Run with sudo: sudo GHCR_TOKEN=<pat> bash init-pi.sh" >&2
+  exit 1
+fi
+if [[ -z "${GHCR_TOKEN:-}" ]]; then
+  echo "GHCR_TOKEN is required: sudo GHCR_TOKEN=<pat> bash init-pi.sh" >&2
   exit 1
 fi
 USERNAME="$SUDO_USER"
@@ -89,6 +93,7 @@ fi
 IMAGE="ghcr.io/node-engineering-club/node-ros-2026:latest"
 
 echo "==> Pulling Njord image"
+echo "$GHCR_TOKEN" | sudo -u "$USERNAME" podman login ghcr.io -u x-access-token --password-stdin
 sudo -u "$USERNAME" podman pull "$IMAGE"
 
 cat > /etc/systemd/system/njord.service << NJORD_EOF

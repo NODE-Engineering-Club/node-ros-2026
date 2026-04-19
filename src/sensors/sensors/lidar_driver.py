@@ -12,12 +12,8 @@ MOTOR_PWM = 660  # ~10 Hz rotation
 SCAN_HZ = 10
 RANGE_MIN = 0.2
 RANGE_MAX = 12.0
-<<<<<<< HEAD
-NUM_READINGS = 360  # 1° resolution bins
-=======
 NUM_READINGS = 360
 RECONNECT_S = 3.0
->>>>>>> a41a8d8 (refactor: add separate containerfile for dev)
 
 
 class LidarDriver(Node):
@@ -25,42 +21,6 @@ class LidarDriver(Node):
         super().__init__("lidar_driver")
         self.pub = self.create_publisher(LaserScan, "/scan", 10)
 
-<<<<<<< HEAD
-        self._lidar = PyRPlidar()
-        self._lidar.connect(port=SERIAL_PORT, baudrate=BAUD_RATE, timeout=3)
-        self._lidar.set_motor_pwm(MOTOR_PWM)
-
-        self._thread = threading.Thread(target=self._scan_loop, daemon=True)
-        self._thread.start()
-
-    def _scan_loop(self):
-        scan_generator = self._lidar.start_scan()
-        pending = []
-
-        for measurement in scan_generator():
-            if measurement.new_scan and pending:
-                self._publish(pending)
-                pending = []
-
-            if measurement.distance > 0:
-                pending.append(
-                    (
-                        math.radians(measurement.angle),
-                        measurement.distance / 1000.0,  # mm → m
-                    )
-                )
-
-    def _publish(self, measurements: list[tuple[float, float]]):
-        ranges = [float("inf")] * NUM_READINGS
-        angle_increment = 2 * math.pi / NUM_READINGS
-
-        for angle_rad, dist_m in measurements:
-            if RANGE_MIN <= dist_m <= RANGE_MAX:
-                idx = int(angle_rad / angle_increment) % NUM_READINGS
-                # keep closest reading per bin
-                if dist_m < ranges[idx]:
-                    ranges[idx] = dist_m
-=======
         self._lock = threading.Lock()
         self._latest_ranges = [float("inf")] * NUM_READINGS
         self._lidar = None
@@ -107,7 +67,6 @@ class LidarDriver(Node):
     def _publish_cb(self):
         with self._lock:
             ranges = list(self._latest_ranges)
->>>>>>> a41a8d8 (refactor: add separate containerfile for dev)
 
         msg = LaserScan()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -130,7 +89,6 @@ class LidarDriver(Node):
                 self._lidar.disconnect()
             except RPLidarException:
                 pass
->>>>>>> a41a8d8 (refactor: add separate containerfile for dev)
         super().destroy_node()
 
 

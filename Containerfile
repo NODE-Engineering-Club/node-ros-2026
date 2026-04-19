@@ -47,14 +47,10 @@ RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts
 
 # pip-only deps (no rosdep keys exist for these)
 RUN pip install --break-system-packages --no-cache-dir \
-    "numpy<2" \
-    onnxruntime \
-    opencv-python-headless \
-<<<<<<< HEAD
-    pyrplidar
-=======
-    rplidar-roboticia
->>>>>>> a41a8d8 (refactor: add separate containerfile for dev)
+     "numpy<2" \
+     onnxruntime \
+     opencv-python-headless \
+     rplidar-roboticia
 
 COPY src/ /ros2_ws/src/
 

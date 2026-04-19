@@ -6,7 +6,7 @@
         "--device=/dev/video0"
     ],
     "build": {
-        "dockerfile": "Containerfile.dev",
+        "dockerfile": "../Containerfile",
         "context": ".."
     },
     "workspaceFolder": "/workspace",

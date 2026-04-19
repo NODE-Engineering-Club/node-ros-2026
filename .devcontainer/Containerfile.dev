@@ -1,0 +1,36 @@
+FROM docker.io/ros:jazzy-ros-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # MAVROS2 + MAVLink
+    ros-jazzy-mavros \
+    ros-jazzy-mavros-extras \
+    ros-jazzy-mavros-msgs \
+    ros-jazzy-geographic-msgs \
+    ros-jazzy-tf2-ros \
+    ros-jazzy-tf2-geometry-msgs \
+    # Sensors
+    python3-opencv \
+    v4l-utils \
+    ros-jazzy-cv-bridge \
+    # Vision / Perception
+    libgl1 \
+    ros-jazzy-vision-msgs \
+    # Localization
+    ros-jazzy-robot-localization \
+    # Navigation
+    ros-jazzy-nav2-bringup \
+    # Control / Mission
+    ros-jazzy-nav2-msgs \
+    # Telemetry bridge
+    ros-jazzy-rosbridge-suite \
+    ros-jazzy-web-video-server \
+    python3-pip \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN usermod -aG dialout root
+
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc && \
+    echo '[ -f /workspace/install/setup.bash ] && source /workspace/install/setup.bash' >> /etc/bash.bashrc
+
+WORKDIR /workspace

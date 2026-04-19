@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+RUN usermod -aG dialout root
+
 # --- Dev target: workspace is bind-mounted, used by devcontainer ---------------
 FROM base AS dev
 RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc && \
@@ -48,7 +50,11 @@ RUN pip install --break-system-packages --no-cache-dir \
     "numpy<2" \
     onnxruntime \
     opencv-python-headless \
+<<<<<<< HEAD
     pyrplidar
+=======
+    rplidar-roboticia
+>>>>>>> a41a8d8 (refactor: add separate containerfile for dev)
 
 COPY src/ /ros2_ws/src/
 

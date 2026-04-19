@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: sudo bash init-pi.sh [hostname] [username]
-HOSTNAME=${1:-njord}
-USERNAME=${2:-pi}
+# Usage: sudo bash init-pi.sh
+if [[ -z "${SUDO_USER:-}" ]]; then
+  echo "Run with sudo: sudo bash init-pi.sh" >&2
+  exit 1
+fi
+USERNAME="$SUDO_USER"
 REBOOT_AFTER=${REBOOT_AFTER:-false}
 
 # ── System update ────────────────────────────────────────────────────────────
@@ -12,50 +15,35 @@ apt-get update -qq
 apt-get upgrade -y -qq
 apt-get autoremove -y -qq
 
-# ── Hostname ─────────────────────────────────────────────────────────────────
-echo "==> Setting hostname to $HOSTNAME"
-hostnamectl set-hostname "$HOSTNAME"
-sed -i "s/127\.0\.1\.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts
-
-# ── User setup ───────────────────────────────────────────────────────────────
-if ! id "$USERNAME" &>/dev/null; then
-  echo "==> Creating user $USERNAME"
-  useradd -m -s /bin/bash "$USERNAME"
-fi
-
-# ── Podman (for Njord container) ────────────────────────────────────────────
+# ── Podman ───────────────────────────────────────────────────────────────────
 echo "==> Installing Podman"
-apt-get install -y podman podman-compose
-usermod -aG docker "$USERNAME"  # For BlueOS compatibility
-
-# ── Docker (for BlueOS compatibility) ──────────────────────────────────────
-echo "==> Installing Docker for BlueOS"
-apt-get install -y docker.io
-usermod -aG docker "$USERNAME"
+apt-get install -y podman
+usermod -aG dialout "$USERNAME"
+usermod -aG video "$USERNAME"
 
 # ── BlueOS setup ────────────────────────────────────────────────────────────
-echo "==> Setting up BlueOS directories"
+echo "==> Setting up BlueOS"
 mkdir -p /usr/blueos/userdata
 chown -R 1000:1000 /usr/blueos/userdata
 
-# Create BlueOS service (will be started manually or via systemd)
 cat > /etc/systemd/system/blueos.service << 'BLUEOS_EOF'
 [Unit]
 Description=BlueOS - ArduPilot Companion
-After=network.target docker.service
-Requires=docker.service
+After=network.target podman.socket
 
 [Service]
-Restart=unless-stopped
-ExecStart=/usr/bin/docker run --rm \\
-  --name blueos \\
-  --privileged \\
-  --network host \\
-  -v /run/udev:/run/udev:ro \\
-  -v /var/run/docker.sock:/var/run/docker.sock \\
-  -v /usr/blueos/userdata:/usr/blueos/userdata \\
-  -e BLUEOS_UID=1000 \\
+Restart=on-failure
+ExecStartPre=-/usr/bin/podman rm -f blueos
+ExecStart=/usr/bin/podman run --rm \
+  --name blueos \
+  --privileged \
+  --network host \
+  -v /run/udev:/run/udev:ro \
+  -v /run/podman/podman.sock:/var/run/docker.sock \
+  -v /usr/blueos/userdata:/usr/blueos/userdata \
+  -e BLUEOS_UID=1000 \
   docker.io/bluerobotics/blueos-core:1.4
+ExecStop=/usr/bin/podman stop blueos
 
 [Install]
 WantedBy=multi-user.target
@@ -76,13 +64,9 @@ ROS_EOF
 # ── Udev rules for USB devices ──────────────────────────────────────────────
 echo "==> Setting up udev rules for LIDAR and other USB devices"
 cat > /etc/udev/rules.d/99-njord.rules << 'UDEV_EOF'
-# LIDAR (RPLIDAR)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", GROUP="dialout", MODE="0666"
-# Camera
 SUBSYSTEM=="video4linux", GROUP="video", MODE="0666"
 UDEV_EOF
-usermod -aG dialout "$USERNAME"
-usermod -aG video "$USERNAME"
 
 # ── cgroups / boot config ────────────────────────────────────────────────────
 CMDLINE=/boot/firmware/cmdline.txt

@@ -15,4 +15,4 @@ if [[ -z "${GHCR_TOKEN:-}" ]]; then
 fi
 
 echo "==> Deploying to $PI_HOST"
-ssh "$PI_HOST" "sudo GHCR_TOKEN='$GHCR_TOKEN' bash -s" < "$(dirname "$0")/init-pi.sh"
+ssh "$PI_HOST" "sudo GHCR_TOKEN='$GHCR_TOKEN' bash -s" < "$(dirname "$0")/init.sh"

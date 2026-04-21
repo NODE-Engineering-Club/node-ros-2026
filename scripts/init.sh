@@ -6,9 +6,7 @@ if [[ $EUID -ne 0 ]]; then
   echo "Run with sudo: sudo GHCR_TOKEN=<pat> bash init-pi.sh" >&2
   exit 1
 fi
-if [[ -z "${GHCR_TOKEN:-}" ]]; then
-  GHCR_TOKEN="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"
-fi
+GHCR_TOKEN="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"
 USERNAME="${SUDO_USER:-$(logname 2>/dev/null || echo root)}"
 REBOOT_AFTER=${REBOOT_AFTER:-false}
 

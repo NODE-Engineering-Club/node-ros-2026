@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: sudo GHCR_TOKEN=<pat> bash init-pi.sh
+# Usage: sudo bash init.sh
 if [[ $EUID -ne 0 ]]; then
   echo "Run with sudo: sudo GHCR_TOKEN=<pat> bash init-pi.sh" >&2
   exit 1

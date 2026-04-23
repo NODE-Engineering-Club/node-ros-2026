@@ -17,7 +17,7 @@ ROS 2 Jazzy autonomous surface vessel (USV) stack.
 
 The `postCreateCommand` automatically runs `colcon build --symlink-install` and `source install/setup.bash` is added to the shell, so everything is ready on first open.
 
-> **Camera:** `/dev/video0` is passed through to the container via `runArgs` in `devcontainer.json`. If you don't have a webcam, the camera driver starts in degraded mode — everything else still works.
+> **Camera:** camera passthrough is optional. The dev container no longer requires `/dev/video0`, and Pi init only passes it through when present. If you don't have a webcam, the camera driver starts in degraded mode and the rest of the stack still works.
 
 **Run the full stack:**
 ```bash

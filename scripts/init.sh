@@ -89,6 +89,13 @@ fi
 # ── Njord container ──────────────────────────────────────────────────────────
 IMAGE="ghcr.io/node-engineering-club/node-ros-2026:latest"
 
+DEVICE_ARGS='  --device /dev/ttyUSB0 \\'
+if [[ -e /dev/video0 ]]; then
+  DEVICE_ARGS+=$'\n''  --device /dev/video0 \\'
+else
+  echo "==> /dev/video0 not found; starting without camera passthrough"
+fi
+
 echo "==> Pulling Njord image"
 echo "$GHCR_TOKEN" | podman login ghcr.io -u x-access-token --password-stdin
 podman pull "$IMAGE"
@@ -107,8 +114,7 @@ ExecStart=/usr/bin/podman run --rm \\
   --network host \\
   --ipc host \\
   --pid host \\
-  --device /dev/ttyUSB0 \\
-  --device /dev/video0 \\
+${DEVICE_ARGS}
   -e ROS_DOMAIN_ID=0 \\
   -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \\
   $IMAGE

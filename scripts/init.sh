@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 
 # Usage: sudo bash init.sh
 if [[ $EUID -ne 0 ]]; then
@@ -8,7 +9,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 GHCR_TOKEN="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"
 USERNAME="${SUDO_USER:-$(logname 2>/dev/null || echo root)}"
-REBOOT_AFTER=${REBOOT_AFTER:-false}
 
 # ── System update ────────────────────────────────────────────────────────────
 echo "==> Updating system packages"
@@ -19,10 +19,14 @@ apt-get autoremove -y -qq
 # ── Podman ───────────────────────────────────────────────────────────────────
 echo "==> Installing Podman"
 apt-get install -y podman
+systemctl enable --now podman.socket
 usermod -aG dialout "$USERNAME"
 usermod -aG video "$USERNAME"
 
 # ── BlueOS setup ────────────────────────────────────────────────────────────
+echo "==> Pulling BlueOS image"
+podman pull docker.io/bluerobotics/blueos-core:1.4.3
+
 echo "==> Setting up BlueOS"
 mkdir -p /usr/blueos/userdata
 chown -R 1000:1000 /usr/blueos/userdata
@@ -43,7 +47,7 @@ ExecStart=/usr/bin/podman run --rm \
   -v /run/podman/podman.sock:/var/run/docker.sock \
   -v /usr/blueos/userdata:/usr/blueos/userdata \
   -e BLUEOS_UID=1000 \
-  docker.io/bluerobotics/blueos-core:1.4
+  docker.io/bluerobotics/blueos-core:1.4.3
 ExecStop=/usr/bin/podman stop blueos
 
 [Install]
@@ -52,15 +56,6 @@ BLUEOS_EOF
 
 systemctl daemon-reload
 systemctl enable blueos.service
-
-# ── ROS2 environment ────────────────────────────────────────────────────────
-echo "==> Setting up ROS2 environment"
-cat >> "/home/$USERNAME/.bashrc" << 'ROS_EOF'
-
-# ROS2 setup
-export ROS_DOMAIN_ID=0
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-ROS_EOF
 
 # ── Udev rules for USB devices ──────────────────────────────────────────────
 echo "==> Setting up udev rules for LIDAR and other USB devices"
@@ -89,13 +84,6 @@ fi
 # ── Njord container ──────────────────────────────────────────────────────────
 IMAGE="ghcr.io/node-engineering-club/node-ros-2026:latest"
 
-DEVICE_ARGS='  --device /dev/ttyUSB0 \\'
-if [[ -e /dev/video0 ]]; then
-  DEVICE_ARGS+=$'\n''  --device /dev/video0 \\'
-else
-  echo "==> /dev/video0 not found; starting without camera passthrough"
-fi
-
 echo "==> Pulling Njord image"
 echo "$GHCR_TOKEN" | podman login ghcr.io -u x-access-token --password-stdin
 podman pull "$IMAGE"
@@ -109,14 +97,12 @@ Requires=blueos.service
 [Service]
 Restart=on-failure
 ExecStartPre=-/usr/bin/podman rm -f njord
-ExecStart=/usr/bin/podman run --rm \\
-  --name njord \\
-  --network host \\
-  --ipc host \\
-  --pid host \\
-${DEVICE_ARGS}
-  -e ROS_DOMAIN_ID=0 \\
-  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \\
+ExecStart=/usr/bin/podman run --rm \
+  --name njord \
+  --privileged \
+  --network host \
+  --ipc host \
+  --pid host \
   $IMAGE
 ExecStop=/usr/bin/podman stop njord
 
@@ -129,11 +115,5 @@ systemctl enable njord.service
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
-echo "Initialization complete!"
-echo "Reboot to start all services: sudo reboot"
-
-if [ "$REBOOT_AFTER" = true ]; then
-  echo "Rebooting in 5 seconds..."
-  sleep 5
-  reboot
-fi
+echo "Initialization complete. Rebooting..."
+reboot

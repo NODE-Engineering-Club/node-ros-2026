@@ -63,7 +63,7 @@ def generate_launch_description():
             ),
             launch_arguments={
                 "params_file": cfg + "/nav2_params.yaml",
-                "use_collision_monitor": "False",
+                "use_collision_monitor": "True",
             }.items(),
             condition=IfCondition(LaunchConfiguration("enable_nav2")),
         ),

@@ -12,5 +12,5 @@
         "/workspace/install/control/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
     ],
-    "cmake.sourceDirectory": "/Users/thomas.peace/Documents/NODE/node-ros-2026/src/bringup"
+    "cmake.sourceDirectory": "/home/tom/Documents/code/node/src/bringup"
 }

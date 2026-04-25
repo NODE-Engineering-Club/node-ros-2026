@@ -45,9 +45,9 @@ ros2 launch bringup njord.launch.py \
   enable_mavros:=false \
   enable_localization:=false \
   enable_nav2:=false \
-  enable_perception:=false \
   enable_control:=false \
-  enable_mission:=false
+  enable_mission:=false \
+  enable_perception:=false 
 ```
 
 Then in a separate terminal:

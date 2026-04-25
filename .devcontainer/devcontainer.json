@@ -2,7 +2,8 @@
     "name": "njord",
     "runArgs": [
         "--privileged",
-        "--device=/dev/ttyUSB0"
+        "--device=/dev/ttyUSB0",
+        "--device=/dev/video0"
     ],
     "build": {
         "dockerfile": "Containerfile.dev",

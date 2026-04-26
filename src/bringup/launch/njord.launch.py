@@ -5,10 +5,13 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-
+import xacro
 
 def generate_launch_description():
-    cfg = get_package_share_directory("bringup") + "/config"
+    cfg  = get_package_share_directory("bringup") + "/config"
+    urdf = xacro.process_file(
+        get_package_share_directory("asket_description") + "/urdf/asket.urdf.xacro"
+    ).toxml()
 
     # fmt: off
     args = [
@@ -27,6 +30,12 @@ def generate_launch_description():
     # fmt: on
 
     nodes = [
+        # Robot description — publishes TF frames from URDF
+        Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            parameters=[{"robot_description": urdf}],
+        ),
         # MAVROS — FCU bridge
         Node(
             package="mavros",

@@ -26,15 +26,18 @@ def generate_launch_description():
         DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
         DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
+        DeclareLaunchArgument("use_sim_time",         default_value="false"),
     ]
     # fmt: on
+
+    sim_time = {"use_sim_time": LaunchConfiguration("use_sim_time")}
 
     nodes = [
         # Robot description — publishes TF frames from URDF
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
-            parameters=[{"robot_description": urdf}],
+            parameters=[{"robot_description": urdf}, sim_time],
         ),
         # MAVROS — FCU bridge
         Node(
@@ -48,7 +51,8 @@ def generate_launch_description():
                     "gcs_url": "udp://@localhost:14556",
                     "tgt_system": 1,
                     "tgt_component": 1,
-                }
+                },
+                sim_time,
             ],
         ),
         # Localization — EKF + NavSat transform
@@ -57,14 +61,14 @@ def generate_launch_description():
             executable="ekf_node",
             name="ekf_node",
             condition=IfCondition(LaunchConfiguration("enable_localization")),
-            parameters=[cfg + "/ekf.yaml"],
+            parameters=[cfg + "/ekf.yaml", sim_time],
         ),
         Node(
             package="robot_localization",
             executable="navsat_transform_node",
             name="navsat_transform_node",
             condition=IfCondition(LaunchConfiguration("enable_localization")),
-            parameters=[cfg + "/navsat.yaml"],
+            parameters=[cfg + "/navsat.yaml", sim_time],
         ),
         # Nav2
         IncludeLaunchDescription(
@@ -75,6 +79,7 @@ def generate_launch_description():
             launch_arguments={
                 "params_file": cfg + "/nav2_params.yaml",
                 "use_collision_monitor": "True",
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
             }.items(),
             condition=IfCondition(LaunchConfiguration("enable_nav2")),
         ),
@@ -84,20 +89,21 @@ def generate_launch_description():
             executable="camera_driver",
             name="camera_driver",
             condition=IfCondition(LaunchConfiguration("enable_sensors")),
-            parameters=[{"device": LaunchConfiguration("camera_device")}],
+            parameters=[{"device": LaunchConfiguration("camera_device")}, sim_time],
         ),
         Node(
             package="sensors",
             executable="lidar_driver",
             name="lidar_driver",
             condition=IfCondition(LaunchConfiguration("enable_sensors")),
-            parameters=[{"device": LaunchConfiguration("lidar_device")}],
+            parameters=[{"device": LaunchConfiguration("lidar_device")}, sim_time],
         ),
         Node(
             package="sensors",
             executable="imu_gps_driver",
             name="imu_gps_driver",
             condition=IfCondition(LaunchConfiguration("enable_sensors")),
+            parameters=[sim_time],
         ),
         # Perception
         Node(
@@ -105,12 +111,14 @@ def generate_launch_description():
             executable="lidar_obstacle_node",
             name="lidar_obstacle_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
+            parameters=[sim_time],
         ),
         Node(
             package="perception",
             executable="fusion_node",
             name="fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
+            parameters=[sim_time],
         ),
         # Control
         Node(
@@ -118,18 +126,21 @@ def generate_launch_description():
             executable="nav_to_pid",
             name="nav_to_pid",
             condition=IfCondition(LaunchConfiguration("enable_control")),
+            parameters=[sim_time],
         ),
         Node(
             package="control",
             executable="pid_controller",
             name="pid_controller",
             condition=IfCondition(LaunchConfiguration("enable_control")),
+            parameters=[sim_time],
         ),
         Node(
             package="control",
             executable="actuator_driver",
             name="actuator_driver",
             condition=IfCondition(LaunchConfiguration("enable_control")),
+            parameters=[sim_time],
         ),
         # Mission
         Node(
@@ -137,6 +148,7 @@ def generate_launch_description():
             executable="mission_manager",
             name="mission_manager",
             condition=IfCondition(LaunchConfiguration("enable_mission")),
+            parameters=[sim_time],
         ),
         # Vision
         Node(
@@ -144,20 +156,20 @@ def generate_launch_description():
             executable="vision_node",
             name="vision_node",
             condition=IfCondition(LaunchConfiguration("enable_vision")),
-            parameters=[{"confidence": LaunchConfiguration("vision_confidence")}],
+            parameters=[{"confidence": LaunchConfiguration("vision_confidence")}, sim_time],
         ),
         # Telemetry — rosbridge WebSocket (port 9090) + MJPEG video server (port 8080)
         Node(
             package="rosbridge_server",
             executable="rosbridge_websocket",
             name="rosbridge_websocket",
-            parameters=[{"port": 9090}],
+            parameters=[{"port": 9090}, sim_time],
         ),
         Node(
             package="web_video_server",
             executable="web_video_server",
             name="web_video_server",
-            parameters=[{"port": 8080}],
+            parameters=[{"port": 8080}, sim_time],
         ),
     ]
 

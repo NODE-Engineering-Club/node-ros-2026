@@ -17,7 +17,7 @@ ROS 2 Jazzy autonomous surface vessel (USV) stack.
 
 The `postCreateCommand` automatically runs `colcon build --symlink-install` and `source install/setup.bash` is added to the shell, so everything is ready on first open.
 
-> **Camera:** camera passthrough is optional. The dev container no longer requires `/dev/video0`, and Pi init only passes it through when present. If you don't have a webcam, the camera driver starts in degraded mode and the rest of the stack still works.
+> **Camera:** if no camera is connected, the camera driver starts in degraded mode and the rest of the stack still works.
 
 **Run the full stack:**
 ```bash
@@ -67,6 +67,7 @@ ros2 topic hz /yolo/detections
 
 ```
 src/
+├── asket_description/ # URDF — robot frame tree (base_link, lidar, camera)
 ├── sensors/      # camera_driver, lidar_driver, imu_gps_driver
 ├── perception/   # lidar_obstacle_node, fusion_node
 ├── control/      # nav_to_pid, pid_controller, actuator_driver
@@ -134,7 +135,36 @@ flowchart TD
 ## Production deploy
 
 ```bash
-podman compose build
-podman compose up -d
-podman compose logs -f
+bash scripts/deploy-pi.sh
 ```
+
+This SSHes into `pi@boat.local`, pulls the latest image from GHCR, sets up systemd services for BlueOS and Njord, and reboots. On every subsequent reboot the Pi pulls the latest image automatically before starting.
+
+## Simulation (Gazebo)
+
+The stack is simulation-ready. All nodes accept `use_sim_time` and the sensor drivers can be disabled so a simulator can provide sensor data on the same topics.
+
+**Topic interfaces the simulator must publish:**
+
+| Topic | Type | Description |
+|---|---|---|
+| `/scan` | `sensor_msgs/LaserScan` | LIDAR scan |
+| `/image_raw` | `sensor_msgs/Image` | Camera frame (bgr8, 640×480) |
+| `/imu/data` | `sensor_msgs/Imu` | IMU at ≥50 Hz |
+| `/mavros/global_position/raw/fix` | `sensor_msgs/NavSatFix` | GPS fix |
+| `/clock` | `rosgraph_msgs/Clock` | Sim clock |
+
+**Robot description:**
+
+The URDF is in `src/asket_description/urdf/asket.urdf.xacro`. Extend it with Gazebo sensor plugins, inertial properties, and collision geometry for your sim environment.
+
+**Launch for simulation:**
+
+```bash
+ros2 launch bringup njord.launch.py \
+  use_sim_time:=true \
+  enable_sensors:=false \
+  enable_mavros:=false
+```
+
+All perception, fusion, Nav2, control, and mission nodes will run using the simulator's clock and sensor topics.

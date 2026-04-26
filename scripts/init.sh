@@ -88,17 +88,34 @@ echo "==> Pulling Njord image"
 echo "$GHCR_TOKEN" | podman login ghcr.io -u x-access-token --password-stdin
 podman pull "$IMAGE"
 
+cat > /etc/systemd/system/njord-update.service << UPDATE_EOF
+[Unit]
+Description=Pull latest Njord image
+Before=njord.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'echo "$GHCR_TOKEN" | /usr/bin/podman login ghcr.io -u x-access-token --password-stdin && /usr/bin/podman pull $IMAGE'
+
+[Install]
+WantedBy=multi-user.target
+UPDATE_EOF
+
 cat > /etc/systemd/system/njord.service << NJORD_EOF
 [Unit]
 Description=Njord ROS2 Stack
-After=network.target blueos.service
+After=network.target blueos.service njord-update.service
 Requires=blueos.service
 
 [Service]
 Restart=on-failure
+SuccessExitStatus=143
 ExecStartPre=-/usr/bin/podman rm -f njord
 ExecStart=/usr/bin/podman run --rm \
   --name njord \
+  --init \
   --privileged \
   --network host \
   --ipc host \
@@ -111,7 +128,7 @@ WantedBy=multi-user.target
 NJORD_EOF
 
 systemctl daemon-reload
-systemctl enable njord.service
+systemctl enable njord-update.service njord.service
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""

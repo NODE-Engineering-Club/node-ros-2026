@@ -6,7 +6,6 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from rplidar import RPLidar, RPLidarException
 
-SERIAL_PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 MOTOR_PWM = 660  # ~10 Hz rotation
 SCAN_HZ = 10
@@ -19,6 +18,10 @@ RECONNECT_S = 3.0
 class LidarDriver(Node):
     def __init__(self):
         super().__init__("lidar_driver")
+
+        self.declare_parameter("device", "/dev/ttyUSB0")
+        self._serial_port = self.get_parameter("device").get_parameter_value().string_value
+
         self.pub = self.create_publisher(LaserScan, "/scan", 10)
 
         self._lock = threading.Lock()
@@ -34,7 +37,7 @@ class LidarDriver(Node):
         if self._lidar is not None:
             return
         try:
-            lidar = RPLidar(SERIAL_PORT)
+            lidar = RPLidar(self._serial_port)
             info = lidar.get_info()
             health = lidar.get_health()
             self.get_logger().info(f"RPLIDAR connected — info: {info}, health: {health}")
@@ -43,7 +46,7 @@ class LidarDriver(Node):
             self._scan_thread.start()
         except Exception:
             self.get_logger().warn(
-                f"RPLIDAR not available on {SERIAL_PORT}, retrying in {RECONNECT_S:.0f}s",
+                f"RPLIDAR not available on {self._serial_port}, retrying in {RECONNECT_S:.0f}s",
                 throttle_duration_sec=30.0,
             )
 

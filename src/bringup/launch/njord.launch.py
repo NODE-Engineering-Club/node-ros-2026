@@ -21,6 +21,8 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_mission",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
         DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
+        DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
+        DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
     ]
     # fmt: on
 
@@ -73,12 +75,14 @@ def generate_launch_description():
             executable="camera_driver",
             name="camera_driver",
             condition=IfCondition(LaunchConfiguration("enable_sensors")),
+            parameters=[{"device": LaunchConfiguration("camera_device")}],
         ),
         Node(
             package="sensors",
             executable="lidar_driver",
             name="lidar_driver",
             condition=IfCondition(LaunchConfiguration("enable_sensors")),
+            parameters=[{"device": LaunchConfiguration("lidar_device")}],
         ),
         Node(
             package="sensors",

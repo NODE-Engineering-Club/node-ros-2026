@@ -4,26 +4,29 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
-DEVICE = "/dev/video0"
-
 
 class CameraDriver(Node):
     def __init__(self):
         super().__init__("camera_driver")
 
+        self.declare_parameter("device", "/dev/video0")
+        self.declare_parameter("topic", "/image_raw")
+
+        device = self.get_parameter("device").get_parameter_value().string_value
+        topic  = self.get_parameter("topic").get_parameter_value().string_value
+
         self._available = False
-        self.cap = cv2.VideoCapture(DEVICE)
+        self.cap = cv2.VideoCapture(device)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if not self.cap.isOpened():
-            self.get_logger().warn(
-                f"Cannot open {DEVICE} — camera_driver running in degraded mode (no frames published)"
-            )
+            self.get_logger().warn(f"Cannot open {device} — running in degraded mode")
         else:
             self._available = True
+            self.get_logger().info(f"Camera opened: {device} → {topic}")
 
-        self.pub = self.create_publisher(Image, "/image_raw", 10)
+        self.pub    = self.create_publisher(Image, topic, 10)
         self.bridge = CvBridge()
-        self.create_timer(1 / 30, self._cb)  # 30 Hz
+        self.create_timer(1 / 30, self._cb)
 
     def _cb(self):
         if not self._available:
@@ -32,7 +35,7 @@ class CameraDriver(Node):
         if not ret:
             return
         msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp    = self.get_clock().now().to_msg()
         msg.header.frame_id = "camera"
         self.pub.publish(msg)
 

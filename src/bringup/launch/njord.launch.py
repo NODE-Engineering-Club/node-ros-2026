@@ -27,6 +27,7 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("use_sim_time",         default_value="false"),
+        DeclareLaunchArgument("enable_foxglove",      default_value="true"),
     ]
     # fmt: on
 
@@ -159,18 +160,24 @@ def generate_launch_description():
             parameters=[{"confidence": LaunchConfiguration("vision_confidence")}, sim_time],
         ),
         # Telemetry — rosbridge WebSocket (port 9090) + MJPEG video server (port 8080)
+        # Node(
+        #     package="rosbridge_server",
+        #     executable="rosbridge_websocket",
+        #     name="rosbridge_websocket",
+        #     parameters=[{"port": 9090}, sim_time],
+        # ),
+        # Node(
+        #     package="web_video_server",
+        #     executable="web_video_server",
+        #     name="web_video_server",
+        #     parameters=[{"port": 8080}, sim_time],
+        # ),
         Node(
-            package="rosbridge_server",
-            executable="rosbridge_websocket",
-            name="rosbridge_websocket",
-            parameters=[{"port": 9090}, sim_time],
-        ),
-        Node(
-            package="web_video_server",
-            executable="web_video_server",
-            name="web_video_server",
-            parameters=[{"port": 8080}, sim_time],
-        ),
+            package='foxglove_bridge',
+            executable='foxglove_bridge',
+            name='foxglove_bridge',
+            condition=IfCondition(LaunchConfiguration('enable_foxglove'))
+        )
     ]
 
     return LaunchDescription(args + nodes)

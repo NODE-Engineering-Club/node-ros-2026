@@ -22,8 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Control / Mission
     ros-jazzy-nav2-msgs \
     # Telemetry bridge
-    ros-jazzy-rosbridge-suite \
-    ros-jazzy-web-video-server \
+    # ros-jazzy-rosbridge-suite \
+    # ros-jazzy-web-video-server \
+    ros-jazzy-foxglove-bridge \
     python3-pip \
     git \
     && rm -rf /var/lib/apt/lists/*

@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ros-jazzy-rosbridge-suite \
     # ros-jazzy-web-video-server \
     ros-jazzy-foxglove-bridge \
+    ros-jazzy-ros-gz-bridge \
     python3-pip \
     git \
     && rm -rf /var/lib/apt/lists/*

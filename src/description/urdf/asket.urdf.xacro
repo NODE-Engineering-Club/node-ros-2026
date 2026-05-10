@@ -255,7 +255,7 @@
     <parent link="hull" />
     <child link="r_prop_body" />
   </joint>
-  <!-- ROS2 Control -->
+  <!-- ROS2 Control (disabled until motor control is ready)
   <ros2_control name="GazeboSimSystem" type="system">
     <hardware>
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>
@@ -269,12 +269,12 @@
       <state_interface name="velocity" />
     </joint>
   </ros2_control>
-  <!-- Gazebo -->
   <gazebo>
     <plugin name="gazebo_ros2_control" filename="gz_ros2_control::GazeboSimROS2ControlPlugin">
-      <parameters>$(find robot_description)/config/controllers.yaml</parameters>
+      <parameters>$(find description)/config/controllers.yaml</parameters>
     </plugin>
   </gazebo>
+  -->
   <!-- Sensors -->
   <gazebo reference="front_camera">
     <sensor name="front_camera_sensor" type="camera">

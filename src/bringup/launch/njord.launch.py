@@ -1,3 +1,4 @@
+import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -5,12 +6,12 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-import xacro
+
 
 def generate_launch_description():
-    cfg  = get_package_share_directory("bringup") + "/config"
+    cfg = get_package_share_directory("bringup") + "/config"
     urdf = xacro.process_file(
-        get_package_share_directory("asket_description") + "/urdf/asket.urdf.xacro"
+        get_package_share_directory("description") + "/urdf/asket.urdf.xacro"
     ).toxml()
 
     # fmt: off
@@ -26,12 +27,12 @@ def generate_launch_description():
         DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
         DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
-        DeclareLaunchArgument("use_sim_time",         default_value="false"),
+        DeclareLaunchArgument("use_sim",         default_value="false"),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
     ]
     # fmt: on
 
-    sim_time = {"use_sim_time": LaunchConfiguration("use_sim_time")}
+    sim_time = {"use_sim_time": LaunchConfiguration("use_sim")}
 
     nodes = [
         # Robot description — publishes TF frames from URDF
@@ -80,7 +81,7 @@ def generate_launch_description():
             launch_arguments={
                 "params_file": cfg + "/nav2_params.yaml",
                 "use_collision_monitor": "True",
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "use_sim_time": LaunchConfiguration("use_sim"),
             }.items(),
             condition=IfCondition(LaunchConfiguration("enable_nav2")),
         ),
@@ -157,7 +158,10 @@ def generate_launch_description():
             executable="vision_node",
             name="vision_node",
             condition=IfCondition(LaunchConfiguration("enable_vision")),
-            parameters=[{"confidence": LaunchConfiguration("vision_confidence")}, sim_time],
+            parameters=[
+                {"confidence": LaunchConfiguration("vision_confidence")},
+                sim_time,
+            ],
         ),
         # Telemetry — rosbridge WebSocket (port 9090) + MJPEG video server (port 8080)
         # Node(
@@ -173,11 +177,19 @@ def generate_launch_description():
         #     parameters=[{"port": 8080}, sim_time],
         # ),
         Node(
-            package='foxglove_bridge',
-            executable='foxglove_bridge',
-            name='foxglove_bridge',
-            condition=IfCondition(LaunchConfiguration('enable_foxglove'))
-        )
+            package="foxglove_bridge",
+            executable="foxglove_bridge",
+            name="foxglove_bridge",
+            condition=IfCondition(LaunchConfiguration("enable_foxglove")),
+        ),
+        Node(
+            package="ros_gz_bridge",
+            executable="parameter_bridge",
+            name="ros_gz_bridge",
+            output="screen",
+            parameters=[{"config_file": cfg + "/gz_bridge.yaml"}],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
     ]
 
     return LaunchDescription(args + nodes)

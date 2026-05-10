@@ -162,7 +162,7 @@ The URDF is in `src/asket_description/urdf/asket.urdf.xacro`. Extend it with Gaz
 
 ```bash
 ros2 launch bringup njord.launch.py \
-  use_sim_time:=true \
+  use_sim:=true \
   enable_sensors:=false \
   enable_mavros:=false
 ```

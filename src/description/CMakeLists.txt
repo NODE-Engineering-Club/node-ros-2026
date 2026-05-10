@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(asket_description)
+project(description)
 
 find_package(ament_cmake REQUIRED)
 

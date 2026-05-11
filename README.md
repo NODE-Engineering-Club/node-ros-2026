@@ -1,6 +1,6 @@
 # Njord 2026
 
-ROS 2 Jazzy autonomous surface vessel (USV) stack.
+ROS 2 Jazzy autonomous surface vessel (ASV) stack for the [NODE Engineering Club](https://github.com/NODE-Engineering-Club) competition robot **Asket**.
 
 ## Getting Started
 
@@ -13,153 +13,16 @@ ROS 2 Jazzy autonomous surface vessel (USV) stack.
 **To start developing:**
 1. Open this folder in VSCode
 2. Click **Reopen in Container** when prompted (or `Ctrl+Shift+P` → *Dev Containers: Reopen in Container*)
-3. First time takes ~5 minutes to build. After that it's instant.
+3. First launch takes ~5 minutes to build. After that it's instant.
 
-The `postCreateCommand` automatically runs `colcon build --symlink-install` and `source install/setup.bash` is added to the shell, so everything is ready on first open.
+The `postCreateCommand` runs `colcon build --symlink-install` automatically and sources the workspace.
 
-> **Camera:** if no camera is connected, the camera driver starts in degraded mode and the rest of the stack still works.
-
-**Run the full stack:**
+**Run the full stack (hardware):**
 ```bash
 ros2 launch bringup njord.launch.py
 ```
 
-**Run with selective subsystems disabled (e.g. no FCU, no Nav2):**
-```bash
-ros2 launch bringup njord.launch.py enable_mavros:=false enable_localization:=false enable_nav2:=false
-```
-
-**Rebuild after adding new files** (`--symlink-install` means code edits don't need a rebuild):
-```bash
-colcon build --symlink-install
-source install/setup.bash
-```
-
-## Debugging
-
-Run only the subsystems you care about by disabling everything else:
-
-```bash
-# Camera + vision only
-ros2 launch bringup njord.launch.py \
-  enable_mavros:=false \
-  enable_localization:=false \
-  enable_nav2:=false \
-  enable_control:=false \
-  enable_mission:=false \
-  enable_perception:=false 
-```
-
-Then in a separate terminal:
-
-```bash
-# See what's publishing
-ros2 topic list
-
-# Stream detections
-ros2 topic echo /yolo/detections
-
-# Check frame rate
-ros2 topic hz /yolo/detections
-```
-
-## Workspace layout
-
-```
-src/
-├── asket_description/ # URDF — robot frame tree (base_link, lidar, camera)
-├── sensors/      # camera_driver, lidar_driver, imu_gps_driver
-├── perception/   # lidar_obstacle_node, fusion_node
-├── control/      # nav_to_pid, pid_controller, actuator_driver
-├── mission/      # mission_manager
-├── vision/       # vision_node (YOLO ONNX inference)
-└── bringup/      # launch/njord.launch.py + config/
-models/           # ONNX weights (bind-mounted, gitignored)
-```
-
-## Architecture
-
-```mermaid
-flowchart TD
-    subgraph Sensors
-        L[lidar_driver] --> Scan[/scan/]
-        C[camera_driver] --> Image[/image_raw/]
-        I[imu_gps_driver]
-    end
-
-    subgraph Perception
-        Y[vision_node] --> Det[/yolo/detections/]
-        O[lidar_obstacle_node]
-        F[fusion_node]
-    end
-
-    subgraph Localization
-        RL[robot_localization]
-        NT[navsat_transform]
-    end
-
-    subgraph Navigation[Navigation - Nav2]
-        CM[costmap]
-        PS[planner_server]
-        CS[controller_server]
-        BT[bt_navigator]
-    end
-
-    subgraph Control
-        N2P[nav_to_pid]
-        PID[pid_controller]
-        ACT[actuator_driver]
-    end
-
-    subgraph Mission
-        MM[mission_manager]
-    end
-
-    C --> Y
-    L --> O
-    Y --> F
-    O --> F
-    F --> CM
-    I --> RL
-    RL --> NT
-    NT --> CM
-    CM --> PS
-    PS --> BT
-    BT --> CS
-    CS --> N2P
-    N2P --> PID
-    PID --> ACT
-    MM --> BT
-```
-
-## Production deploy
-
-```bash
-bash scripts/deploy-pi.sh
-```
-
-This SSHes into `pi@boat.local`, pulls the latest image from GHCR, sets up systemd services for BlueOS and Njord, and reboots. On every subsequent reboot the Pi pulls the latest image automatically before starting.
-
-## Simulation (Gazebo)
-
-The stack is simulation-ready. All nodes accept `use_sim_time` and the sensor drivers can be disabled so a simulator can provide sensor data on the same topics.
-
-**Topic interfaces the simulator must publish:**
-
-| Topic | Type | Description |
-|---|---|---|
-| `/scan` | `sensor_msgs/LaserScan` | LIDAR scan |
-| `/image_raw` | `sensor_msgs/Image` | Camera frame (bgr8, 640×480) |
-| `/imu/data` | `sensor_msgs/Imu` | IMU at ≥50 Hz |
-| `/mavros/global_position/raw/fix` | `sensor_msgs/NavSatFix` | GPS fix |
-| `/clock` | `rosgraph_msgs/Clock` | Sim clock |
-
-**Robot description:**
-
-The URDF is in `src/asket_description/urdf/asket.urdf.xacro`. Extend it with Gazebo sensor plugins, inertial properties, and collision geometry for your sim environment.
-
-**Launch for simulation:**
-
+**Run in simulation (Gazebo Harmonic):**
 ```bash
 ros2 launch bringup njord.launch.py \
   use_sim:=true \
@@ -167,4 +30,227 @@ ros2 launch bringup njord.launch.py \
   enable_mavros:=false
 ```
 
-All perception, fusion, Nav2, control, and mission nodes will run using the simulator's clock and sensor topics.
+This launches Gazebo with `basicWorld.sdf`, spawns the Asket URDF, bridges the sim clock, and runs the full navigation/control/mission stack against simulated sensor topics.
+
+**Rebuild after adding new files** (`--symlink-install` means code edits don't need a rebuild for Python packages):
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+## Launch Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_sim` | `false` | Enable Gazebo, sim clock, gz_bridge |
+| `enable_mavros` | `true` | MAVROS FCU bridge (ArduPilot) |
+| `enable_localization` | `true` | EKF + NavSat transform |
+| `enable_nav2` | `true` | Full Nav2 stack |
+| `enable_sensors` | `true` | Camera, LiDAR, IMU/GPS drivers |
+| `enable_perception` | `true` | LiDAR obstacle node + fusion |
+| `enable_control` | `true` | nav_to_pid, PID, actuator driver |
+| `enable_mission` | `true` | GPS waypoint sequencer |
+| `enable_vision` | `true` | YOLO inference node |
+| `enable_foxglove` | `true` | Foxglove WebSocket bridge (port 8765) |
+| `vision_confidence` | `0.5` | YOLO detection confidence threshold |
+| `camera_device` | `/dev/video0` | Camera device path |
+| `lidar_device` | `/dev/ttyUSB0` | LiDAR serial device path |
+
+## Workspace Layout
+
+```
+src/
+├── description/    # URDF (asket.urdf.xacro), meshes, Gazebo world
+├── sensors/        # camera_driver, lidar_driver, imu_gps_driver
+├── perception/     # lidar_obstacle_node, fusion_node
+├── control/        # nav_to_pid, pid_controller, actuator_driver
+├── mission/        # mission_manager (GPS waypoint sequencer)
+├── vision/         # vision_node (YOLO26n-seg ONNX inference)
+└── bringup/        # njord.launch.py + config/
+    └── config/
+        ├── ekf.yaml          # robot_localization EKF params
+        ├── navsat.yaml       # NavSat transform params
+        ├── nav2_params.yaml  # Nav2 planner/controller/costmap params
+        └── gz_bridge.yaml    # Gazebo ↔ ROS topic bridges
+models/             # ONNX weights (bind-mounted, gitignored)
+```
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Sim["Simulation (use_sim:=true)"]
+        GZ[Gazebo Harmonic] -->|gz_bridge| CLK[/clock/]
+        GZ -->|gz_bridge| LIDAR_SIM[/lidar_driver/scan_raw/]
+        GZ -->|gz_bridge| IMU_SIM[/imu_driver/imu_raw/]
+        GZ -->|gz_bridge| GPS_SIM[/gps_driver/gps_raw/]
+        GZ -->|gz_bridge| CAM_SIM[/front_camera_driver/image_raw/]
+    end
+
+    subgraph Sensors["Sensors (enable_sensors:=true)"]
+        LD[lidar_driver] --> Scan[/scan/]
+        CD[camera_driver] --> Image[/image_raw/]
+        IG[imu_gps_driver]
+    end
+
+    subgraph Perception
+        Y[vision_node<br/>YOLO26n-seg ONNX] --> Det[/yolo/detections/]
+        Y --> Mask[/yolo/seg_mask/]
+        LO[lidar_obstacle_node] --> LidarPts[/obstacles/lidar/]
+        FN[fusion_node<br/>LiDAR+YOLO] --> Fused[/obstacles/fused/]
+    end
+
+    subgraph Localization
+        EKF[ekf_node<br/>IMU + odometry] --> OdomF[/odometry/filtered/]
+        NS[navsat_transform_node] --> GPSF[GPS in map frame]
+    end
+
+    subgraph Navigation["Navigation — Nav2"]
+        GCM[global_costmap]
+        LCM[local_costmap]
+        PS[planner_server]
+        CS[controller_server]
+        BT[bt_navigator]
+    end
+
+    subgraph Control
+        N2P[nav_to_pid<br/>cmd_vel clamp] --> SP[/control/setpoint/]
+        PID[pid_controller<br/>speed+yaw PID] --> Effort[/control/effort/]
+        ACT[actuator_driver<br/>MAVROS RC override]
+    end
+
+    subgraph Mission
+        MM[mission_manager<br/>GPS waypoint queue]
+    end
+
+    Image --> Y
+    Scan --> LO
+    Det --> FN
+    Mask --> FN
+    LidarPts --> FN
+    Fused --> GCM
+    Fused --> LCM
+    OdomF --> EKF
+    OdomF --> NS
+    NS --> GCM
+    GCM --> PS
+    LCM --> CS
+    PS --> BT
+    BT --> CS
+    CS --> N2P
+    N2P --> PID
+    PID --> ACT
+    ACT -->|/mavros/rc/override| MAVROS[MAVROS → ArduPilot]
+    MM -->|NavigateToPose action| BT
+```
+
+## Key Topics
+
+| Topic | Type | Direction | Description |
+|---|---|---|---|
+| `/scan` | `sensor_msgs/LaserScan` | in | LiDAR scan |
+| `/image_raw` | `sensor_msgs/Image` | in | Camera frame (BGR8 640×480) |
+| `/imu/data` | `sensor_msgs/Imu` | in | IMU data |
+| `/gps/fix` | `sensor_msgs/NavSatFix` | in | GPS fix |
+| `/clock` | `rosgraph_msgs/Clock` | in (sim) | Simulation clock |
+| `/yolo/detections` | `vision_msgs/Detection2DArray` | out | YOLO detections |
+| `/yolo/seg_mask` | `sensor_msgs/Image` | out | Instance segmentation mask |
+| `/obstacles/lidar` | `sensor_msgs/PointCloud2` | out | Raw LiDAR obstacles |
+| `/obstacles/fused` | `sensor_msgs/PointCloud2` | out | LiDAR+YOLO fused obstacles |
+| `/odometry/filtered` | `nav_msgs/Odometry` | out | EKF-fused odometry |
+| `/cmd_vel` | `geometry_msgs/Twist` | Nav2→control | Nav2 velocity command |
+| `/control/setpoint` | `geometry_msgs/Twist` | out | Clamped speed/yaw setpoint |
+| `/control/effort` | `geometry_msgs/Twist` | out | PID output |
+| `/mavros/rc/override` | `mavros_msgs/OverrideRCIn` | out | RC channels to ArduPilot |
+
+## Node Reference
+
+### `description`
+- **`asket.urdf.xacro`** — Full robot URDF with hull, propellers, LiDAR, cameras, GPS, IMU, and PX4 mount. Includes Gazebo sensor plugins (camera, GPU LiDAR, NavSat, IMU).
+- **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
+
+### `sensors`
+- **`camera_driver`** — OpenCV camera capture → `/image_raw`. Starts in degraded mode if no camera connected.
+- **`lidar_driver`** — Serial LiDAR → `/scan` (`sensor_msgs/LaserScan`).
+- **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data`) and GPS (`/mavros/global_position/raw/fix`) to standard topic names.
+
+### `perception`
+- **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
+- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Points confirmed by mask get a class label; unmatched YOLO detections at range get a bearing estimate at 5 m. Publishes `/obstacles/fused`.
+
+### `vision`
+- **`vision_node`** — YOLO26n-seg ONNX Runtime inference (CPU). Publishes `Detection2DArray` and an instance mask image. Confidence threshold configurable via `vision_confidence` launch arg.
+
+### `control`
+- **`nav_to_pid`** — Clamps Nav2 `/cmd_vel` to safe speed (≤2 m/s) and yaw rate (≤1 rad/s), republishes as `/control/setpoint`.
+- **`pid_controller`** — Dual PID (speed + yaw) driven by `/control/setpoint` and IMU feedback. Publishes `/control/effort`.
+- **`actuator_driver`** — Maps `Twist` effort to MAVROS `OverrideRCIn` RC channels (ch1=steering, ch3=throttle, ±400 µs around 1500 µs centre).
+
+### `mission`
+- **`mission_manager`** — Sequences hardcoded `(lat, lon)` waypoints through Nav2's `NavigateToPose` action. Converts GPS → map frame via `robot_localization/FromLL`.
+
+### `bringup`
+- **`njord.launch.py`** — Single launch file for the entire stack with per-subsystem enable flags and sim/hardware switching.
+- **`ekf.yaml`** — 2D EKF fusing IMU yaw + angular velocity with wheel odometry (if available).
+- **`navsat.yaml`** — NavSat transform configured for zero-altitude, Cartesian output, no magnetic declination.
+- **`nav2_params.yaml`** — Regulated Pure Pursuit controller, NavFn planner, obstacle costmaps fed by `/obstacles/fused`.
+
+## Simulation Details
+
+Gazebo Harmonic (Sim 8) integration via `ros_gz_bridge` and `ros_gz_sim`:
+
+- World name: `default` (in `basicWorld.sdf`)
+- Robot spawned via `ros2 run ros_gz_sim create -file asket.urdf -world default` with a 5 s delay to let Gazebo load
+- Clock bridged: `gz.msgs.Clock` → `/clock` (`rosgraph_msgs/Clock`)
+- Sensor topics published by Gazebo directly to their driver topic names (e.g. `/lidar_driver/scan_raw`, `/imu_driver/imu_raw`)
+
+**Sensor plugins active in sim:**
+
+| Sensor | Gazebo plugin | Topic |
+|---|---|---|
+| GPU LiDAR | `gz-sim-sensors-system` | `/lidar_driver/scan_raw` |
+| Front camera | `gz-sim-sensors-system` | `/front_camera_driver/image_raw` |
+| Back camera | `gz-sim-sensors-system` | `/back_camera_driver/image_raw` |
+| IMU | `gz-sim-imu-system` | `/imu_driver/imu_raw` |
+| GPS/NavSat | `gz-sim-navsat-system` | `/gps_driver/gps_raw` |
+
+## Debugging
+
+Run only the subsystems you care about:
+
+```bash
+# Vision only — no hardware required
+ros2 launch bringup njord.launch.py \
+  enable_mavros:=false \
+  enable_localization:=false \
+  enable_nav2:=false \
+  enable_control:=false \
+  enable_mission:=false \
+  enable_perception:=false
+
+# Perception pipeline only
+ros2 launch bringup njord.launch.py \
+  enable_mavros:=false \
+  enable_localization:=false \
+  enable_nav2:=false \
+  enable_control:=false \
+  enable_mission:=false
+```
+
+Useful commands:
+
+```bash
+ros2 topic list                    # see all active topics
+ros2 topic echo /yolo/detections   # stream YOLO detections
+ros2 topic hz /obstacles/fused     # check fusion rate
+ros2 topic hz /odometry/filtered   # check EKF rate
+ros2 node list                     # confirm all nodes are running
+```
+
+## Production Deploy
+
+```bash
+bash scripts/deploy-pi.sh
+```
+
+SSHes into `pi@boat.local`, pulls the latest image from GHCR, sets up systemd services for BlueOS and Njord, and reboots.

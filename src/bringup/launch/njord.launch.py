@@ -1,7 +1,8 @@
+import os
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -10,9 +11,13 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     cfg = get_package_share_directory("bringup") + "/config"
-    urdf = xacro.process_file(
-        get_package_share_directory("description") + "/urdf/asket.urdf.xacro"
-    ).toxml()
+    desc_share = get_package_share_directory("description")
+    urdf = xacro.process_file(desc_share + "/urdf/asket.urdf.xacro").toxml()
+    # Write URDF next to the meshes/ directory so Gazebo resolves relative mesh paths
+    urdf_path = os.path.join(desc_share, "asket.urdf")
+    with open(urdf_path, "w") as f:
+        f.write(urdf)
+    world = os.path.join(desc_share, "worlds", "basicWorld.sdf")
 
     # fmt: off
     args = [
@@ -72,7 +77,7 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("enable_localization")),
             parameters=[cfg + "/navsat.yaml", sim_time],
         ),
-        # Nav2
+        # Nav2 — collision_monitor disabled (no polygons defined)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 get_package_share_directory("nav2_bringup")
@@ -80,7 +85,7 @@ def generate_launch_description():
             ),
             launch_arguments={
                 "params_file": cfg + "/nav2_params.yaml",
-                "use_collision_monitor": "True",
+                "use_collision_monitor": "False",
                 "use_sim_time": LaunchConfiguration("use_sim"),
             }.items(),
             condition=IfCondition(LaunchConfiguration("enable_nav2")),
@@ -188,6 +193,29 @@ def generate_launch_description():
             name="ros_gz_bridge",
             output="screen",
             parameters=[{"config_file": cfg + "/gz_bridge.yaml"}],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
+        # Gazebo simulation
+        ExecuteProcess(
+            cmd=["gz", "sim", world],
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
+        # Spawn robot — delayed to allow Gazebo to finish loading the world
+        TimerAction(
+            period=5.0,
+            actions=[
+                ExecuteProcess(
+                    cmd=[
+                        "ros2", "run", "ros_gz_sim", "create",
+                        "-world", "default",
+                        "-file", urdf_path,
+                        "-name", "asket",
+                        "-x", "0", "-y", "0", "-z", "0.1",
+                    ],
+                    output="screen",
+                ),
+            ],
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
     ]

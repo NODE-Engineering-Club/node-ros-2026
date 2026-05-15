@@ -10,4 +10,11 @@ build/
 install/
 log/
 
+# Generated URDF (written by njord.launch.py from xacro at launch time)
+src/description/*.urdf
+
+# tf2_tools view_frames output
+frames_*.gv
+frames_*.pdf
+
 .ruff_cache

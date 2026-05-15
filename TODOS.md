@@ -26,14 +26,14 @@
 
 ## Transforms (TF)
 
-- [ ] **Add static TF publishers to `launch/njord.launch.py`**
-  The stack has no `base_link → sensor` frames defined. Nav2, robot_localization,
-  and fusion all depend on TF. Add `StaticTransformBroadcaster` nodes (or
-  `static_transform_publisher` via `ExecuteProcess`) for:
-  - `base_link → lidar_link`  (mount position of RPLIDAR)
-  - `base_link → camera_link` (mount position of camera)
-  - `base_link → imu_link`    (mount position of IMU)
-  Actual values depend on physical hardware placement.
+- [x] **TF tree implemented and verified**
+  Fixed three frame-name mismatches that were silently breaking the entire stack:
+  - Renamed URDF root link `hull` → `base_link` (EKF and Nav2 both expect `base_link`)
+  - Renamed URDF links `Lidar` → `lidar`, `Lidar_joint` → `lidar_mount` (to match `lidar_driver` `frame_id`)
+  - Added `frame_id` parameter to `camera_driver` (default `front_camera`); passed explicitly in launch
+  - Added explicit `lidar_frame`/`camera_frame` params to `fusion_node` in launch
+  `robot_state_publisher` now broadcasts the complete static sensor tree from the URDF.
+  Verified with `ros2 run tf2_tools view_frames` — full tree present, all frames correct.
 
 ## Control
 
@@ -66,10 +66,10 @@
 
 ## Sensors
 
-- [ ] **Make camera device path configurable**
-  `sensors/sensors/camera_driver.py` hardcodes `DEVICE = "/dev/video0"`. Pass it
-  as a ROS parameter or environment variable so it can be overridden without
-  a code change (different hardware, udev rename, etc.).
+- [x] **Camera device path configurable**
+  `camera_driver` accepts a `device` ROS parameter (default `/dev/video0`) and a
+  `frame_id` parameter (default `front_camera`). Override via `camera_device` launch
+  argument, e.g. `ros2 launch bringup njord.launch.py camera_device:=/dev/video1`.
 
 ## Infrastructure
 

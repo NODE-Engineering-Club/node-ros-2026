@@ -67,7 +67,7 @@
       </geometry>
     </collision>
   </link>
-  <link name="Lidar">
+  <link name="lidar">
     <inertial>
       <mass value="0.05" />
       <inertia ixx="0.000017" ixy="0" ixz="0" iyy="0.000017" iyz="0" izz="0.000026" />
@@ -83,7 +83,7 @@
       </geometry>
     </collision>
   </link>
-  <link name="Lidar_joint">
+  <link name="lidar_mount">
     <inertial>
       <mass value="0.015" />
       <inertia ixx="0.000006" ixy="0" ixz="0" iyy="0.000006" iyz="0" izz="0.000008" />
@@ -131,7 +131,7 @@
       </geometry>
     </collision>
   </link>
-  <link name="hull">
+  <link name="base_link">
     <inertial>
       <mass value="14" />
       <inertia ixx="0.4626108" ixy="8.572913e-05" ixz="-8.047186e-05" iyy="1.6358644" iyz="-3.3231427e-05" izz="1.8897439" />
@@ -204,7 +204,7 @@
   <!-- Joints -->
   <joint name="GPS_joint" type="fixed">
     <origin xyz="-0.18827 0 0.174775" rpy="0 0 0" />
-    <parent link="hull" />
+    <parent link="base_link" />
     <child link="GPS" />
   </joint>
   <joint name="L_prop_blade_joint" type="continuous">
@@ -216,31 +216,31 @@
   </joint>
   <joint name="L_prop_body_joint" type="fixed">
     <origin xyz="-0.65 0.28 -0.1" rpy="0 0 0" />
-    <parent link="hull" />
+    <parent link="base_link" />
     <child link="L_prop_body" />
   </joint>
-  <joint name="Lidar_joint_001" type="fixed">
+  <joint name="lidar_joint" type="fixed">
     <origin xyz="0 0 0.0375" rpy="0 0 0" />
-    <parent link="Lidar_joint" />
-    <child link="Lidar" />
+    <parent link="lidar_mount" />
+    <child link="lidar" />
   </joint>
-  <joint name="Lidar_joint_joint" type="fixed">
+  <joint name="lidar_mount_joint" type="fixed">
     <origin xyz="-0.103585 0 0.137275" rpy="0 0 -1.570796" />
-    <parent link="hull" />
-    <child link="Lidar_joint" />
+    <parent link="base_link" />
+    <child link="lidar_mount" />
   </joint>
   <joint name="back_camera_joint" type="fixed">
     <origin xyz="-0.62 -0.02 0.137275" rpy="0 1.570796 0" />
-    <parent link="hull" />
+    <parent link="base_link" />
     <child link="back_camera" />
   </joint>
   <joint name="front_camera_joint" type="fixed">
     <origin xyz="0 0.02 0.137275" rpy="0 1.570796 0" />
-    <parent link="hull" />
+    <parent link="base_link" />
     <child link="front_camera" />
   </joint>
   <joint name="px4_joint" type="fixed">
-    <parent link="hull" />
+    <parent link="base_link" />
     <child link="px4" />
   </joint>
   <joint name="r_prop_blade_joint" type="continuous">
@@ -252,7 +252,7 @@
   </joint>
   <joint name="r_prop_body_joint" type="fixed">
     <origin xyz="-0.65 -0.28 -0.1" rpy="0 0 0" />
-    <parent link="hull" />
+    <parent link="base_link" />
     <child link="r_prop_body" />
   </joint>
   <!-- ROS2 Control (disabled until motor control is ready)
@@ -316,7 +316,7 @@
       </camera>
     </sensor>
   </gazebo>
-  <gazebo reference="Lidar">
+  <gazebo reference="lidar">
     <sensor name="Lidar_sensor" type="gpu_lidar">
       <always_on>true</always_on>
       <update_rate>15</update_rate>

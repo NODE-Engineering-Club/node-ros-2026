@@ -96,7 +96,7 @@ def generate_launch_description():
             executable="camera_driver",
             name="camera_driver",
             condition=IfCondition(LaunchConfiguration("enable_sensors")),
-            parameters=[{"device": LaunchConfiguration("camera_device")}, sim_time],
+            parameters=[{"device": LaunchConfiguration("camera_device"), "frame_id": "front_camera"}, sim_time],
         ),
         Node(
             package="sensors",
@@ -125,7 +125,7 @@ def generate_launch_description():
             executable="fusion_node",
             name="fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
-            parameters=[sim_time],
+            parameters=[{"lidar_frame": "lidar", "camera_frame": "front_camera"}, sim_time],
         ),
         # Control
         Node(

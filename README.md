@@ -144,6 +144,35 @@ flowchart TD
     MM -->|NavigateToPose action| BT
 ```
 
+## TF Frame Tree
+
+The full coordinate frame tree, verified with `ros2 run tf2_tools view_frames`:
+
+```
+map
+ └── odom                    (robot_localization EKF — dynamic)
+      └── base_link           (robot_localization EKF — dynamic)
+           ├── lidar_mount    (robot_state_publisher — static)
+           │    └── lidar     ← lidar_driver frame_id
+           ├── front_camera   ← camera_driver frame_id
+           ├── back_camera
+           ├── GPS
+           └── px4            ← IMU / FCU mount
+```
+
+Static sensor transforms (published to `/tf_static` by `robot_state_publisher` from the URDF):
+
+| Parent | Child | xyz (m) | rpy (rad) |
+|---|---|---|---|
+| `base_link` | `lidar_mount` | -0.103585, 0, 0.137275 | 0, 0, -π/2 |
+| `lidar_mount` | `lidar` | 0, 0, 0.0375 | 0, 0, 0 |
+| `base_link` | `front_camera` | 0, 0.02, 0.137275 | 0, π/2, 0 |
+| `base_link` | `back_camera` | -0.62, -0.02, 0.137275 | 0, π/2, 0 |
+| `base_link` | `GPS` | -0.18827, 0, 0.174775 | 0, 0, 0 |
+| `base_link` | `px4` | 0, 0, 0 | 0, 0, 0 |
+
+`odom → base_link` is published dynamically by the EKF once IMU and GPS data are available. `map → odom` is published by `navsat_transform_node`.
+
 ## Key Topics
 
 | Topic | Type | Direction | Description |
@@ -166,17 +195,17 @@ flowchart TD
 ## Node Reference
 
 ### `description`
-- **`asket.urdf.xacro`** — Full robot URDF with hull, propellers, LiDAR, cameras, GPS, IMU, and PX4 mount. Includes Gazebo sensor plugins (camera, GPU LiDAR, NavSat, IMU).
+- **`asket.urdf.xacro`** — Full robot URDF with root link `base_link` (hull body), propellers, LiDAR, cameras, GPS, IMU, and PX4 mount. Includes Gazebo sensor plugins (camera, GPU LiDAR, NavSat, IMU). `robot_state_publisher` reads this file and broadcasts the complete static TF tree on startup.
 - **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
 
 ### `sensors`
-- **`camera_driver`** — OpenCV camera capture → `/image_raw`. Starts in degraded mode if no camera connected.
-- **`lidar_driver`** — Serial LiDAR → `/scan` (`sensor_msgs/LaserScan`).
+- **`camera_driver`** — OpenCV camera capture → `/image_raw`. Starts in degraded mode if no camera connected. Accepts a `frame_id` parameter (default `front_camera`) so the published `Image` header matches the TF frame.
+- **`lidar_driver`** — Serial LiDAR → `/scan` (`sensor_msgs/LaserScan`). Publishes with `frame_id: lidar`.
 - **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data`) and GPS (`/mavros/global_position/raw/fix`) to standard topic names.
 
 ### `perception`
 - **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
-- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Points confirmed by mask get a class label; unmatched YOLO detections at range get a bearing estimate at 5 m. Publishes `/obstacles/fused`.
+- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `front_camera → lidar` transform to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Frame names are configurable via `lidar_frame` (default `lidar`) and `camera_frame` (default `front_camera`) parameters.
 
 ### `vision`
 - **`vision_node`** — YOLO26n-seg ONNX Runtime inference (CPU). Publishes `Detection2DArray` and an instance mask image. Confidence threshold configurable via `vision_confidence` launch arg.

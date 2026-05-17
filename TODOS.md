@@ -1,5 +1,50 @@
 # Njord 2026 — Outstanding Gaps
 
+## Simulation Stack
+
+- [x] **Full simulation stack verified working (2026-05-17)**
+  - EKF↔navsat circular dependency broken via Gazebo `OdometryPublisher` → `/odom` as EKF `odom0`
+  - GPS datum set to Trondheim (63.4305°N, 10.3951°E) in `basicWorld.sdf` — navsat converts waypoints correctly
+  - `map→odom` identity static TF (sim-only) ensures Nav2 global costmap has a map frame at startup
+  - Gazebo scoped sensor frame (`asket/base_link/Lidar_sensor`) bridged to URDF frame (`lidar`) via static TF — fixes `collision_monitor` crash
+  - `VelocityControl` plugin + `/cmd_vel` ROS→GZ bridge enables robot to physically move from Nav2 commands
+  - All Nav2 lifecycle nodes activate cleanly; WP1 `Goal succeeded` confirmed in simulation
+
+## Sensor Data Processing Tests
+
+Next objective: validate the sensor pipeline nodes in simulation before hardware testing.
+
+- [ ] **Verify `lidar_obstacle_node` output in sim**
+  Launch with `use_sim:=true`, check `/obstacles/lidar` is published at ~15 Hz with `width > 0`.
+  Also confirm `header.frame_id = "lidar"` and that range filtering (0.1–10 m) works correctly
+  (objects at >10 m should not appear).
+
+- [ ] **Verify `fusion_node` lidar passthrough (no YOLO)**
+  With `enable_vision:=false`, `fusion_node` should echo all `/obstacles/lidar` points into
+  `/obstacles/fused` with `frame_id = "base_link"`. Confirm: same point count, correct frame.
+  TF lookup (`lidar → front_camera`) should succeed (check no `LookupException` in logs).
+
+- [ ] **Verify `fusion_node` with YOLO active**
+  With `enable_vision:=true`, place a visible object in Gazebo. Confirm `/yolo/detections`
+  arrives, `/yolo/seg_mask` arrives, and `/obstacles/fused` combines both sources.
+  YOLO-only detections (no lidar match) should appear at `DEFAULT_OBSTACLE_DISTANCE = 5.0 m`.
+
+- [ ] **Verify EKF input rates**
+  After `use_sim:=true` launch, check:
+  - `ros2 topic hz /odom` → ~30 Hz (Gazebo OdometryPublisher)
+  - `ros2 topic hz /imu_driver/imu_raw` → ~200 Hz (Gazebo IMU)
+  - `ros2 topic hz /odometry/filtered` → ~30 Hz (EKF output)
+  Low or missing rates indicate a broken bridge or plugin.
+
+- [ ] **Verify costmap receives `/obstacles/fused`**
+  After nav2 activates, echo `/local_costmap/costmap` and move a sim obstacle near the robot.
+  Confirm the costmap inflates around the obstacle position reported by `/obstacles/fused`.
+
+- [ ] **Verify sensor drivers start cleanly on hardware (no hardware attached)**
+  `lidar_driver` should log "RPLIDAR not available... retrying" without crashing.
+  `camera_driver` should log a degraded-mode warning without crashing.
+  `imu_gps_driver` should wait for MAVROS without crashing.
+
 ## Perception / Fusion
 
 - [ ] **Implement real late-fusion projection in `fusion_node`**

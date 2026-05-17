@@ -173,21 +173,30 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 
 `odom → base_link` is published dynamically by the EKF once IMU and GPS data are available. `map → odom` is published by `navsat_transform_node`.
 
+**Simulation-only static publishers** (conditional on `use_sim:=true`):
+
+| Parent | Child | Purpose |
+|---|---|---|
+| `map` | `odom` | Identity fallback until navsat establishes GPS datum |
+| `lidar` | `asket/base_link/Lidar_sensor` | Bridges Gazebo scoped sensor frame to URDF frame for collision_monitor |
+
 ## Key Topics
 
 | Topic | Type | Direction | Description |
 |---|---|---|---|
-| `/scan` | `sensor_msgs/LaserScan` | in | LiDAR scan |
-| `/image_raw` | `sensor_msgs/Image` | in | Camera frame (BGR8 640×480) |
-| `/imu/data` | `sensor_msgs/Imu` | in | IMU data |
-| `/gps/fix` | `sensor_msgs/NavSatFix` | in | GPS fix |
+| `/lidar_driver/scan_raw` | `sensor_msgs/LaserScan` | in | LiDAR scan (hardware driver or Gazebo bridge) |
+| `/front_camera_driver/image_raw` | `sensor_msgs/Image` | in | Front camera frame (BGR8 640×480) |
+| `/imu_driver/imu_raw` | `sensor_msgs/Imu` | in | IMU data |
+| `/gps_driver/gps_raw` | `sensor_msgs/NavSatFix` | in | GPS fix |
+| `/odom` | `nav_msgs/Odometry` | in (sim) | Gazebo ground-truth odometry (OdometryPublisher) |
 | `/clock` | `rosgraph_msgs/Clock` | in (sim) | Simulation clock |
 | `/yolo/detections` | `vision_msgs/Detection2DArray` | out | YOLO detections |
 | `/yolo/seg_mask` | `sensor_msgs/Image` | out | Instance segmentation mask |
-| `/obstacles/lidar` | `sensor_msgs/PointCloud2` | out | Raw LiDAR obstacles |
-| `/obstacles/fused` | `sensor_msgs/PointCloud2` | out | LiDAR+YOLO fused obstacles |
+| `/obstacles/lidar` | `sensor_msgs/PointCloud2` | out | Raw LiDAR obstacles (frame: `lidar`) |
+| `/obstacles/fused` | `sensor_msgs/PointCloud2` | out | LiDAR+YOLO fused obstacles (frame: `base_link`) |
 | `/odometry/filtered` | `nav_msgs/Odometry` | out | EKF-fused odometry |
-| `/cmd_vel` | `geometry_msgs/Twist` | Nav2→control | Nav2 velocity command |
+| `/odometry/gps` | `nav_msgs/Odometry` | out | GPS converted to map frame (navsat_transform_node) |
+| `/cmd_vel` | `geometry_msgs/Twist` | Nav2→control | Nav2 velocity command (obstacle-checked output of collision_monitor) |
 | `/control/setpoint` | `geometry_msgs/Twist` | out | Clamped speed/yaw setpoint |
 | `/control/effort` | `geometry_msgs/Twist` | out | PID output |
 | `/mavros/rc/override` | `mavros_msgs/OverrideRCIn` | out | RC channels to ArduPilot |
@@ -199,9 +208,9 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 - **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
 
 ### `sensors`
-- **`camera_driver`** — OpenCV camera capture → `/image_raw`. Starts in degraded mode if no camera connected. Accepts a `frame_id` parameter (default `front_camera`) so the published `Image` header matches the TF frame.
-- **`lidar_driver`** — Serial LiDAR → `/scan` (`sensor_msgs/LaserScan`). Publishes with `frame_id: lidar`.
-- **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data`) and GPS (`/mavros/global_position/raw/fix`) to standard topic names.
+- **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw`. Starts in degraded mode if no camera connected. Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
+- **`lidar_driver`** — RPLidar serial → `/lidar_driver/scan_raw` (`sensor_msgs/LaserScan`, `frame_id: lidar`, 360 rays, 0.2–12 m). Reconnects automatically on disconnect.
+- **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data` → `/imu_driver/imu_raw`) and GPS (`/mavros/global_position/raw/fix` → `/gps_driver/gps_raw`) to the unified driver topic names. Hardware only (disabled in sim).
 
 ### `perception`
 - **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
@@ -229,6 +238,7 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 Gazebo Harmonic (Sim 8) integration via `ros_gz_bridge` and `ros_gz_sim`:
 
 - World name: `default` (in `basicWorld.sdf`)
+- GPS datum: Trondheim (63.4305°N, 10.3951°E) set via `<spherical_coordinates>` in the world SDF — Gazebo NavSat outputs coordinates relative to this origin
 - Robot spawned via `ros2 run ros_gz_sim create -file asket.urdf -world default` with a 5 s delay to let Gazebo load
 - Clock bridged: `gz.msgs.Clock` → `/clock` (`rosgraph_msgs/Clock`)
 - Sensor topics published by Gazebo directly to their driver topic names (e.g. `/lidar_driver/scan_raw`, `/imu_driver/imu_raw`)
@@ -242,6 +252,20 @@ Gazebo Harmonic (Sim 8) integration via `ros_gz_bridge` and `ros_gz_sim`:
 | Back camera | `gz-sim-sensors-system` | `/back_camera_driver/image_raw` |
 | IMU | `gz-sim-imu-system` | `/imu_driver/imu_raw` |
 | GPS/NavSat | `gz-sim-navsat-system` | `/gps_driver/gps_raw` |
+
+**Gazebo model plugins (in `asket.urdf.xacro`):**
+
+| Plugin | Purpose |
+|---|---|
+| `gz::sim::systems::OdometryPublisher` | Ground-truth odometry → `/model/asket/odometry` (bridged to `/odom`). Breaks the EKF↔navsat circular dependency by giving EKF a bootstrap odometry source. |
+| `gz::sim::systems::VelocityControl` | Applies Nav2 `/cmd_vel` Twist directly to the model body. Appropriate for USV where thruster dynamics are not simulated. |
+
+**Verified working (as of 2026-05-17):**
+- Full TF chain `map → odom → base_link` established at startup
+- All Nav2 lifecycle nodes (controller, planner, bt_navigator, collision_monitor, etc.) activate cleanly
+- GPS waypoint conversion via `/fromLL` returns correct map-frame coordinates
+- `navigate_to_pose` goals accepted and executed; WP1 `Goal succeeded` confirmed
+- Robot physically moves in Gazebo via VelocityControl plugin
 
 ## Debugging
 
@@ -269,11 +293,29 @@ ros2 launch bringup njord.launch.py \
 Useful commands:
 
 ```bash
-ros2 topic list                    # see all active topics
-ros2 topic echo /yolo/detections   # stream YOLO detections
-ros2 topic hz /obstacles/fused     # check fusion rate
-ros2 topic hz /odometry/filtered   # check EKF rate
-ros2 node list                     # confirm all nodes are running
+ros2 topic list                              # see all active topics
+ros2 topic hz /lidar_driver/scan_raw         # ~10 Hz from driver or sim
+ros2 topic hz /obstacles/lidar               # ~10 Hz from lidar_obstacle_node
+ros2 topic hz /obstacles/fused               # ~10 Hz from fusion_node
+ros2 topic hz /odometry/filtered             # ~30 Hz from EKF
+ros2 topic hz /odom                          # ~30 Hz (sim only, Gazebo OdometryPublisher)
+ros2 topic echo /yolo/detections             # stream YOLO detections
+ros2 topic echo /gps_driver/gps_raw --once  # verify GPS datum (~63.43°N, ~10.39°E in sim)
+ros2 run tf2_tools view_frames               # render full TF tree to PDF
+ros2 node list                               # confirm all nodes are running
+```
+
+**Sensor processing test commands (sim mode):**
+
+```bash
+# Launch sim with perception but no vision (YOLO not needed for basic lidar test)
+ros2 launch bringup njord.launch.py use_sim:=true enable_vision:=false
+
+# After ~10 s:
+ros2 topic hz /lidar_driver/scan_raw     # expect ~15 Hz (Gazebo GPU lidar)
+ros2 topic hz /obstacles/lidar           # expect ~15 Hz (passthrough from lidar_obstacle_node)
+ros2 topic hz /obstacles/fused           # expect ~10 Hz (fusion timer, lidar-only mode)
+ros2 topic echo /obstacles/lidar --once  # verify width > 0 (points detected)
 ```
 
 ## Production Deploy

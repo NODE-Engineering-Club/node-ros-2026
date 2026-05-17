@@ -22,7 +22,7 @@ class LidarDriver(Node):
         self.declare_parameter("device", "/dev/ttyUSB0")
         self._serial_port = self.get_parameter("device").get_parameter_value().string_value
 
-        self.pub = self.create_publisher(LaserScan, "/scan", 10)
+        self.pub = self.create_publisher(LaserScan, "/lidar_driver/scan_raw", 10)
 
         self._lock = threading.Lock()
         self._latest_ranges = [float("inf")] * NUM_READINGS

@@ -46,7 +46,13 @@ class MissionManager(Node):
         self._fromll.call_async(req).add_done_callback(self._on_ll)
 
     def _on_ll(self, future):
-        pt = future.result().map_point
+        result = future.result()
+        if result is None:
+            self.get_logger().error("fromLL service call failed")
+            self._navigating = False
+            return
+        pt = result.map_point
+        self.get_logger().info(f"fromLL map_point: ({pt.x:.4f}, {pt.y:.4f})")
         goal = NavigateToPose.Goal()
         goal.pose = PoseStamped()
         goal.pose.header.frame_id = "map"

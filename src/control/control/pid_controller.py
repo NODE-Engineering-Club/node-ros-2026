@@ -44,7 +44,7 @@ class PidController(Node):
 
         self.pub = self.create_publisher(Twist, "/control/effort", 10)
         self.create_subscription(Twist, "/control/setpoint", self._sp_cb, 10)
-        self.create_subscription(Imu, "/imu/data", self._imu_cb, 10)
+        self.create_subscription(Imu, "/imu_driver/imu_raw", self._imu_cb, 10)
         self.create_timer(0.05, self._control)  # 20 Hz
 
     def _sp_cb(self, msg):

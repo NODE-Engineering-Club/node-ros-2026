@@ -9,7 +9,13 @@ from cv_bridge import CvBridge
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import Image, LaserScan
-from vision_msgs.msg import Detection2DArray
+
+try:
+    from vision_msgs.msg import Detection2DArray as _Detection2DArray
+    _HAS_VISION_MSGS = True
+except ImportError:
+    _Detection2DArray = None
+    _HAS_VISION_MSGS = False
 
 PORT = 8081
 
@@ -99,9 +105,12 @@ class WebBridgeNode(Node):
         self.create_subscription(Image, "/yolo/seg_mask", self._cb_seg, 1)
         self.create_subscription(LaserScan, "/scan", self._cb_scan, 1)
         self.create_subscription(Odometry, "/odometry/filtered", self._cb_odom, 1)
-        self.create_subscription(
-            Detection2DArray, "/yolo/detections", self._cb_detections, 1
-        )
+        if _HAS_VISION_MSGS:
+            self.create_subscription(
+                _Detection2DArray, "/yolo/detections", self._cb_detections, 1
+            )
+        else:
+            self.get_logger().warn("vision_msgs not found — YOLO detections disabled")
 
         server = HTTPServer(("", PORT), _Handler)
         t = threading.Thread(target=server.serve_forever, daemon=True)

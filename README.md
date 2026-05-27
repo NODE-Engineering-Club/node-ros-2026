@@ -52,6 +52,7 @@ source install/setup.bash
 | `enable_mission` | `true` | GPS waypoint sequencer |
 | `enable_vision` | `true` | YOLO inference node |
 | `enable_foxglove` | `true` | Foxglove WebSocket bridge (port 8765) |
+| `enable_webbridge` | `true` | Web dashboard HTTP bridge (port 8081) |
 | `vision_confidence` | `0.5` | YOLO detection confidence threshold |
 | `camera_device` | `/dev/video0` | Camera device path |
 | `lidar_device` | `/dev/ttyUSB0` | LiDAR serial device path |
@@ -66,6 +67,7 @@ src/
 ├── control/        # nav_to_pid, pid_controller, actuator_driver
 ├── mission/        # mission_manager (GPS waypoint sequencer)
 ├── vision/         # vision_node (YOLO26n-seg ONNX inference)
+├── webbridge/      # HTTP bridge exposing ROS topics to the web dashboard
 └── bringup/        # njord.launch.py + config/
     └── config/
         ├── ekf.yaml          # robot_localization EKF params
@@ -73,6 +75,112 @@ src/
         ├── nav2_params.yaml  # Nav2 planner/controller/costmap params
         └── gz_bridge.yaml    # Gazebo ↔ ROS topic bridges
 models/             # ONNX weights (bind-mounted, gitignored)
+webui/              # Web dashboard served on the Raspberry Pi (port 8080)
+scripts/
+├── init.sh         # One-time Pi setup (run once as sudo)
+└── deploy-pi.sh    # Deploy latest image + webui to the Pi over SSH
+```
+
+## Web Dashboard
+
+A live operator dashboard is served directly on the Raspberry Pi at **port 8080**. It shows all sensor streams in one browser tab without needing Foxglove or any external tool.
+
+![Dashboard panels: camera feed with YOLO boxes, segmentation mask, LiDAR polar plot, GPS map]
+
+| Panel | Data source |
+|---|---|
+| Camera feed + YOLO bounding boxes | `/image_raw` + `/yolo/detections` |
+| Segmentation mask | `/yolo/seg_mask` |
+| LiDAR top-down polar plot | `/scan` |
+| GPS map (Leaflet) | BlueOS MAVLink2REST API |
+| Header: heading, speed, X/Y | `/odometry/filtered` |
+
+Status chips in the header (CAM / SEG / LIDAR / GPS / ODOM) turn green when live data is flowing, so you can tell at a glance which sensors are active.
+
+### How to open the dashboard
+
+**After running `init.sh`** — the dashboard starts automatically on boot. Just open a browser:
+
+```
+http://boat.local:8080
+```
+
+If mDNS (`boat.local`) doesn't resolve, use the Pi's IP address directly:
+
+```
+http://192.168.x.x:8080
+```
+
+**To check service status on the Pi:**
+
+```bash
+sudo systemctl status njord-webui.service
+sudo systemctl status njord.service
+sudo systemctl status blueos.service
+```
+
+**To start or restart a service manually:**
+
+```bash
+sudo systemctl start njord-webui.service
+sudo systemctl restart njord-webui.service
+```
+
+**To view live logs:**
+
+```bash
+sudo journalctl -u njord-webui.service -f
+sudo journalctl -u njord.service -f
+```
+
+### How it works
+
+```
+Browser → port 8080 (webui/main.py, runs on Pi host)
+              │
+              ├── /api/gps         → BlueOS MAVLink2REST :6040  (GPS fix)
+              │
+              └── /api/camera      ┐
+                  /api/seg         │  → webbridge_node :8081
+                  /api/lidar       │     (runs inside njord container)
+                  /api/odom        │     subscribes to ROS topics
+                  /api/detections  ┘     converts to JPEG / JSON
+```
+
+The `webbridge_node` runs inside the Njord Docker container alongside the rest of the ROS stack. Because the container uses `--network host`, port 8081 is directly reachable from the Pi host. `webui/main.py` is a plain Python server on the host that proxies those endpoints to the browser.
+
+### Running the dashboard manually (without init.sh)
+
+Open two terminals on the Pi:
+
+**Terminal 1 — build first (required after adding webbridge for the first time):**
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+**Then start the ROS stack:**
+```bash
+ros2 launch bringup njord.launch.py
+```
+
+**Terminal 2 — start the web server:**
+```bash
+python3 ~/node-ros-2026/webui/main.py
+```
+
+Then open `http://localhost:8080` or `http://boat.local:8080` in a browser.
+
+To run the dashboard without hardware (webbridge + GPS only, no LiDAR/camera):
+```bash
+ros2 launch bringup njord.launch.py \
+  enable_mavros:=false \
+  enable_sensors:=false \
+  enable_perception:=false \
+  enable_control:=false \
+  enable_mission:=false \
+  enable_nav2:=false \
+  enable_localization:=false
 ```
 
 ## Architecture
@@ -123,6 +231,11 @@ flowchart TD
         MM[mission_manager<br/>GPS waypoint queue]
     end
 
+    subgraph Dashboard["Web Dashboard"]
+        WB[webbridge_node<br/>port 8081] --> WUI[webui/main.py<br/>port 8080]
+        WUI --> Browser[Browser]
+    end
+
     Image --> Y
     Scan --> LO
     Det --> FN
@@ -142,6 +255,11 @@ flowchart TD
     PID --> ACT
     ACT -->|/mavros/rc/override| MAVROS[MAVROS → ArduPilot]
     MM -->|NavigateToPose action| BT
+    Image --> WB
+    Scan --> WB
+    Det --> WB
+    Mask --> WB
+    OdomF --> WB
 ```
 
 ## Key Topics
@@ -189,6 +307,9 @@ flowchart TD
 ### `mission`
 - **`mission_manager`** — Sequences hardcoded `(lat, lon)` waypoints through Nav2's `NavigateToPose` action. Converts GPS → map frame via `robot_localization/FromLL`.
 
+### `webbridge`
+- **`webbridge_node`** — Subscribes to camera, LiDAR, YOLO, and odometry topics. Converts ROS messages to JPEG frames and JSON, and serves them on port 8081 via a background HTTP thread. The `webui/main.py` host process proxies these to the browser on port 8080.
+
 ### `bringup`
 - **`njord.launch.py`** — Single launch file for the entire stack with per-subsystem enable flags and sim/hardware switching.
 - **`ekf.yaml`** — 2D EKF fusing IMU yaw + angular velocity with wheel odometry (if available).
@@ -235,6 +356,16 @@ ros2 launch bringup njord.launch.py \
   enable_nav2:=false \
   enable_control:=false \
   enable_mission:=false
+
+# Web dashboard only (no hardware — webbridge + GPS proxy)
+ros2 launch bringup njord.launch.py \
+  enable_mavros:=false \
+  enable_sensors:=false \
+  enable_perception:=false \
+  enable_control:=false \
+  enable_mission:=false \
+  enable_nav2:=false \
+  enable_localization:=false
 ```
 
 Useful commands:
@@ -249,8 +380,52 @@ ros2 node list                     # confirm all nodes are running
 
 ## Production Deploy
 
+### First-time setup on a fresh Raspberry Pi
+
+Run this **once** from your laptop. It installs Podman, sets up BlueOS, deploys the Njord container, installs the web dashboard, and configures all three as systemd services that start on boot:
+
 ```bash
-bash scripts/deploy-pi.sh
+# From your laptop (requires sshpass: sudo apt install sshpass)
+bash scripts/deploy-pi.sh pi@boat.local
 ```
 
-SSHes into `pi@boat.local`, pulls the latest image from GHCR, sets up systemd services for BlueOS and Njord, and reboots.
+Or SSH into the Pi and run directly:
+
+```bash
+sudo bash init.sh
+```
+
+After the Pi reboots, all services start automatically. Open the dashboard at:
+
+```
+http://boat.local:8080
+```
+
+### Subsequent deploys (after code changes)
+
+```bash
+bash scripts/deploy-pi.sh pi@boat.local
+```
+
+This re-runs `init.sh` over SSH, pulling the latest container image and redeploying the webui files.
+
+### Service management on the Pi
+
+| Task | Command |
+|---|---|
+| Check all service status | `sudo systemctl status blueos njord njord-webui` |
+| Restart the web dashboard | `sudo systemctl restart njord-webui` |
+| Restart the ROS stack | `sudo systemctl restart njord` |
+| View web dashboard logs | `sudo journalctl -u njord-webui -f` |
+| View ROS stack logs | `sudo journalctl -u njord -f` |
+| View BlueOS logs | `sudo journalctl -u blueos -f` |
+| Stop everything | `sudo systemctl stop njord njord-webui blueos` |
+
+### Service startup order
+
+```
+boot
+ └── blueos.service        (BlueOS + MAVLink2REST on :6040)
+      └── njord.service     (ROS stack + webbridge_node on :8081)
+           └── njord-webui.service  (web dashboard proxy on :8080)
+```

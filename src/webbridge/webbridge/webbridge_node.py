@@ -9,6 +9,7 @@ from cv_bridge import CvBridge
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import Image, LaserScan
+from std_msgs.msg import String as RosString
 
 try:
     from vision_msgs.msg import Detection2DArray as _Detection2DArray
@@ -44,6 +45,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(node, "odom_json")
         elif p == "/api/detections":
             self._json(node, "detections_json")
+        elif p == "/api/buoys":
+            self._json(node, "buoys_json")
         elif p == "/api/status":
             self._status(node)
         else:
@@ -100,11 +103,13 @@ class WebBridgeNode(Node):
         self.scan_json: bytes | None = None
         self.odom_json: bytes | None = None
         self.detections_json: bytes | None = None
+        self.buoys_json: bytes = b"[]"
 
-        self.create_subscription(Image, "/image_raw", self._cb_camera, 1)
-        self.create_subscription(Image, "/yolo/seg_mask", self._cb_seg, 1)
-        self.create_subscription(LaserScan, "/scan", self._cb_scan, 1)
-        self.create_subscription(Odometry, "/odometry/filtered", self._cb_odom, 1)
+        self.create_subscription(Image,     "/image_raw",         self._cb_camera, 1)
+        self.create_subscription(Image,     "/yolo/seg_mask",     self._cb_seg,    1)
+        self.create_subscription(LaserScan, "/scan",              self._cb_scan,   1)
+        self.create_subscription(Odometry,  "/odometry/filtered", self._cb_odom,   1)
+        self.create_subscription(RosString, "/buoys/nav",         self._cb_buoys,  10)
         if _HAS_VISION_MSGS:
             self.create_subscription(
                 _Detection2DArray, "/yolo/detections", self._cb_detections, 1
@@ -181,6 +186,10 @@ class WebBridgeNode(Node):
         ).encode()
         with self._lock:
             self.odom_json = body
+
+    def _cb_buoys(self, msg: RosString):
+        with self._lock:
+            self.buoys_json = msg.data.encode()
 
     def _cb_detections(self, msg: Detection2DArray):
         dets = []

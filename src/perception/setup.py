@@ -20,6 +20,7 @@ setup(
         "console_scripts": [
             "lidar_obstacle_node = perception.lidar_obstacle_node:main",
             "fusion_node = perception.fusion_node:main",
+            "buoy_tracker_node = perception.buoy_tracker_node:main",
             "perception_all = perception.launch_all:main",
         ],
     },

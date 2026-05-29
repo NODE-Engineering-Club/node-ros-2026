@@ -35,6 +35,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim",         default_value="false"),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
         DeclareLaunchArgument("enable_webbridge",     default_value="true"),
+        DeclareLaunchArgument("enable_buoy_tracker",  default_value="true"),
     ]
     # fmt: on
 
@@ -126,6 +127,13 @@ def generate_launch_description():
             executable="fusion_node",
             name="fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
+            parameters=[sim_time],
+        ),
+        Node(
+            package="perception",
+            executable="buoy_tracker_node",
+            name="buoy_tracker_node",
+            condition=IfCondition(LaunchConfiguration("enable_buoy_tracker")),
             parameters=[sim_time],
         ),
         # Control

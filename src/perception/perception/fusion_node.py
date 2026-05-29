@@ -4,18 +4,15 @@ For each LIDAR point:
   1. Transform from lidar frame → camera frame via TF
   2. Project into image plane using camera intrinsics
   3. Sample segmentation mask — if point lands on a detected object, it is
-     confirmed as a labeled obstacle and inherits the detection's color
+     confirmed as a labeled obstacle
   4. Points outside the camera FOV are passed through unconditionally
 
 For each YOLO detection with NO LIDAR support (e.g. distant objects beyond
 LIDAR range), a bearing estimate is added at DEFAULT_OBSTACLE_DISTANCE.
 
-Output topics:
-  /obstacles/fused  (PointCloud2, frame: base_link) — XYZ + color_id float
-  /buoys/detected   (std_msgs/String, JSON)          — per-buoy color + position
+Output: /obstacles/fused (PointCloud2, frame: base_link)
 """
 
-import json
 import math
 import struct
 
@@ -25,7 +22,6 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, PointCloud2, PointField
-from std_msgs.msg import String
 from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 from vision_msgs.msg import Detection2DArray
 
@@ -37,14 +33,8 @@ DEFAULT_CY = 240.0
 IMAGE_WIDTH  = 640
 IMAGE_HEIGHT = 480
 
-CAMERA_HFOV               = math.radians(60)
+CAMERA_HFOV              = math.radians(60)
 DEFAULT_OBSTACLE_DISTANCE = 5.0
-
-# Maps color name → float stored in PointCloud2 color_id field
-COLOR_ID = {
-    "unknown": 0.0, "red": 1.0, "green": 2.0, "yellow": 3.0,
-    "black": 4.0, "white": 5.0, "blue": 6.0,
-}
 
 
 class FusionNode(Node):
@@ -79,10 +69,9 @@ class FusionNode(Node):
             depth=1,
         )
 
-        self.fused_pub = self.create_publisher(PointCloud2, "/obstacles/fused", 10)
-        self.buoys_pub = self.create_publisher(String, "/buoys/detected", 10)
-        self.create_subscription(PointCloud2,      "/obstacles/lidar",  self._lidar_cb, 10)
-        self.create_subscription(Image,            "/yolo/seg_mask",    self._mask_cb,  _be_qos)
+        self.pub = self.create_publisher(PointCloud2, "/obstacles/fused", 10)
+        self.create_subscription(PointCloud2,     "/obstacles/lidar",   self._lidar_cb, 10)
+        self.create_subscription(Image,           "/yolo/seg_mask",     self._mask_cb,  _be_qos)
         self.create_subscription(Detection2DArray, "/yolo/detections",  self._det_cb,   _be_qos)
         self.create_timer(0.1, self._publish)  # 10 Hz
 
@@ -104,6 +93,7 @@ class FusionNode(Node):
     # ── Projection ───────────────────────────────────────────────────────────
 
     def _lidar_to_camera_transform(self):
+        """Return (tx, ty, tz) translation from lidar→camera frame, or None."""
         try:
             tf = self._tf_buffer.lookup_transform(
                 self._camera_frame, self._lidar_frame, rclpy.time.Time()
@@ -114,6 +104,10 @@ class FusionNode(Node):
             return None
 
     def _project(self, x, y, z):
+        """Project point (robot convention: x=fwd, y=left, z=up) to pixel (u, v).
+
+        Returns (u, v) or None if point is behind camera.
+        """
         if x <= 0:
             return None
         u = int(self._fx * (-y / x) + self._cx)
@@ -123,106 +117,58 @@ class FusionNode(Node):
     # ── Publish ───────────────────────────────────────────────────────────────
 
     def _publish(self):
+        fused        = []
+        det_has_lidar = set()  # indices of detections confirmed by LIDAR
+
         tf_offset = self._lidar_to_camera_transform()
         mask      = self._seg_mask
         h         = mask.shape[0] if mask is not None else IMAGE_HEIGHT
         w         = mask.shape[1] if mask is not None else IMAGE_WIDTH
 
-        # Pass 1: map each LiDAR point to the detection index it lands on
-        lidar_det: dict[int, int] = {}  # lidar_idx → det_idx
-        det_has_lidar: set[int]  = set()
+        for (lx, ly, lz) in self._lidar_pts:
+            fused.append((lx, ly, lz))  # always include LIDAR points
 
-        if tf_offset is not None and mask is not None:
-            tx, ty, tz = tf_offset
-            for i, (lx, ly, lz) in enumerate(self._lidar_pts):
-                uv = self._project(lx + tx, ly + ty, lz + tz)
+            # If TF and mask are available, correlate with detections
+            if tf_offset is not None and mask is not None:
+                tx, ty, tz = tf_offset
+                cx, cy, cz = lx + tx, ly + ty, lz + tz
+                uv = self._project(cx, cy, cz)
                 if uv is not None:
                     u, v = uv
                     if 0 <= u < w and 0 <= v < h:
                         det_idx = int(mask[v, u])
                         if det_idx > 0:
-                            lidar_det[i] = det_idx - 1
-                            det_has_lidar.add(det_idx - 1)
+                            det_has_lidar.add(det_idx - 1)  # mask value = det index + 1
 
-        # Pass 2: build fused point list with color_id (XYZC)
-        fused: list[tuple[float, float, float, float]] = []
-        det_positions: dict[int, list] = {}
-
-        for i, (lx, ly, lz) in enumerate(self._lidar_pts):
-            color_id = 0.0
-            if i in lidar_det:
-                d = lidar_det[i]
-                color_id = self._det_color_id(d)
-                det_positions.setdefault(d, []).append((lx, ly, lz))
-            fused.append((lx, ly, lz, color_id))
-
-        # Bearing-estimate fallback for detections with no LiDAR coverage
+        # Bearing estimate fallback for detections with no LIDAR coverage
         for i, det in enumerate(self._detections):
             if i not in det_has_lidar:
                 bearing = (det.bbox.center.position.x / w - 0.5) * CAMERA_HFOV
-                bx = DEFAULT_OBSTACLE_DISTANCE * math.cos(bearing)
-                by = DEFAULT_OBSTACLE_DISTANCE * math.sin(bearing)
-                color_id = self._det_color_id(i)
-                fused.append((bx, by, 0.0, color_id))
-                det_positions.setdefault(i, [(bx, by, 0.0)])
+                fused.append((
+                    DEFAULT_OBSTACLE_DISTANCE * math.cos(bearing),
+                    DEFAULT_OBSTACLE_DISTANCE * math.sin(bearing),
+                    0.0,
+                ))
 
-        # Publish PointCloud2 (XYZ + color_id)
-        if fused:
-            self._pub_pointcloud(fused)
+        if not fused:
+            return
 
-        # Publish /buoys/detected JSON
-        self._pub_buoys(det_positions)
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
-
-    def _det_color(self, det_idx: int) -> str:
-        if det_idx < len(self._detections):
-            det = self._detections[det_idx]
-            if det.results:
-                return det.results[0].hypothesis.class_id
-        return "unknown"
-
-    def _det_color_id(self, det_idx: int) -> float:
-        return COLOR_ID.get(self._det_color(det_idx), 0.0)
-
-    def _pub_pointcloud(self, fused):
-        msg = PointCloud2()
-        msg.header.stamp    = self.get_clock().now().to_msg()
-        msg.header.frame_id = "base_link"
-        msg.height          = 1
-        msg.width           = len(fused)
-        msg.fields          = [
-            PointField(name="x",        offset=0,  datatype=PointField.FLOAT32, count=1),
-            PointField(name="y",        offset=4,  datatype=PointField.FLOAT32, count=1),
-            PointField(name="z",        offset=8,  datatype=PointField.FLOAT32, count=1),
-            PointField(name="color_id", offset=12, datatype=PointField.FLOAT32, count=1),
+        msg             = PointCloud2()
+        msg.header.stamp     = self.get_clock().now().to_msg()
+        msg.header.frame_id  = "base_link"
+        msg.height           = 1
+        msg.width            = len(fused)
+        msg.fields           = [
+            PointField(name="x", offset=0,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="y", offset=4,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="z", offset=8,  datatype=PointField.FLOAT32, count=1),
         ]
         msg.is_bigendian = False
-        msg.point_step   = 16
-        msg.row_step     = 16 * len(fused)
-        msg.data         = b"".join(struct.pack("ffff", *p) for p in fused)
+        msg.point_step   = 12
+        msg.row_step     = 12 * len(fused)
+        msg.data         = b"".join(struct.pack("fff", *p) for p in fused)
         msg.is_dense     = True
-        self.fused_pub.publish(msg)
-
-    def _pub_buoys(self, det_positions: dict):
-        buoys = []
-        for det_idx, pts in det_positions.items():
-            color = self._det_color(det_idx)
-            # Average position across all confirming LiDAR points
-            mx = sum(p[0] for p in pts) / len(pts)
-            my = sum(p[1] for p in pts) / len(pts)
-            r  = math.sqrt(mx ** 2 + my ** 2)
-            bearing_deg = math.degrees(math.atan2(my, mx))
-            buoys.append({
-                "color":       color,
-                "x":           round(mx, 2),
-                "y":           round(my, 2),
-                "range":       round(r, 2),
-                "bearing_deg": round(bearing_deg, 1),
-            })
-        msg = String()
-        msg.data = json.dumps(buoys)
-        self.buoys_pub.publish(msg)
+        self.pub.publish(msg)
 
 
 def main(args=None):

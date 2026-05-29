@@ -41,13 +41,6 @@
 
     /* ── det badge ── */
     #det-count{position:absolute;top:6px;right:8px;font-size:.65em;color:#ffaa00;background:rgba(0,0,0,.75);padding:2px 6px;border:1px solid #ffaa00;border-radius:2px;z-index:10}
-
-    /* ── buoy list ── */
-    #buoy-list{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(0,0,0,.82);border:1px solid #333;padding:6px 10px;font-size:.68em;min-width:150px;pointer-events:none;max-height:40%;overflow:hidden}
-    #buoy-list-title{color:#005500;letter-spacing:.1em;margin-bottom:4px;font-size:.75em}
-    .brow{display:flex;gap:8px;align-items:center;margin-bottom:2px}
-    .bdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-    .binfo{color:#aaa}
   </style>
 </head>
 <body>
@@ -98,13 +91,9 @@
 
   <!-- GPS map -->
   <div class="panel">
-    <div class="panel-title">&#9654; GPS MAP + BUOY POSITIONS</div>
+    <div class="panel-title">&#9654; GPS MAP</div>
     <div class="panel-body">
       <div id="map"></div>
-      <div id="buoy-list">
-        <div id="buoy-list-title">&#9650; BUOYS</div>
-        <div id="buoy-rows"></div>
-      </div>
       <div id="gps-overlay">
         <div id="gps-status">WAITING FOR FIX...</div>
         <div class="gfield"><label>LATITUDE</label><span id="lat">--</span></div>
@@ -363,106 +352,6 @@ async function updateDetections() {
 }
 
 // ═══════════════════════════════════════════════════════
-// BUOYS  — colored markers on GPS map + LiDAR overlay
-// ═══════════════════════════════════════════════════════
-const BUOY_CSS = {
-  red:'#ff4444', green:'#00dd44', yellow:'#ffcc00',
-  black:'#888888', white:'#eeeeee', blue:'#4488ff', unknown:'#666666'
-};
-
-let latestBuoys = [];
-const buoyMapMarkers = [];
-
-async function updateBuoys() {
-  try {
-    const res = await fetch('/api/buoys');
-    if (res.ok) {
-      const data = await res.json();
-      latestBuoys = Array.isArray(data) ? data : [];
-      _refreshBuoyMap();
-      _refreshBuoyList();
-    }
-  } catch { /* keep stale */ }
-  setTimeout(updateBuoys, 250);
-}
-
-function _refreshBuoyMap() {
-  // Remove old markers
-  buoyMapMarkers.forEach(m => map.removeLayer(m));
-  buoyMapMarkers.length = 0;
-
-  for (const b of latestBuoys) {
-    if (b.lat === null || b.lon === null) continue;
-    const c = BUOY_CSS[b.color] || BUOY_CSS.unknown;
-    const m = L.circleMarker([b.lat, b.lon], {
-      color: c, fillColor: c, fillOpacity: 0.85,
-      radius: 9, weight: 2
-    }).bindTooltip(
-      `<b style="color:${c}">${(b.color||'?').toUpperCase()}</b><br>`
-      + `${b.range.toFixed(1)} m &nbsp; ${b.bearing_deg.toFixed(0)}°`,
-      {permanent: false, direction: 'top'}
-    ).addTo(map);
-    buoyMapMarkers.push(m);
-  }
-}
-
-function _refreshBuoyList() {
-  const rows = document.getElementById('buoy-rows');
-  if (!rows) return;
-  rows.innerHTML = '';
-  if (!latestBuoys.length) {
-    rows.innerHTML = '<div style="color:#333">none detected</div>';
-    return;
-  }
-  for (const b of latestBuoys) {
-    const c  = BUOY_CSS[b.color] || BUOY_CSS.unknown;
-    const el = document.createElement('div');
-    el.className = 'brow';
-    el.innerHTML = `<div class="bdot" style="background:${c};border:1px solid ${c}88"></div>`
-      + `<div class="binfo">${(b.color||'?').padEnd(7)} &nbsp;`
-      + `${b.range.toFixed(1)}m &nbsp; ${b.bearing_deg.toFixed(0)}°</div>`;
-    rows.appendChild(el);
-  }
-}
-
-// Extend drawLidar to overlay buoy positions
-const _drawLidarBase = drawLidar;
-function drawLidar(data) {
-  _drawLidarBase(data);
-  if (!latestBuoys.length) return;
-  const w  = lidarCanvas.offsetWidth  || 400;
-  const h  = lidarCanvas.offsetHeight || 400;
-  const cx = w / 2, cy = h / 2;
-  const maxR  = data.range_max || 10;
-  const scale = Math.min(w, h) * 0.45 / maxR;
-
-  lidarCtx.font = '9px Courier New';
-  for (const b of latestBuoys) {
-    const rad = b.bearing_deg * Math.PI / 180;
-    // base_link: bx=fwd, by=left  →  screen: up=fwd, left=left
-    const bx = b.range * Math.cos(rad);
-    const by = b.range * Math.sin(rad);
-    const sx = cx - by * scale;
-    const sy = cy - bx * scale;
-    if (sx < 0 || sx > w || sy < 0 || sy > h) continue;
-    const c = BUOY_CSS[b.color] || BUOY_CSS.unknown;
-    lidarCtx.fillStyle   = c;
-    lidarCtx.strokeStyle = 'rgba(0,0,0,0.7)';
-    lidarCtx.lineWidth   = 1;
-    lidarCtx.beginPath();
-    lidarCtx.arc(sx, sy, 6, 0, Math.PI * 2);
-    lidarCtx.fill();
-    lidarCtx.stroke();
-    // label: first letter of color + range
-    lidarCtx.fillStyle = '#000';
-    lidarCtx.fillText(
-      (b.color||'?')[0].toUpperCase() + ' ' + b.range.toFixed(1) + 'm',
-      sx + 8, sy + 4
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════
 // Boot
 // ═══════════════════════════════════════════════════════
 updateGPS();
@@ -471,7 +360,6 @@ updateSeg();
 updateLidar();
 updateOdom();
 updateDetections();
-updateBuoys();
 </script>
 </body>
 </html>

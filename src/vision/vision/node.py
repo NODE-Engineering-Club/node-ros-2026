@@ -38,16 +38,6 @@ MODEL_PATH = "/workspace/models/yolo26n-seg-navier.onnx"
 INPUT_SIZE = 640
 MASK_PROTO_SIZE = 160
 
-# HSV ranges for buoy color classification (hue 0-180 in OpenCV)
-_COLOR_RANGES = {
-    "red":    [([0,  100, 60], [10, 255, 255]), ([160, 100, 60], [180, 255, 255])],
-    "green":  [([40,  70, 40], [90, 255, 255])],
-    "yellow": [([18, 100, 80], [38, 255, 255])],
-    "blue":   [([100, 70, 40], [140, 255, 255])],
-    "black":  [([0,   0,  0],  [180, 80,  60])],
-    "white":  [([0,   0, 170], [180, 40, 255])],
-}
-
 
 class VisionNode(Node):
     def __init__(self):
@@ -79,26 +69,6 @@ class VisionNode(Node):
 
         self._available = True
         self.get_logger().info("Vision node ready")
-
-    def _classify_color(self, frame, x1, y1, x2, y2) -> str:
-        """Return dominant buoy color by analysing HSV histogram of the bbox centre."""
-        cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-        pw = max(1, int((x2 - x1) * 0.4))
-        ph = max(1, int((y2 - y1) * 0.4))
-        crop = frame[max(0, cy - ph):cy + ph, max(0, cx - pw):cx + pw]
-        if crop.size == 0:
-            return "unknown"
-        hsv   = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        total = hsv.shape[0] * hsv.shape[1]
-        best_color, best_count = "unknown", 0
-        for color, ranges in _COLOR_RANGES.items():
-            mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-            for (lo, hi) in ranges:
-                mask |= cv2.inRange(hsv, np.array(lo), np.array(hi))
-            count = int(mask.sum() // 255)
-            if count > best_count:
-                best_count, best_color = count, color
-        return best_color if best_count / total >= 0.20 else "unknown"
 
     def _preprocess(self, frame):
         """Letterbox resize to INPUT_SIZE x INPUT_SIZE, normalise to [0,1], NCHW."""
@@ -180,9 +150,8 @@ class VisionNode(Node):
             det.bbox = BoundingBox2D(size_x=float(x2 - x1), size_y=float(y2 - y1))
             det.bbox.center.position.x = float((x1 + x2) / 2)
             det.bbox.center.position.y = float((y1 + y2) / 2)
-            color = self._classify_color(frame, x1, y1, x2, y2)
             hyp = ObjectHypothesisWithPose()
-            hyp.hypothesis.class_id = color
+            hyp.hypothesis.class_id = str(class_id)
             hyp.hypothesis.score = float(score)
             det.results.append(hyp)
             det_msg.detections.append(det)

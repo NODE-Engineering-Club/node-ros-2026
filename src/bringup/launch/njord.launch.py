@@ -34,7 +34,6 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("use_sim",         default_value="false"),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
-        DeclareLaunchArgument("enable_webbridge",     default_value="true"),
     ]
     # fmt: on
 
@@ -187,13 +186,6 @@ def generate_launch_description():
             executable="foxglove_bridge",
             name="foxglove_bridge",
             condition=IfCondition(LaunchConfiguration("enable_foxglove")),
-        ),
-        # Web dashboard bridge — exposes camera/LiDAR/YOLO/odometry on port 8081
-        Node(
-            package="webbridge",
-            executable="webbridge_node",
-            name="webbridge_node",
-            condition=IfCondition(LaunchConfiguration("enable_webbridge")),
         ),
         Node(
             package="ros_gz_bridge",

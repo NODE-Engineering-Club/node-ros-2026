@@ -1,5 +1,29 @@
 # Njord 2026 — Outstanding Gaps
 
+## Navigation (Docking)
+
+- [ ] **Restore `opennav_docking` for the docking challenge**
+  The Nav2 docking server (`opennav_docking`) was intentionally omitted from
+  `bringup/launch/njord.launch.py` and `Containerfile` because the package
+  isn't installed and including it would crash the lifecycle manager. We need
+  it back for the docking challenge. Required:
+  1. Add `ros-jazzy-opennav-docking` to `Containerfile` (verify exact package
+     name; may be split into `opennav-docking` + `opennav-docking-bt`).
+  2. Add a `docking_server` Node to the Nav2 group in `njord.launch.py` and
+     include `"docking_server"` in the `lifecycle_manager` `node_names`.
+  3. Add a `docking_server:` block to `bringup/config/nav2_params.yaml` with:
+     - `controller:` (graceful_controller params — works for forward-only USV)
+     - `dock_plugins:` list of supported dock types
+     - `docks:` static instances OR `dock_database` YAML path
+  4. Decide on dock-pose source — options:
+     - **Hardcoded GPS**: cheapest, fragile, fine for static known docks
+     - **Vision-based**: AprilTag/ArUco detector publishing dock pose, or a
+       YOLO class for the dock target with PnP for pose
+  5. Custom BT XML that sequences `NavigateToPose` → `DockRobot` → mission
+     continuation (default Nav2 trees don't include docking nodes).
+  6. Sim verification before water: add a dock model to `basicWorld.sdf` and
+     run a full nav-to-dock sequence end-to-end.
+
 ## Perception / Fusion
 
 - [ ] **Implement real late-fusion projection in `fusion_node`**

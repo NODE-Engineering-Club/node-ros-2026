@@ -24,7 +24,6 @@
   },
   "devDependencies": {
     "@foxglove/extension": "latest",
-    "@foxglove/studio-base": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "react": "latest",

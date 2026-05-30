@@ -12,7 +12,7 @@ class LidarObstacleNode(Node):
     def __init__(self):
         super().__init__("lidar_obstacle_node")
         self.pub = self.create_publisher(PointCloud2, "/obstacles/lidar", 10)
-        self.create_subscription(LaserScan, "/scan", self._cb, 10)
+        self.create_subscription(LaserScan, "/lidar_driver/scan_raw", self._cb, 10)
 
     def _cb(self, scan):
         points = []

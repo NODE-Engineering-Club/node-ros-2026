@@ -9,11 +9,13 @@ class CameraDriver(Node):
     def __init__(self):
         super().__init__("camera_driver")
 
-        self.declare_parameter("device", "/dev/video0")
-        self.declare_parameter("topic", "/image_raw")
+        self.declare_parameter("device",   "/dev/video0")
+        self.declare_parameter("topic",    "/image_raw")
+        self.declare_parameter("frame_id", "front_camera")
 
-        device = self.get_parameter("device").get_parameter_value().string_value
-        topic  = self.get_parameter("topic").get_parameter_value().string_value
+        device         = self.get_parameter("device").get_parameter_value().string_value
+        topic          = self.get_parameter("topic").get_parameter_value().string_value
+        self._frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
 
         self._available = False
         self.cap = cv2.VideoCapture(device)
@@ -36,7 +38,7 @@ class CameraDriver(Node):
             return
         msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
         msg.header.stamp    = self.get_clock().now().to_msg()
-        msg.header.frame_id = "camera"
+        msg.header.frame_id = self._frame_id
         self.pub.publish(msg)
 
     def destroy_node(self):

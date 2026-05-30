@@ -65,7 +65,7 @@ class VisionNode(Node):
         )
         self.det_pub = self.create_publisher(Detection2DArray, "/yolo/detections", qos)
         self.mask_pub = self.create_publisher(Image, "/yolo/seg_mask", qos)
-        self.create_subscription(Image, "/image_raw", self._cb, qos)
+        self.create_subscription(Image, "/front_camera_driver/image_raw", self._cb, qos)
 
         self._available = True
         self.get_logger().info("Vision node ready")

@@ -63,7 +63,7 @@ def generate_launch_description():
             ])),
             parameters=[
                 {
-                    "fcu_url": "udp://:14550@localhost:14555",
+                    "fcu_url": "tcp://localhost:5760",
                     "gcs_url": "udp://@localhost:14556",
                     "tgt_system": 1,
                     "tgt_component": 1,

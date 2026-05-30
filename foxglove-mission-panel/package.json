@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@foxglove/extension": "latest",
+    "create-foxglove-extension": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "react": "latest",

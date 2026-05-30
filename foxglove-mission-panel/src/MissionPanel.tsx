@@ -7,10 +7,10 @@
 // makes the component independently testable and easy to extend.
 
 import { PanelExtensionContext } from "@foxglove/extension";
-import { StrictMode, useEffect, useLayoutEffect, useState } from "react";
+import { ReactElement, StrictMode, useEffect, useLayoutEffect, useState } from "react";
 import { createRoot, Root } from "react-dom/client";
 
-function MissionPanel({ context }: { context: PanelExtensionContext }): JSX.Element {
+function MissionPanel({ context }: { context: PanelExtensionContext }): ReactElement {
   // `renderDone` must be called once the panel has finished rendering a frame so
   // Foxglove can throttle updates correctly. We store it in state and invoke it
   // after each commit.

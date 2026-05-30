@@ -9,7 +9,7 @@
 
     // Module resolution tuned for a bundler (webpack via the foxglove-extension CLI).
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -23,8 +23,9 @@
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
 
-    // We only typecheck here; the foxglove-extension CLI emits the bundle.
-    "noEmit": true,
+    // The foxglove-extension CLI (ts-loader) compiles and emits the bundle, so
+    // emit must stay enabled here. The `lint` script passes `--noEmit` on the
+    // command line for a type-only check without producing output.
     "skipLibCheck": true
   },
   "include": ["src"],

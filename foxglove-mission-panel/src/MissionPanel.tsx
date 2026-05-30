@@ -290,6 +290,12 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const addWaypoint = useCallback(() => {
+    // Reject blank fields explicitly: Number("") === 0, which would otherwise
+    // pass the range checks and silently add a (0, 0) "null island" waypoint.
+    if (latInput.trim() === "" || lonInput.trim() === "") {
+      setStatus({ kind: "error", text: "Enter both latitude and longitude." });
+      return;
+    }
     const lat = Number(latInput);
     const lon = Number(lonInput);
     if (!Number.isFinite(lat) || lat < -90 || lat > 90) {

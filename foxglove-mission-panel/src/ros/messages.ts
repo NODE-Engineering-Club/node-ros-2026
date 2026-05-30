@@ -73,6 +73,18 @@ export const POSE_ARRAY_SCHEMA = "geometry_msgs/msg/PoseArray";
  */
 export const GEO_FRAME_ID = "wgs84";
 
+/** std_msgs/String */
+export interface StringMsg {
+  data: string;
+}
+
+/**
+ * Mission state as published on /mission/status by the mission_manager node.
+ * "unknown" is a panel-local value used before the first status message arrives
+ * or when an unrecognized string is received.
+ */
+export type MissionState = "idle" | "running" | "completed" | "aborted" | "unknown";
+
 /** A single user-entered waypoint in decimal degrees. */
 export interface Waypoint {
   /** Stable id for React keys and deletion (not the display number). */

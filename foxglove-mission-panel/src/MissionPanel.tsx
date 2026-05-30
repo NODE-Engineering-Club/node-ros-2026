@@ -6,6 +6,8 @@
 //   - GPS waypoint management: add/delete/clear waypoints, numbered markers,
 //     a mission-path polyline, and a "Launch Mission" action that publishes the
 //     waypoint list to a ROS 2 topic.
+//   - Live mission state readout (/mission/status) with a colored indicator,
+//     plus a "Stop Mission" action that calls the /mission/abort service.
 //
 // The panel is split into:
 //   - `MissionPanel`     : the React component (UI + Leaflet lifecycle)
@@ -18,7 +20,7 @@ import * as L from "leaflet";
 import { ReactElement, StrictMode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot, Root } from "react-dom/client";
 
-import { NavSatFix, POSE_ARRAY_SCHEMA, Waypoint, waypointsToPoseArray } from "./ros/messages";
+import { MissionState, NavSatFix, POSE_ARRAY_SCHEMA, StringMsg, Waypoint, waypointsToPoseArray } from "./ros/messages";
 
 import "leaflet/dist/leaflet.css";
 
@@ -27,6 +29,12 @@ const GPS_TOPIC = "/gps_driver/gps_raw";
 
 // Topic the mission waypoints are published to (geometry_msgs/PoseArray).
 const WAYPOINTS_TOPIC = "/mission/waypoints";
+
+// Topic carrying the current mission state (std_msgs/String).
+const STATUS_TOPIC = "/mission/status";
+
+// Service that aborts a running mission (std_srvs/Trigger).
+const ABORT_SERVICE = "/mission/abort";
 
 // Initial map zoom. At mid latitudes Leaflet zoom 15 shows roughly a 1 km-wide
 // view, matching the requested ~1 km radius around the boat.
@@ -44,6 +52,29 @@ type StatusKind = "info" | "error" | "success";
 interface Status {
   kind: StatusKind;
   text: string;
+}
+
+// Mission-state presentation: indicator color + label. `pulse` drives the
+// running animation defined in the injected keyframes.
+const STATE_META: Record<MissionState, { color: string; label: string; pulse: boolean }> = {
+  idle: { color: "#9e9e9e", label: "Idle", pulse: false },
+  running: { color: "#43a047", label: "Running", pulse: true },
+  completed: { color: "#1e88e5", label: "Completed", pulse: false },
+  aborted: { color: "#e53935", label: "Aborted", pulse: false },
+  unknown: { color: "#9e9e9e", label: "Unknown", pulse: false },
+};
+
+/** Coerce an arbitrary status string to a known MissionState. */
+function toMissionState(raw: string | undefined): MissionState {
+  switch (raw) {
+    case "idle":
+    case "running":
+    case "completed":
+    case "aborted":
+      return raw;
+    default:
+      return "unknown";
+  }
 }
 
 // ── Marker icons ─────────────────────────────────────────────────────────────
@@ -76,19 +107,36 @@ function waypointIcon(n: number): L.DivIcon {
 
 const styles: Record<string, React.CSSProperties> = {
   root: { display: "flex", flexDirection: "column", height: "100%", width: "100%", font: "13px sans-serif" },
-  header: { display: "flex", justifyContent: "space-between", padding: "4px 8px", fontSize: 12, opacity: 0.85 },
+  header: { display: "flex", alignItems: "center", gap: 12, padding: "4px 8px", fontSize: 12 },
+  stateBox: { display: "flex", alignItems: "center", gap: 6 },
+  dot: { width: 10, height: 10, borderRadius: "50%", display: "inline-block" },
+  boat: { opacity: 0.85 },
+  statusMsg: { marginLeft: "auto", textAlign: "right" },
   map: { flex: 1, minHeight: 160, width: "100%" },
   controls: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "6px 8px", borderTop: "1px solid rgba(127,127,127,0.3)" },
   input: { width: 110, padding: "3px 6px", boxSizing: "border-box" },
   labelInput: { width: 130, padding: "3px 6px", boxSizing: "border-box" },
   button: { padding: "4px 10px", cursor: "pointer" },
-  launch: { padding: "4px 12px", cursor: "pointer", fontWeight: "bold", marginLeft: "auto" },
+  spacer: { marginLeft: "auto" },
+  stop: { padding: "4px 12px", cursor: "pointer" },
+  launch: { padding: "4px 12px", cursor: "pointer", fontWeight: "bold" },
   list: { maxHeight: 160, overflowY: "auto", padding: "0 8px 8px" },
   row: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0", borderBottom: "1px solid rgba(127,127,127,0.2)" },
   num: { display: "inline-block", minWidth: 18, textAlign: "center", fontWeight: "bold", color: PATH_COLOR },
   coords: { flex: 1, fontFamily: "monospace" },
   del: { cursor: "pointer", padding: "1px 6px" },
 };
+
+// Keyframes for the running-state pulsing indicator. Injected once so it works
+// inside the bundled extension without an external stylesheet.
+const PULSE_CSS = `
+@keyframes njord-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(67,160,71,0.7); }
+  70%  { box-shadow: 0 0 0 6px rgba(67,160,71,0); }
+  100% { box-shadow: 0 0 0 0 rgba(67,160,71,0); }
+}
+.njord-pulse { animation: njord-pulse 1.4s infinite; }
+`;
 
 function statusColor(kind: StatusKind): string {
   return kind === "error" ? "#e53935" : kind === "success" ? "#43a047" : "inherit";
@@ -105,6 +153,7 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
   const nextIdRef = useRef(1);
 
   const [boatPos, setBoatPos] = useState<BoatPosition | undefined>();
+  const [missionState, setMissionState] = useState<MissionState>("unknown");
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [latInput, setLatInput] = useState("");
   const [lonInput, setLonInput] = useState("");
@@ -114,22 +163,33 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
 
   const [renderDone, setRenderDone] = useState<(() => void) | undefined>();
 
+  // Mission is considered active (and thus not re-launchable) while running.
+  const isRunning = missionState === "running";
+
   // ── Foxglove data subscription ────────────────────────────────────────────
   useLayoutEffect(() => {
     context.onRender = (renderState, done) => {
       setRenderDone(() => done);
       const frame = renderState.currentFrame as readonly MessageEvent[] | undefined;
-      if (frame && frame.length > 0) {
-        const last = frame[frame.length - 1];
-        const fix = last?.message as NavSatFix | undefined;
-        if (fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude)) {
-          setBoatPos({ lat: fix.latitude, lon: fix.longitude });
+      if (!frame) {
+        return;
+      }
+      // Route each message by topic; keep the latest value of each.
+      for (const ev of frame) {
+        if (ev.topic === GPS_TOPIC) {
+          const fix = ev.message as NavSatFix | undefined;
+          if (fix && Number.isFinite(fix.latitude) && Number.isFinite(fix.longitude)) {
+            setBoatPos({ lat: fix.latitude, lon: fix.longitude });
+          }
+        } else if (ev.topic === STATUS_TOPIC) {
+          const s = ev.message as StringMsg | undefined;
+          setMissionState(toMissionState(s?.data));
         }
       }
     };
 
     context.watch("currentFrame");
-    context.subscribe([{ topic: GPS_TOPIC }]);
+    context.subscribe([{ topic: GPS_TOPIC }, { topic: STATUS_TOPIC }]);
 
     return () => {
       context.onRender = undefined;
@@ -262,6 +322,10 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
       setStatus({ kind: "error", text: "Add at least one waypoint before launching." });
       return;
     }
+    if (isRunning) {
+      setStatus({ kind: "error", text: "A mission is already running — stop it first." });
+      return;
+    }
     if (!publishReady || context.publish == null) {
       setStatus({ kind: "error", text: "Publishing not available — connect to a writable data source." });
       return;
@@ -272,7 +336,29 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
     } catch (err) {
       setStatus({ kind: "error", text: `Publish failed: ${String(err)}` });
     }
-  }, [waypoints, publishReady, context]);
+  }, [waypoints, isRunning, publishReady, context]);
+
+  const stopMission = useCallback(() => {
+    if (context.callService == null) {
+      setStatus({ kind: "error", text: "Service calls not available — connect to a writable data source." });
+      return;
+    }
+    setStatus({ kind: "info", text: `Stopping mission (${ABORT_SERVICE})…` });
+    // std_srvs/Trigger takes an empty request.
+    context
+      .callService(ABORT_SERVICE, {})
+      .then((res) => {
+        const r = res as { success?: boolean; message?: string } | undefined;
+        if (r?.success === false) {
+          setStatus({ kind: "error", text: `Abort: ${r.message ?? "rejected"}` });
+        } else {
+          setStatus({ kind: "success", text: `Mission stop requested${r?.message ? `: ${r.message}` : ""}` });
+        }
+      })
+      .catch((err: unknown) => {
+        setStatus({ kind: "error", text: `Abort failed: ${String(err)}` });
+      });
+  }, [context]);
 
   // Add waypoint on Enter from any input field.
   const onInputKeyDown = useCallback(
@@ -289,12 +375,23 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
     [boatPos],
   );
 
+  const meta = STATE_META[missionState];
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={styles.root}>
+      <style>{PULSE_CSS}</style>
+
       <div style={styles.header}>
-        <span>{boatText}</span>
-        <span style={{ color: statusColor(status.kind) }}>{status.text}</span>
+        <span style={styles.stateBox}>
+          <span
+            className={meta.pulse ? "njord-pulse" : undefined}
+            style={{ ...styles.dot, background: meta.color }}
+          />
+          <span>Mission: {meta.label}</span>
+        </span>
+        <span style={styles.boat}>{boatText}</span>
+        <span style={{ ...styles.statusMsg, color: statusColor(status.kind) }}>{status.text}</span>
       </div>
 
       <div ref={mapContainerRef} style={styles.map} />
@@ -332,7 +429,10 @@ function MissionPanel({ context }: { context: PanelExtensionContext }): ReactEle
         <button style={styles.button} onClick={clearAll} disabled={waypoints.length === 0}>
           Clear all
         </button>
-        <button style={styles.launch} onClick={launchMission} disabled={waypoints.length === 0 || !publishReady}>
+        <button style={{ ...styles.stop, ...styles.spacer }} onClick={stopMission} disabled={!isRunning}>
+          Stop Mission
+        </button>
+        <button style={styles.launch} onClick={launchMission} disabled={waypoints.length === 0 || !publishReady || isRunning}>
           Launch Mission
         </button>
       </div>

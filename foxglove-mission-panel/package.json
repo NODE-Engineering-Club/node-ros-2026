@@ -24,11 +24,17 @@
   },
   "devDependencies": {
     "@foxglove/extension": "latest",
-    "create-foxglove-extension": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "create-foxglove-extension": "latest",
+    "css-loader": "7.1.4",
     "react": "latest",
     "react-dom": "latest",
+    "style-loader": "4.0.0",
     "typescript": "latest"
+  },
+  "dependencies": {
+    "@types/leaflet": "1.9.21",
+    "leaflet": "1.9.4"
   }
 }

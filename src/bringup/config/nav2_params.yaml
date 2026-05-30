@@ -102,9 +102,19 @@ local_costmap:
         cost_scaling_factor: 3.0
         inflation_radius: 1.5
 
-collision_monitor:
+behavior_server:
   ros__parameters:
-    base_frame_id: base_link
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["wait"]
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    # spin and back_up omitted until FRAME_TYPE=2 (skid-steer) is confirmed on FCU
+
+collision_monitor:
     odom_frame_id: odom
     cmd_vel_in_topic: cmd_vel_smoothed
     cmd_vel_out_topic: cmd_vel

@@ -15,6 +15,7 @@ ekf_node:
                   false, false, true,
                   true,  false, false]
 
+    # Sim: Gazebo ground-truth odometry (only published in sim)
     odom0: /odom
     odom0_config: [true,  true,  false,
                    false, false, false,
@@ -22,9 +23,12 @@ ekf_node:
                    false, false, false,
                    false, false, false]
 
-    odom1: /odometry/gps
+    # Hardware: ArduPilot EKF output via MAVROS (already fuses IMU + GPS + compass + baro).
+    # No need for a second odom from /odometry/gps — that would double-fuse GPS.
+    # Missing topics are silently ignored, so this is safe to leave in for sim too.
+    odom1: /mavros/local_position/odom
     odom1_config: [true,  true,  false,
                    false, false, false,
-                   false, false, false,
-                   false, false, false,
+                   true,  true,  false,
+                   false, false, true,
                    false, false, false]

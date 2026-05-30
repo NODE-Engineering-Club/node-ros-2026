@@ -56,8 +56,8 @@ class PidController(Node):
     def _control(self):
         now = time.monotonic()
         effort = Twist()
-        # Open-loop speed (no speed sensor yet), closed-loop yaw rate
-        effort.linear.x = self._speed_pid.compute(self._setpoint.linear.x, now)
+        # Open-loop speed passthrough (no speed sensor yet — PID would wind up)
+        effort.linear.x = self._setpoint.linear.x
         effort.angular.z = self._yaw_pid.compute(self._setpoint.angular.z - self._yaw_rate, now)
         self.pub.publish(effort)
 

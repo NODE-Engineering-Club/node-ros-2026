@@ -1,5 +1,25 @@
 # Njord 2026 — Outstanding Gaps
 
+## HIGH PRIORITY — Blocking Water Test (Wednesday)
+
+- [ ] **Disable RPP rotate-to-heading**
+  `bringup/config/nav2_params.yaml:32` enables in-place rotation
+  (`rotate_to_heading_angular_vel: 0.5`). Blocked on confirming `FRAME_TYPE`
+  on the Pixhawk via QGC. If `FRAME_TYPE=2` (skid-steer), leave enabled and
+  also enable `allow_reversing: true` and add `spin`/`back_up` to
+  `behavior_server`. If `FRAME_TYPE=0` (normal steering), set
+  `use_rotate_to_heading: false` and `allow_reversing: false`.
+
+- [ ] **Stand-test dry-run before water**
+  1. Boat on a stand, FCU + RPi + thrusters connected.
+  2. Launch the stack. Confirm: `/mavros/state.connected=true`,
+     `/imu_driver/imu_raw` + `/gps_driver/gps_raw` publishing,
+     `/odometry/filtered` position updates when boat is physically carried
+     a few meters outside.
+  3. Call `/mission/start` with a waypoint ~10 m away. Confirm thrusters
+     spin in a direction that would drive toward the goal.
+  4. Call `/mission/abort`. Confirm thrusters stop within 2 s.
+
 ## Navigation (Docking)
 
 - [ ] **Restore `opennav_docking` for the docking challenge**
@@ -24,19 +44,7 @@
   6. Sim verification before water: add a dock model to `basicWorld.sdf` and
      run a full nav-to-dock sequence end-to-end.
 
-## Simulation Stack
-
-- [x] **Full simulation stack verified working (2026-05-17)**
-  - EKF↔navsat circular dependency broken via Gazebo `OdometryPublisher` → `/odom` as EKF `odom0`
-  - GPS datum set to Trondheim (63.4305°N, 10.3951°E) in `basicWorld.sdf` — navsat converts waypoints correctly
-  - `map→odom` identity static TF (sim-only) ensures Nav2 global costmap has a map frame at startup
-  - Gazebo scoped sensor frame (`asket/base_link/Lidar_sensor`) bridged to URDF frame (`lidar`) via static TF — fixes `collision_monitor` crash
-  - `VelocityControl` plugin + `/cmd_vel` ROS→GZ bridge enables robot to physically move from Nav2 commands
-  - All Nav2 lifecycle nodes activate cleanly; WP1 `Goal succeeded` confirmed in simulation
-
 ## Sensor Data Processing Tests
-
-Next objective: validate the sensor pipeline nodes in simulation before hardware testing.
 
 - [ ] **Verify `lidar_obstacle_node` output in sim**
   Launch with `use_sim:=true`, check `/obstacles/lidar` is published at ~15 Hz with `width > 0`.
@@ -93,17 +101,6 @@ Next objective: validate the sensor pipeline nodes in simulation before hardware
   nearest-neighbour association (threshold ~2 m) and a configurable TTL
   (e.g. 8 s). Publish map state as a separate `/obstacles/tracked` topic.
 
-## Transforms (TF)
-
-- [x] **TF tree implemented and verified**
-  Fixed three frame-name mismatches that were silently breaking the entire stack:
-  - Renamed URDF root link `hull` → `base_link` (EKF and Nav2 both expect `base_link`)
-  - Renamed URDF links `Lidar` → `lidar`, `Lidar_joint` → `lidar_mount` (to match `lidar_driver` `frame_id`)
-  - Added `frame_id` parameter to `camera_driver` (default `front_camera`); passed explicitly in launch
-  - Added explicit `lidar_frame`/`camera_frame` params to `fusion_node` in launch
-  `robot_state_publisher` now broadcasts the complete static sensor tree from the URDF.
-  Verified with `ros2 run tf2_tools view_frames` — full tree present, all frames correct.
-
 ## Control
 
 - [ ] **Close the speed loop in `pid_controller`**
@@ -128,26 +125,7 @@ Next objective: validate the sensor pipeline nodes in simulation before hardware
   `desired_linear_vel`, `lookahead_dist`, and `min_lookahead_dist` based on
   real on-water measurements.
 
-- [ ] **Set competition waypoints in `mission_manager`**
-  `mission/mission/mission_manager.py` has placeholder coordinates
-  (Trondheim test area). Replace with actual Njord 2026 competition waypoints
-  before deployment.
-
-## Sensors
-
-- [x] **Camera device path configurable**
-  `camera_driver` accepts a `device` ROS parameter (default `/dev/video0`) and a
-  `frame_id` parameter (default `front_camera`). Override via `camera_device` launch
-  argument, e.g. `ros2 launch bringup njord.launch.py camera_device:=/dev/video1`.
-
 ## Infrastructure
-
-- [ ] **Add a hardware-in-the-loop smoke test**
-  No integration test exists. Write a minimal test that:
-  1. Launches the full stack with `ros2 launch /launch/njord.launch.py`
-  2. Asserts that `/obstacles/fused`, `/odometry/filtered`, and `/cmd_vel` are
-     publishing within 10 s of startup
-  Run this as a CI check before every deploy.
 
 - [ ] **Bind-mount config at runtime instead of baking it in the image**
   `config/` is `COPY`-ed into the image at build time. Field params (EKF

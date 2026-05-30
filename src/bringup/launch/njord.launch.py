@@ -67,6 +67,9 @@ def generate_launch_description():
                     "gcs_url": "udp://@localhost:14556",
                     "tgt_system": 1,
                     "tgt_component": 1,
+                    "local_position.frame_id": "odom",
+                    "local_position.tf.child_frame_id": "base_link",
+                    "local_position.rate": 30.0,
                 },
                 sim_time,
             ],
@@ -232,14 +235,16 @@ def generate_launch_description():
             name="foxglove_bridge",
             condition=IfCondition(LaunchConfiguration("enable_foxglove")),
         ),
-        # Sim-only: publish static map→odom identity TF so Nav2 global costmap has a map frame.
-        # In hardware mode, navsat_transform_node drives map→odom via a second EKF (not yet wired).
+        # Static map→odom identity TF.
+        # ArduPilot's onboard EKF (or Gazebo in sim) gives us a globally-anchored
+        # odom frame — odom origin == GPS home / Gazebo world origin. So map and
+        # odom are coincident and we publish identity. /fromLL still works because
+        # navsat_transform_node establishes its own datum from the first GPS fix.
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="static_map_odom_tf",
             arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
-            condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
         # Sim-only: Gazebo names sensor frames with the full scoped model path
         # (e.g. "asket/base_link/Lidar_sensor") while the TF tree only has the URDF link "lidar".

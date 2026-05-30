@@ -1,0 +1,34 @@
+{
+  "name": "njord-mission-panel",
+  "displayName": "Njord Mission Panel",
+  "description": "Map view and GPS waypoint management for the Njord 2026 ASV (Asket).",
+  "publisher": "node-engineering-club",
+  "homepage": "https://github.com/NODE-Engineering-Club",
+  "license": "MIT",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/extension.js",
+  "keywords": [
+    "foxglove",
+    "extension",
+    "ros2",
+    "njord",
+    "asv"
+  ],
+  "scripts": {
+    "build": "foxglove-extension build",
+    "lint": "tsc --noEmit",
+    "local-install": "foxglove-extension install",
+    "package": "foxglove-extension package",
+    "foxglove:prepublish": "foxglove-extension build --mode production"
+  },
+  "devDependencies": {
+    "@foxglove/extension": "latest",
+    "@foxglove/studio-base": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "latest"
+  }
+}

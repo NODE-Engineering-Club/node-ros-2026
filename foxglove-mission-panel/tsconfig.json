@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    // Target a modern runtime — Foxglove Studio runs on current Chromium/Electron.
+    "target": "es2020",
+    "lib": ["es2020", "dom", "dom.iterable"],
+
+    // React 17+ automatic JSX runtime: no need to import React in every file.
+    "jsx": "react-jsx",
+
+    // Module resolution tuned for a bundler (webpack via the foxglove-extension CLI).
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+
+    // Strictness — keep the panel code honest. Easy to extend safely later.
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // We only typecheck here; the foxglove-extension CLI emits the bundle.
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

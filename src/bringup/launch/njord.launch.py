@@ -2,15 +2,21 @@ import os
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch_ros.actions import Node, SetParameter
+from launch_ros.descriptions import ParameterFile
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
     cfg = get_package_share_directory("bringup") + "/config"
+    nav2_params = ParameterFile(
+        RewrittenYaml(source_file=cfg + "/nav2_params.yaml", param_rewrites={}, convert_types=True),
+        allow_substs=True,
+    )
     desc_share = get_package_share_directory("description")
     urdf = xacro.process_file(desc_share + "/urdf/asket.urdf.xacro").toxml()
     # Write URDF next to the meshes/ directory so Gazebo resolves relative mesh paths
@@ -51,13 +57,19 @@ def generate_launch_description():
             package="mavros",
             executable="mavros_node",
             name="mavros",
-            condition=IfCondition(LaunchConfiguration("enable_mavros")),
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_mavros"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
             parameters=[
                 {
-                    "fcu_url": "udp://:14550@localhost:14555",
+                    "fcu_url": "tcp://localhost:5760",
                     "gcs_url": "udp://@localhost:14556",
                     "tgt_system": 1,
                     "tgt_component": 1,
+                    "local_position.frame_id": "odom",
+                    "local_position.tf.child_frame_id": "base_link",
+                    "local_position.rate": 30.0,
                 },
                 sim_time,
             ],
@@ -75,41 +87,74 @@ def generate_launch_description():
             executable="navsat_transform_node",
             name="navsat_transform_node",
             condition=IfCondition(LaunchConfiguration("enable_localization")),
+            remappings=[("gps/fix", "/gps_driver/gps_raw"), ("imu/data", "/imu_driver/imu_raw")],
             parameters=[cfg + "/navsat.yaml", sim_time],
         ),
-        # Nav2 — collision_monitor disabled (no polygons defined)
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                get_package_share_directory("nav2_bringup")
-                + "/launch/navigation_launch.py"
-            ),
-            launch_arguments={
-                "params_file": cfg + "/nav2_params.yaml",
-                "use_collision_monitor": "False",
-                "use_sim_time": LaunchConfiguration("use_sim"),
-            }.items(),
+        # Nav2 — individual nodes so we can omit opennav_docking (unsupported on USV)
+        GroupAction(
             condition=IfCondition(LaunchConfiguration("enable_nav2")),
+            actions=[
+                SetParameter("use_sim_time", LaunchConfiguration("use_sim")),
+            ] + [
+                Node(package=pkg, executable=exe, name=name, output="screen",
+                     parameters=[nav2_params], remappings=[("/tf", "tf"), ("/tf_static", "tf_static")])
+                for pkg, exe, name in [
+                    ("nav2_controller",      "controller_server",  "controller_server"),
+                    ("nav2_smoother",        "smoother_server",    "smoother_server"),
+                    ("nav2_planner",         "planner_server",     "planner_server"),
+                    ("nav2_route",           "route_server",       "route_server"),
+                    ("nav2_behaviors",       "behavior_server",    "behavior_server"),
+                    ("nav2_bt_navigator",    "bt_navigator",       "bt_navigator"),
+                    ("nav2_waypoint_follower","waypoint_follower",  "waypoint_follower"),
+                    ("nav2_velocity_smoother","velocity_smoother", "velocity_smoother"),
+                    ("nav2_collision_monitor","collision_monitor",  "collision_monitor"),
+                ]
+            ] + [
+                Node(
+                    package="nav2_lifecycle_manager",
+                    executable="lifecycle_manager",
+                    name="lifecycle_manager_navigation",
+                    output="screen",
+                    parameters=[{
+                        "autostart": True,
+                        "node_names": [
+                            "controller_server", "smoother_server", "planner_server",
+                            "route_server", "behavior_server", "velocity_smoother",
+                            "collision_monitor", "bt_navigator", "waypoint_follower",
+                        ],
+                    }],
+                ),
+            ],
         ),
         # Sensors
         Node(
             package="sensors",
             executable="camera_driver",
             name="camera_driver",
-            condition=IfCondition(LaunchConfiguration("enable_sensors")),
-            parameters=[{"device": LaunchConfiguration("camera_device")}, sim_time],
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_sensors"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
+            parameters=[{"device": LaunchConfiguration("camera_device"), "frame_id": "front_camera", "topic": "/front_camera_driver/image_raw"}, sim_time],
         ),
         Node(
             package="sensors",
             executable="lidar_driver",
             name="lidar_driver",
-            condition=IfCondition(LaunchConfiguration("enable_sensors")),
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_sensors"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
             parameters=[{"device": LaunchConfiguration("lidar_device")}, sim_time],
         ),
         Node(
             package="sensors",
             executable="imu_gps_driver",
             name="imu_gps_driver",
-            condition=IfCondition(LaunchConfiguration("enable_sensors")),
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_sensors"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
             parameters=[sim_time],
         ),
         # Perception
@@ -125,7 +170,7 @@ def generate_launch_description():
             executable="fusion_node",
             name="fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
-            parameters=[sim_time],
+            parameters=[{"lidar_frame": "lidar", "camera_frame": "front_camera"}, sim_time],
         ),
         # Control
         Node(
@@ -146,7 +191,10 @@ def generate_launch_description():
             package="control",
             executable="actuator_driver",
             name="actuator_driver",
-            condition=IfCondition(LaunchConfiguration("enable_control")),
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
             parameters=[sim_time],
         ),
         # Mission
@@ -187,6 +235,27 @@ def generate_launch_description():
             name="foxglove_bridge",
             condition=IfCondition(LaunchConfiguration("enable_foxglove")),
         ),
+        # Static map→odom identity TF.
+        # ArduPilot's onboard EKF (or Gazebo in sim) gives us a globally-anchored
+        # odom frame — odom origin == GPS home / Gazebo world origin. So map and
+        # odom are coincident and we publish identity. /fromLL still works because
+        # navsat_transform_node establishes its own datum from the first GPS fix.
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="static_map_odom_tf",
+            arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+        ),
+        # Sim-only: Gazebo names sensor frames with the full scoped model path
+        # (e.g. "asket/base_link/Lidar_sensor") while the TF tree only has the URDF link "lidar".
+        # This static identity TF bridges the gap so collision_monitor can look up the transform.
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="static_lidar_sensor_tf",
+            arguments=["0", "0", "0", "0", "0", "0", "lidar", "asket/base_link/Lidar_sensor"],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
         Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
@@ -197,7 +266,7 @@ def generate_launch_description():
         ),
         # Gazebo simulation
         ExecuteProcess(
-            cmd=["gz", "sim", world],
+            cmd=["gz", "sim", "-r", world],
             output="screen",
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),

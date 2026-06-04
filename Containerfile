@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-nav2-bringup \
     # Control / Mission
     ros-jazzy-nav2-msgs \
+    # Custom message generation
+    ros-jazzy-rosidl-default-generators \
     # Telemetry bridge
     # ros-jazzy-rosbridge-suite \
     # ros-jazzy-web-video-server \

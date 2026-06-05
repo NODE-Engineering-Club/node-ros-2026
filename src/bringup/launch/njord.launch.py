@@ -266,7 +266,7 @@ def generate_launch_description():
         ),
         # Gazebo simulation
         ExecuteProcess(
-            cmd=["gz", "sim", "-r", world],
+            cmd=["gz", "sim", "-r", world] if "DISPLAY" in os.environ else ["gz", "sim", "-s", "-r", world],
             output="screen",
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),

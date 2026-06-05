@@ -40,12 +40,12 @@
     </inertial>
     <visual>
       <geometry>
-        <mesh filename="meshes/L_prop_blade_visual.obj" />
+        <mesh filename="package://description/meshes/L_prop_blade_visual.obj" />
       </geometry>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/L_prop_blade_collision.stl" />
+        <mesh filename="package://description/meshes/L_prop_blade_collision.stl" />
       </geometry>
     </collision>
   </link>
@@ -57,13 +57,13 @@
     <visual>
       <origin xyz="0 0 -0.02131" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/L_prop_body_visual.obj" />
+        <mesh filename="package://description/meshes/L_prop_body_visual.obj" />
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 -0.02131" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/L_prop_body_collision.stl" />
+        <mesh filename="package://description/meshes/L_prop_body_collision.stl" />
       </geometry>
     </collision>
   </link>
@@ -139,14 +139,14 @@
     <visual>
       <origin xyz="0.05313 -0.000017 -0.013484" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/hull_visual.obj" />
+        <mesh filename="package://description/meshes/hull_visual.obj" />
       </geometry>
       <material name="hull" />
     </visual>
     <collision>
       <origin xyz="0.053118 -0.000017 -0.013613" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/hull_collision.stl" />
+        <mesh filename="package://description/meshes/hull_collision.stl" />
       </geometry>
     </collision>
   </link>
@@ -174,12 +174,12 @@
     </inertial>
     <visual>
       <geometry>
-        <mesh filename="meshes/r_prop_blade_visual.obj" />
+        <mesh filename="package://description/meshes/r_prop_blade_visual.obj" />
       </geometry>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/r_prop_blade_collision.stl" />
+        <mesh filename="package://description/meshes/r_prop_blade_collision.stl" />
       </geometry>
     </collision>
   </link>
@@ -191,13 +191,13 @@
     <visual>
       <origin xyz="0 0 -0.021311" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/r_prop_body_visual.obj" />
+        <mesh filename="package://description/meshes/r_prop_body_visual.obj" />
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 -0.021311" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/r_prop_body_collision.stl" />
+        <mesh filename="package://description/meshes/r_prop_body_collision.stl" />
       </geometry>
     </collision>
   </link>

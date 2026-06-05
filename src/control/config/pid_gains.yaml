@@ -1,8 +1,11 @@
 /pid_controller:
   ros__parameters:
     # Speed PID — controls forward throttle
+    # kp=0.5 gives instant response on VelocityControl plant.
+    # ki reduced from 0.1 to 0.02: EKF velocity has slight negative bias
+    # causing integral windup at ki=0.1 (effort drifts ~+0.12 over 5s).
     kp_speed: 0.5
-    ki_speed: 0.1
+    ki_speed: 0.02
     kd_speed: 0.0
 
     # Yaw PID — controls steering

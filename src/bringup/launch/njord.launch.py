@@ -8,18 +8,24 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, SetParameter
 from launch_ros.descriptions import ParameterFile
-from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
     cfg = get_package_share_directory("bringup") + "/config"
-    nav2_params = ParameterFile(
-        RewrittenYaml(source_file=cfg + "/nav2_params.yaml", param_rewrites={}, convert_types=True),
-        allow_substs=True,
-    )
+    try:
+        from nav2_common.launch import RewrittenYaml
+        nav2_params = ParameterFile(
+            RewrittenYaml(source_file=cfg + "/nav2_params.yaml", param_rewrites={}, convert_types=True),
+            allow_substs=True,
+        )
+    except ImportError:
+        nav2_params = cfg + "/nav2_params.yaml"
     desc_share = get_package_share_directory("description")
     urdf = xacro.process_file(desc_share + "/urdf/asket.urdf.xacro").toxml()
-    # Write URDF next to the meshes/ directory so Gazebo resolves relative mesh paths
+    # Resolve package:// mesh URIs to absolute file:// paths so Gazebo Sim can find
+    # them regardless of GZ_SIM_RESOURCE_PATH configuration.
+    meshes_dir = os.path.join(desc_share, "meshes")
+    urdf = urdf.replace("package://description/meshes/", f"file://{meshes_dir}/")
     urdf_path = os.path.join(desc_share, "asket.urdf")
     with open(urdf_path, "w") as f:
         f.write(urdf)
@@ -185,17 +191,14 @@ def generate_launch_description():
             executable="pid_controller",
             name="pid_controller",
             condition=IfCondition(LaunchConfiguration("enable_control")),
-            parameters=[sim_time],
+            parameters=[get_package_share_directory("control") + "/config/pid_gains.yaml", sim_time],
         ),
         Node(
             package="control",
             executable="actuator_driver",
             name="actuator_driver",
-            condition=IfCondition(PythonExpression([
-                "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
-                LaunchConfiguration("use_sim"), "' != 'true'"
-            ])),
-            parameters=[sim_time],
+            condition=IfCondition(LaunchConfiguration("enable_control")),
+            parameters=[sim_time, {"use_sim": LaunchConfiguration("use_sim")}],
         ),
         # Mission
         Node(
@@ -247,13 +250,20 @@ def generate_launch_description():
             arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
         ),
         # Sim-only: Gazebo names sensor frames with the full scoped model path
-        # (e.g. "asket/base_link/Lidar_sensor") while the TF tree only has the URDF link "lidar".
-        # This static identity TF bridges the gap so collision_monitor can look up the transform.
+        # (e.g. "asket/base_link/Lidar_sensor") while the TF tree only has the URDF link name.
+        # These static identity TFs bridge the gap for navsat_transform and collision_monitor.
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
             name="static_lidar_sensor_tf",
             arguments=["0", "0", "0", "0", "0", "0", "lidar", "asket/base_link/Lidar_sensor"],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="static_gps_sensor_tf",
+            arguments=["0", "0", "0", "0", "0", "0", "GPS", "asket/base_link/GPS_sensor"],
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
         Node(

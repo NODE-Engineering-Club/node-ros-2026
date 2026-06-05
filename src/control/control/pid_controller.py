@@ -41,6 +41,7 @@ class PidController(Node):
         self._speed = 0.0
         self._last_imu_time = None
         self._last_vel_time = None
+        self._has_setpoint = False
 
         self.pub = self.create_publisher(Twist, "/control/effort", 10)
         self.create_subscription(Twist, "/control/setpoint", self._sp_cb, 10)
@@ -60,6 +61,7 @@ class PidController(Node):
         return SetParametersResult(successful=True)
 
     def _sp_cb(self, msg):
+        self._has_setpoint = True
         self._speed_pid.setpoint = msg.linear.x
         self._yaw_pid.setpoint = msg.angular.z
 
@@ -72,6 +74,9 @@ class PidController(Node):
         self._last_vel_time = self.get_clock().now()
 
     def _control(self):
+        if not self._has_setpoint:
+            return
+
         now = self.get_clock().now()
 
         if self._last_imu_time is not None:

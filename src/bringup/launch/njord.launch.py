@@ -2,15 +2,14 @@ import os
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParameter
 from launch_ros.descriptions import ParameterFile
 
 
-def generate_launch_description():
+def launch_setup(context, *args, **kwargs):
     cfg = get_package_share_directory("bringup") + "/config"
     try:
         from nav2_common.launch import RewrittenYaml
@@ -20,8 +19,14 @@ def generate_launch_description():
         )
     except ImportError:
         nav2_params = cfg + "/nav2_params.yaml"
+
     desc_share = get_package_share_directory("description")
-    urdf = xacro.process_file(desc_share + "/urdf/asket.urdf.xacro").toxml()
+    use_velocity_control = context.perform_substitution(LaunchConfiguration("use_velocity_control"))
+
+    urdf = xacro.process_file(
+        desc_share + "/urdf/asket.urdf.xacro",
+        mappings={"use_velocity_control": use_velocity_control},
+    ).toxml()
     # Resolve package:// mesh URIs to absolute file:// paths so Gazebo Sim can find
     # them regardless of GZ_SIM_RESOURCE_PATH configuration.
     meshes_dir = os.path.join(desc_share, "meshes")
@@ -32,23 +37,6 @@ def generate_launch_description():
     world = os.path.join(desc_share, "worlds", "basicWorld.sdf")
 
     # fmt: off
-    args = [
-        DeclareLaunchArgument("enable_mavros",       default_value="true"),
-        DeclareLaunchArgument("enable_localization",  default_value="true"),
-        DeclareLaunchArgument("enable_nav2",          default_value="true"),
-        DeclareLaunchArgument("enable_sensors",       default_value="true"),
-        DeclareLaunchArgument("enable_perception",    default_value="true"),
-        DeclareLaunchArgument("enable_control",       default_value="true"),
-        DeclareLaunchArgument("enable_mission",       default_value="true"),
-        DeclareLaunchArgument("enable_vision",        default_value="true"),
-        DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
-        DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
-        DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
-        DeclareLaunchArgument("use_sim",         default_value="false"),
-        DeclareLaunchArgument("enable_foxglove",      default_value="true"),
-    ]
-    # fmt: on
-
     sim_time = {"use_sim_time": LaunchConfiguration("use_sim")}
 
     nodes = [
@@ -219,19 +207,6 @@ def generate_launch_description():
                 sim_time,
             ],
         ),
-        # Telemetry — rosbridge WebSocket (port 9090) + MJPEG video server (port 8080)
-        # Node(
-        #     package="rosbridge_server",
-        #     executable="rosbridge_websocket",
-        #     name="rosbridge_websocket",
-        #     parameters=[{"port": 9090}, sim_time],
-        # ),
-        # Node(
-        #     package="web_video_server",
-        #     executable="web_video_server",
-        #     name="web_video_server",
-        #     parameters=[{"port": 8080}, sim_time],
-        # ),
         Node(
             package="foxglove_bridge",
             executable="foxglove_bridge",
@@ -298,5 +273,28 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
     ]
+    # fmt: on
+    return nodes
 
-    return LaunchDescription(args + nodes)
+
+def generate_launch_description():
+    # fmt: off
+    args = [
+        DeclareLaunchArgument("enable_mavros",          default_value="true"),
+        DeclareLaunchArgument("enable_localization",    default_value="true"),
+        DeclareLaunchArgument("enable_nav2",            default_value="true"),
+        DeclareLaunchArgument("enable_sensors",         default_value="true"),
+        DeclareLaunchArgument("enable_perception",      default_value="true"),
+        DeclareLaunchArgument("enable_control",         default_value="true"),
+        DeclareLaunchArgument("enable_mission",         default_value="true"),
+        DeclareLaunchArgument("enable_vision",          default_value="true"),
+        DeclareLaunchArgument("vision_confidence",      default_value="0.5"),
+        DeclareLaunchArgument("camera_device",          default_value="/dev/video0"),
+        DeclareLaunchArgument("lidar_device",           default_value="/dev/ttyUSB0"),
+        DeclareLaunchArgument("use_sim",                default_value="false"),
+        DeclareLaunchArgument("enable_foxglove",        default_value="true"),
+        DeclareLaunchArgument("use_velocity_control",   default_value="true",
+                              description="true=PID-controlled via cmd_vel, false=physics drift only"),
+    ]
+    # fmt: on
+    return LaunchDescription(args + [OpaqueFunction(function=launch_setup)])

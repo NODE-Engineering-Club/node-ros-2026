@@ -6,6 +6,7 @@
   Date: 2026-05-08 18:18:56
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="asket">
+  <xacro:arg name="use_velocity_control" default="true"/>
   <!-- Properties -->
   <xacro:property name="hull" value="0.073237 0.073237 0.073237 1" />
   <xacro:property name="camera_width" value="0.065" />
@@ -373,11 +374,13 @@
     </plugin>
   </gazebo>
   <!-- Sim velocity controller: directly applies cmd_vel Twist to the model body.
-       Appropriate for a surface vessel where thruster dynamics aren't simulated. -->
-  <gazebo>
-    <plugin filename="gz-sim-velocity-control-system"
-            name="gz::sim::systems::VelocityControl">
-      <cmd_vel_topic>/cmd_vel</cmd_vel_topic>
-    </plugin>
-  </gazebo>
+       Set use_velocity_control:=false at launch to disable and let physics drive the boat. -->
+  <xacro:if value="$(arg use_velocity_control)">
+    <gazebo>
+      <plugin filename="gz-sim-velocity-control-system"
+              name="gz::sim::systems::VelocityControl">
+        <cmd_vel_topic>cmd_vel</cmd_vel_topic>
+      </plugin>
+    </gazebo>
+  </xacro:if>
 </robot>

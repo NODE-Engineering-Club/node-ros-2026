@@ -115,6 +115,7 @@ behavior_server:
     # spin and back_up omitted until FRAME_TYPE=2 (skid-steer) is confirmed on FCU
 
 collision_monitor:
+  ros__parameters:
     odom_frame_id: odom
     cmd_vel_in_topic: cmd_vel_smoothed
     cmd_vel_out_topic: cmd_vel

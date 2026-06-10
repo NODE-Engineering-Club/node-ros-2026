@@ -8,7 +8,7 @@ from control.actuator_driver import ActuatorDriver
 def main(args=None):
     rclpy.init(args=args)
     executor = MultiThreadedExecutor()
-    nodes = [NavToPid(), PidController(), ActuatorDriver()], BuoyDecisionNode()
+    nodes = [NavToPid(), PidController(), ActuatorDriver()]
     for n in nodes:
         executor.add_node(n)
     try:

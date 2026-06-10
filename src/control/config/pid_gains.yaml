@@ -1,0 +1,11 @@
+/pid_controller:
+  ros__parameters:
+    # Speed PID — controls forward throttle
+    kp_speed: 0.5
+    ki_speed: 0.1
+    kd_speed: 0.0
+
+    # Yaw PID — controls steering
+    kp_yaw: 1.0
+    ki_yaw: 0.0
+    kd_yaw: 0.1

@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>sim</name>
+  <version>0.0.2</version>
+  <description>2D Python simulator for Asket ASV — aligned with Njord stack</description>
+  <maintainer email="node@iaac.net">NODE</maintainer>
+  <license>MIT</license>
+
+  <!-- Runtime deps -->
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <!-- Launch deps -->
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
+  <exec_depend>bringup</exec_depend>
+  <exec_depend>description</exec_depend>
+  <exec_depend>perception</exec_depend>
+  <exec_depend>mission</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

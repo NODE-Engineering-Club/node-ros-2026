@@ -1,7 +1,5 @@
 from setuptools import setup
-
 package_name = "control"
-
 setup(
     name=package_name,
     version="0.1.0",
@@ -23,6 +21,7 @@ setup(
             "pid_controller = control.pid_controller:main",
             "actuator_driver = control.actuator_driver:main",
             "control_all = control.launch_all:main",
+            "pico_bridge = control.pico_bridge:main",
         ],
     },
 )

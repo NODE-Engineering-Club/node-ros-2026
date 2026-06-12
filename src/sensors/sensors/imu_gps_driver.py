@@ -9,8 +9,8 @@ class ImuGpsDriver(Node):
     def __init__(self):
         super().__init__("imu_gps_driver")
 
-        self.imu_pub = self.create_publisher(Imu, "/imu/data", 10)
-        self.gps_pub = self.create_publisher(NavSatFix, "/gps/fix", 10)
+        self.imu_pub = self.create_publisher(Imu, "/imu_driver/imu_raw", 10)
+        self.gps_pub = self.create_publisher(NavSatFix, "/gps_driver/gps_raw", 10)
 
         self.create_subscription(Imu, "/mavros/imu/data", self._imu_cb, 10)
         self.create_subscription(NavSatFix, "/mavros/global_position/raw/fix", self._gps_cb, 10)

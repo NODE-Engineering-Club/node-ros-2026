@@ -11,7 +11,7 @@
     },
     "workspaceFolder": "/workspace",
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-    "postCreateCommand": "bash -c 'chmod a+rw /dev/ttyUSB0 /dev/video0 2>/dev/null || true && source /opt/ros/jazzy/setup.bash && pip install --break-system-packages --no-cache-dir \"numpy<2\" onnxruntime opencv-python-headless rplidar-roboticia && colcon build --symlink-install'",
+    "postCreateCommand": "bash -c 'chmod a+rw /dev/ttyUSB0 /dev/video0 2>/dev/null || true && source /opt/ros/jazzy/setup.bash && pip install --break-system-packages --no-cache-dir \"numpy<2\" onnxruntime opencv-python-headless rplidar-roboticia simple-pid && colcon build --symlink-install'",
     "customizations": {
         "vscode": {
             "extensions": [

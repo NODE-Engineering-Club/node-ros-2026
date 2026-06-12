@@ -17,7 +17,7 @@ public:
 
     odom_sub_ =
       create_subscription<nav_msgs::msg::Odometry>(
-        "/odom",
+        "/odometry/gps",
         10,
         std::bind(
           &BoatBTNode::odom_callback,

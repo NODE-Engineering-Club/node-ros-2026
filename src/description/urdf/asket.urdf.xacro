@@ -364,10 +364,18 @@
       <imu />
     </sensor>
   </gazebo>
-  <!-- Disable gravity on the hull — the boat floats on water; no buoyancy plugin is simulated. -->
-  <gazebo reference="base_link">
-    <gravity>false</gravity>
-  </gazebo>
+  <!-- Disable gravity on all links — the boat floats on water; no buoyancy plugin is simulated. -->
+  <gazebo reference="base_link">    <gravity>false</gravity>  </gazebo>
+  <gazebo reference="GPS">          <gravity>false</gravity>  </gazebo>
+  <gazebo reference="L_prop_blade"> <gravity>false</gravity>  </gazebo>
+  <gazebo reference="L_prop_body">  <gravity>false</gravity>  </gazebo>
+  <gazebo reference="r_prop_blade"> <gravity>false</gravity>  </gazebo>
+  <gazebo reference="r_prop_body">  <gravity>false</gravity>  </gazebo>
+  <gazebo reference="lidar">        <gravity>false</gravity>  </gazebo>
+  <gazebo reference="lidar_mount">  <gravity>false</gravity>  </gazebo>
+  <gazebo reference="front_camera"> <gravity>false</gravity>  </gazebo>
+  <gazebo reference="back_camera">  <gravity>false</gravity>  </gazebo>
+  <gazebo reference="px4">          <gravity>false</gravity>  </gazebo>
   <gazebo>
     <plugin filename="gz-sim-odometry-publisher-system"
             name="gz::sim::systems::OdometryPublisher">

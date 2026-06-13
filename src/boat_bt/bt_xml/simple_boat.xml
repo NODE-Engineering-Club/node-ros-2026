@@ -1,0 +1,9 @@
+<root BTCPP_format="4">
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <WaitForOdom/>
+      <MoveForward duration_ms="5000" speed="0.5"/>
+      <StopBoat/>
+    </Sequence>
+  </BehaviorTree>
+</root>

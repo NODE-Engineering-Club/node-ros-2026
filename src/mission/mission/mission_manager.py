@@ -25,6 +25,7 @@ class MissionManager(Node):
         self._navigating = False
         self._active = False
         self._nav_handle = None
+        self._timer = None
 
         self.get_logger().info("Mission manager ready — call /mission/start to begin")
 
@@ -41,12 +42,18 @@ class MissionManager(Node):
             res.message = "Mission already running — call /mission/abort first"
             return res
 
+        # Clear any existing timer just in case
+        self._cleanup_timer()
+
         self._waypoints = req.waypoints
         self._idx = 0
         self._navigating = False
         self._active = True
         self.get_logger().info(f"Mission started: {len(self._waypoints)} waypoints")
-        self.create_timer(1.0, self._tick)
+        
+        # Start the tick timer
+        self._timer = self.create_timer(1.0, self._tick)
+        
         res.success = True
         res.message = f"{len(self._waypoints)} waypoints accepted"
         return res
@@ -69,6 +76,7 @@ class MissionManager(Node):
         if self._idx >= len(self._waypoints):
             self.get_logger().info("Mission complete")
             self._active = False
+            self._cleanup_timer()  # Done with the mission, stop ticking
             return
         if not self._nav.wait_for_server(timeout_sec=0.5):
             self.get_logger().info("Waiting for Nav2...", throttle_duration_sec=5.0)
@@ -122,7 +130,15 @@ class MissionManager(Node):
         if self._nav_handle is not None:
             self._nav_handle.cancel_goal_async()
             self._nav_handle = None
+        self._cleanup_timer()  # Cancelled mission, stop ticking
         self.get_logger().info("Mission aborted")
+
+    def _cleanup_timer(self):
+        """Safely stops and destroys the tick timer if it exists."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self.destroy_timer(self._timer)
+            self._timer = None
 
 
 def main(args=None):
@@ -135,3 +151,7 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

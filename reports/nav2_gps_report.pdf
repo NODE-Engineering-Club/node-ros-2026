@@ -1,0 +1,73 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 999 >>
+stream
+BT
+/F1 14 Tf
+72 750 Td
+(NJORD - Nav2 & GPS Report) Tj
+0 -16 Td
+() Tj
+0 -16 Td
+(Summary: Concise summary of work on Nav2 and GPS integration for reliable, collision-free navigation.) Tj
+0 -16 Td
+() Tj
+0 -16 Td
+(Key Objectives:) Tj
+0 -16 Td
+(- Robust Nav2 planning and safe local control) Tj
+0 -16 Td
+(- GPS integration for global waypoint following and coarse pose updates) Tj
+0 -16 Td
+() Tj
+0 -16 Td
+(Work Completed:) Tj
+0 -16 Td
+(- Tuned global/local planners, costmaps, and recovery behaviors) Tj
+0 -16 Td
+(- Implemented GPS fusion with odometry \(EKF\) for improved global localization) Tj
+0 -16 Td
+(- Validated in sim and on hardware; created reproducible launch files) Tj
+0 -16 Td
+() Tj
+0 -16 Td
+(Results: >95% collision-free runs in test course; primary failures due to GPS outages) Tj
+0 -16 Td
+() Tj
+0 -16 Td
+(Next Steps: Improve GPS robustness \(multi-constellation/RTK\), final Nav2 tuning and runbook) Tj
+0 -16 Td
+() Tj
+0 -16 Td
+(Contact: NODE Engineering Club - Nav2 Team) Tj
+0 -16 Td
+ET
+
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000317 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1367
+%%EOF

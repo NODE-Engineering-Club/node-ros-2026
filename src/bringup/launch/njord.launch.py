@@ -2,49 +2,39 @@ import os
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParameter
 from launch_ros.descriptions import ParameterFile
-from nav2_common.launch import RewrittenYaml
 
 
-def generate_launch_description():
+def launch_setup(context, *args, **kwargs):
     cfg = get_package_share_directory("bringup") + "/config"
-    nav2_params = ParameterFile(
-        RewrittenYaml(source_file=cfg + "/nav2_params.yaml", param_rewrites={}, convert_types=True),
-        allow_substs=True,
-    )
+    try:
+        from nav2_common.launch import RewrittenYaml
+        nav2_params = ParameterFile(
+            RewrittenYaml(source_file=cfg + "/nav2_params.yaml", param_rewrites={}, convert_types=True),
+            allow_substs=True,
+        )
+    except ImportError:
+        nav2_params = cfg + "/nav2_params.yaml"
+
     desc_share = get_package_share_directory("description")
-    urdf = xacro.process_file(desc_share + "/urdf/asket.urdf.xacro").toxml()
+    use_velocity_control = context.perform_substitution(LaunchConfiguration("use_velocity_control"))
+    urdf = xacro.process_file(
+        desc_share + "/urdf/asket.urdf.xacro",
+        mappings={"use_velocity_control": use_velocity_control},
+    ).toxml()
     # Write URDF next to the meshes/ directory so Gazebo resolves relative mesh paths
     urdf_path = os.path.join(desc_share, "asket.urdf")
     with open(urdf_path, "w") as f:
         f.write(urdf)
     world = os.path.join(desc_share, "worlds", "basicWorld.sdf")
 
-    # fmt: off
-    args = [
-        DeclareLaunchArgument("enable_mavros",       default_value="true"),
-        DeclareLaunchArgument("enable_localization",  default_value="true"),
-        DeclareLaunchArgument("enable_nav2",          default_value="true"),
-        DeclareLaunchArgument("enable_sensors",       default_value="true"),
-        DeclareLaunchArgument("enable_perception",    default_value="true"),
-        DeclareLaunchArgument("enable_control",       default_value="true"),
-        DeclareLaunchArgument("enable_mission",       default_value="true"),
-        DeclareLaunchArgument("enable_vision",        default_value="true"),
-        DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
-        DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
-        DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
-        DeclareLaunchArgument("use_sim",         default_value="false"),
-        DeclareLaunchArgument("enable_foxglove",      default_value="true"),
-    ]
-    # fmt: on
-
     sim_time = {"use_sim_time": LaunchConfiguration("use_sim")}
 
+    # fmt: off
     nodes = [
         # Robot description — publishes TF frames from URDF
         Node(
@@ -185,17 +175,14 @@ def generate_launch_description():
             executable="pid_controller",
             name="pid_controller",
             condition=IfCondition(LaunchConfiguration("enable_control")),
-            parameters=[sim_time],
+            parameters=[get_package_share_directory("control") + "/config/pid_gains.yaml", sim_time],
         ),
         Node(
             package="control",
             executable="actuator_driver",
             name="actuator_driver",
-            condition=IfCondition(PythonExpression([
-                "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
-                LaunchConfiguration("use_sim"), "' != 'true'"
-            ])),
-            parameters=[sim_time],
+            condition=IfCondition(LaunchConfiguration("enable_control")),
+            parameters=[sim_time, {"use_sim": LaunchConfiguration("use_sim")}],
         ),
         # Mission
         Node(
@@ -257,6 +244,13 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
         Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="static_gps_sensor_tf",
+            arguments=["0", "0", "0", "0", "0", "0", "GPS", "asket/base_link/GPS_sensor"],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
+        Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
             name="ros_gz_bridge",
@@ -288,5 +282,28 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
     ]
+    # fmt: on
+    return nodes
 
-    return LaunchDescription(args + nodes)
+
+def generate_launch_description():
+    # fmt: off
+    args = [
+        DeclareLaunchArgument("enable_mavros",       default_value="true"),
+        DeclareLaunchArgument("enable_localization",  default_value="true"),
+        DeclareLaunchArgument("enable_nav2",          default_value="true"),
+        DeclareLaunchArgument("enable_sensors",       default_value="true"),
+        DeclareLaunchArgument("enable_perception",    default_value="true"),
+        DeclareLaunchArgument("enable_control",       default_value="true"),
+        DeclareLaunchArgument("enable_mission",       default_value="true"),
+        DeclareLaunchArgument("enable_vision",        default_value="true"),
+        DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
+        DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
+        DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
+        DeclareLaunchArgument("use_sim",         default_value="false"),
+        DeclareLaunchArgument("enable_foxglove",      default_value="true"),
+        DeclareLaunchArgument("use_velocity_control", default_value="true",
+                               description="true=PID-controlled via cmd_vel, false=physics drift only"),
+    ]
+    # fmt: on
+    return LaunchDescription(args + [OpaqueFunction(function=launch_setup)])

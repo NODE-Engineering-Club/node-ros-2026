@@ -1,5 +1,6 @@
 import rclpy
-from geometry_msgs.msg import Twist, TwistStamped
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
@@ -40,11 +41,12 @@ class PidController(Node):
         self._speed = 0.0
         self._last_imu_time = None
         self._last_vel_time = None
+        self._has_setpoint = False
 
         self.pub = self.create_publisher(Twist, "/control/effort", 10)
         self.create_subscription(Twist, "/control/setpoint", self._sp_cb, 10)
-        self.create_subscription(Imu, "/imu/data", self._imu_cb, 10)
-        self.create_subscription(TwistStamped, "/mavros/local_position/velocity_body", self._vel_cb, 10)
+        self.create_subscription(Imu, "/imu_driver/imu_raw", self._imu_cb, 10)
+        self.create_subscription(Odometry, "/odometry/filtered", self._vel_cb, 10)
         self.create_timer(0.05, self._control)  # 20 Hz
         self.add_on_set_parameters_callback(self._param_cb)
 
@@ -59,6 +61,7 @@ class PidController(Node):
         return SetParametersResult(successful=True)
 
     def _sp_cb(self, msg):
+        self._has_setpoint = True
         self._speed_pid.setpoint = msg.linear.x
         self._yaw_pid.setpoint = msg.angular.z
 
@@ -67,10 +70,13 @@ class PidController(Node):
         self._last_imu_time = self.get_clock().now()
 
     def _vel_cb(self, msg):
-        self._speed = msg.twist.linear.x
+        self._speed = msg.twist.twist.linear.x
         self._last_vel_time = self.get_clock().now()
 
     def _control(self):
+        if not self._has_setpoint:
+            return
+
         now = self.get_clock().now()
 
         if self._last_imu_time is not None:

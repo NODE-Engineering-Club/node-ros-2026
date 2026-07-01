@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C d:/Github/node-ros-2026 log --oneline -15 -- src/bringup/launch/njord.launch.py scripts/init.sh)",
+      "Bash(git -C d:/Github/node-ros-2026 show be33b21 --stat)",
+      "Bash(git -C d:/Github/node-ros-2026 show be33b21)"
+    ]
+  }
+}

@@ -55,6 +55,7 @@ source install/setup.bash
 | `vision_confidence` | `0.5` | YOLO detection confidence threshold |
 | `camera_device` | `/dev/video0` | Camera device path |
 | `lidar_device` | `/dev/ttyUSB0` | LiDAR serial device path |
+| `camera_info_url` | `package://bringup/config/front_camera.yaml` | `camera_info_manager` URL for camera intrinsics YAML |
 
 ## Workspace Layout
 
@@ -68,10 +69,11 @@ src/
 ├── vision/         # vision_node (YOLO26n-seg ONNX inference)
 └── bringup/        # njord.launch.py + config/
     └── config/
-        ├── ekf.yaml          # robot_localization EKF params
-        ├── navsat.yaml       # NavSat transform params
-        ├── nav2_params.yaml  # Nav2 planner/controller/costmap params
-        └── gz_bridge.yaml    # Gazebo ↔ ROS topic bridges
+        ├── ekf.yaml              # robot_localization EKF params
+        ├── navsat.yaml           # NavSat transform params
+        ├── nav2_params.yaml      # Nav2 planner/controller/costmap params
+        ├── gz_bridge.yaml        # Gazebo ↔ ROS topic bridges
+        └── front_camera.yaml     # camera_info_manager calibration output (generate with calibrate_camera.launch.py)
 models/             # ONNX weights (bind-mounted, gitignored)
 ```
 
@@ -186,6 +188,7 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 |---|---|---|---|
 | `/lidar_driver/scan_raw` | `sensor_msgs/LaserScan` | in | LiDAR scan (hardware driver or Gazebo bridge) |
 | `/front_camera_driver/image_raw` | `sensor_msgs/Image` | in | Front camera frame (BGR8 640×480) |
+| `/front_camera_driver/image_raw/camera_info` | `sensor_msgs/CameraInfo` | out | Camera intrinsics (K, D) loaded from `front_camera.yaml` via `camera_info_manager` |
 | `/imu_driver/imu_raw` | `sensor_msgs/Imu` | in | IMU data |
 | `/gps_driver/gps_raw` | `sensor_msgs/NavSatFix` | in | GPS fix |
 | `/odom` | `nav_msgs/Odometry` | in (sim) | Gazebo ground-truth odometry (OdometryPublisher) |
@@ -208,13 +211,13 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 - **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
 
 ### `sensors`
-- **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw`. Starts in degraded mode if no camera connected. Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
+- **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw` + `/front_camera_driver/image_raw/camera_info`. Starts in degraded mode if no camera connected. Loads camera intrinsics via `camera_info_manager` from the URL given by the `camera_info_url` parameter (default `package://bringup/config/front_camera.yaml`). Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
 - **`lidar_driver`** — RPLidar serial → `/lidar_driver/scan_raw` (`sensor_msgs/LaserScan`, `frame_id: lidar`, 360 rays, 0.2–12 m). Reconnects automatically on disconnect.
 - **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data` → `/imu_driver/imu_raw`) and GPS (`/mavros/global_position/raw/fix` → `/gps_driver/gps_raw`) to the unified driver topic names. Hardware only (disabled in sim).
 
 ### `perception`
 - **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
-- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `front_camera → lidar` transform to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Frame names are configurable via `lidar_frame` (default `lidar`) and `camera_frame` (default `front_camera`) parameters.
+- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `front_camera → lidar` transform to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Camera intrinsics (fx, fy, cx, cy) are updated live from `/front_camera_driver/image_raw/camera_info` — defaults are used until the first `CameraInfo` message arrives. Frame names configurable via `lidar_frame` (default `lidar`) and `camera_frame` (default `front_camera`) parameters.
 
 ### `vision`
 - **`vision_node`** — YOLO26n-seg ONNX Runtime inference (CPU). Publishes `Detection2DArray` and an instance mask image. Confidence threshold configurable via `vision_confidence` launch arg.
@@ -266,6 +269,42 @@ Gazebo Harmonic (Sim 8) integration via `ros_gz_bridge` and `ros_gz_sim`:
 - GPS waypoint conversion via `/fromLL` returns correct map-frame coordinates
 - `navigate_to_pose` goals accepted and executed; WP1 `Goal succeeded` confirmed
 - Robot physically moves in Gazebo via VelocityControl plugin
+
+## Camera Calibration
+
+Camera intrinsics are required for accurate LiDAR-camera projection in `fusion_node`. Calibration must be performed once on the vehicle with the physical camera and a printed checkerboard.
+
+**Prerequisites:** Print a 7×9 interior-corner checkerboard with 20 mm squares ([generate one at calib.io](https://calib.io/pages/camera-calibration-pattern-generator)).
+
+**Run the calibrator** (camera must be connected):
+```bash
+ros2 launch bringup calibrate_camera.launch.py
+# Optional overrides:
+#   camera_device:=/dev/video1   (if camera is not at /dev/video0)
+#   size:=6x8                    (if using a different board)
+#   square:=0.025                (if squares are 25 mm)
+```
+
+The GUI opens automatically. Move the checkerboard around — vary tilt, distance, and position — until all four progress bars (X/Y/Size/Skew) go green. Click **CALIBRATE** → **SAVE** → **COMMIT**.
+
+**Save the result:**
+```bash
+cp ~/.ros/camera_info/front_camera.yaml src/bringup/config/front_camera.yaml
+```
+
+Rebuild so the YAML is picked up by `package://bringup/...`:
+```bash
+colcon build --symlink-install --packages-select bringup
+source install/setup.bash
+```
+
+**Verify:**
+```bash
+ros2 topic echo /front_camera_driver/image_raw/camera_info --once
+# K[0] and K[4] should be non-zero focal lengths from your calibration
+```
+
+The calibration file is loaded by `camera_driver` via `camera_info_manager` and the intrinsics are forwarded to `fusion_node` over the `/front_camera_driver/image_raw/camera_info` topic at startup.
 
 ## Debugging
 

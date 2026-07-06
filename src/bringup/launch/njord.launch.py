@@ -135,7 +135,12 @@ def generate_launch_description():
                 "'", LaunchConfiguration("enable_sensors"), "' == 'true' and '",
                 LaunchConfiguration("use_sim"), "' != 'true'"
             ])),
-            parameters=[{"device": LaunchConfiguration("camera_device"), "frame_id": "front_camera", "topic": "/front_camera_driver/image_raw"}, sim_time],
+            parameters=[{
+                "device":          LaunchConfiguration("camera_device"),
+                "frame_id":        "front_camera",
+                "topic":           "/front_camera_driver/image_raw",
+                "camera_info_url": "package://bringup/config/front_camera.yaml",
+            }, sim_time],
         ),
         Node(
             package="sensors",

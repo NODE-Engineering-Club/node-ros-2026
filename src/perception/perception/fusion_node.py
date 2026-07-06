@@ -21,7 +21,7 @@ import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image, PointCloud2, PointField
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 from vision_msgs.msg import Detection2DArray
 
@@ -41,19 +41,19 @@ class FusionNode(Node):
     def __init__(self):
         super().__init__("fusion_node")
 
-        self.declare_parameter("fx",           DEFAULT_FX)
-        self.declare_parameter("fy",           DEFAULT_FY)
-        self.declare_parameter("cx",           DEFAULT_CX)
-        self.declare_parameter("cy",           DEFAULT_CY)
-        self.declare_parameter("lidar_frame",  "lidar")
-        self.declare_parameter("camera_frame", "camera")
+        self.declare_parameter("lidar_frame",       "lidar")
+        self.declare_parameter("camera_frame",      "camera")
+        self.declare_parameter("camera_info_topic", "/front_camera_driver/image_raw/camera_info")
 
-        self._fx           = self.get_parameter("fx").get_parameter_value().double_value
-        self._fy           = self.get_parameter("fy").get_parameter_value().double_value
-        self._cx           = self.get_parameter("cx").get_parameter_value().double_value
-        self._cy           = self.get_parameter("cy").get_parameter_value().double_value
         self._lidar_frame  = self.get_parameter("lidar_frame").get_parameter_value().string_value
         self._camera_frame = self.get_parameter("camera_frame").get_parameter_value().string_value
+        camera_info_topic  = self.get_parameter("camera_info_topic").get_parameter_value().string_value
+
+        # Start with default estimates; overwritten on first camera_info message
+        self._fx = DEFAULT_FX
+        self._fy = DEFAULT_FY
+        self._cx = DEFAULT_CX
+        self._cy = DEFAULT_CY
 
         self._tf_buffer   = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -70,9 +70,10 @@ class FusionNode(Node):
         )
 
         self.pub = self.create_publisher(PointCloud2, "/obstacles/fused", 10)
-        self.create_subscription(PointCloud2,     "/obstacles/lidar",   self._lidar_cb, 10)
-        self.create_subscription(Image,           "/yolo/seg_mask",     self._mask_cb,  _be_qos)
-        self.create_subscription(Detection2DArray, "/yolo/detections",  self._det_cb,   _be_qos)
+        self.create_subscription(PointCloud2,      "/obstacles/lidar",  self._lidar_cb,     10)
+        self.create_subscription(Image,            "/yolo/seg_mask",    self._mask_cb,      _be_qos)
+        self.create_subscription(Detection2DArray, "/yolo/detections",  self._det_cb,       _be_qos)
+        self.create_subscription(CameraInfo,       camera_info_topic,   self._camera_info_cb, 1)
         self.create_timer(0.1, self._publish)  # 10 Hz
 
     # ── Callbacks ────────────────────────────────────────────────────────────
@@ -89,6 +90,13 @@ class FusionNode(Node):
 
     def _det_cb(self, msg):
         self._detections = msg.detections
+
+    def _camera_info_cb(self, msg: CameraInfo):
+        # K is the 3x3 row-major intrinsic matrix: [fx,0,cx, 0,fy,cy, 0,0,1]
+        self._fx = msg.k[0]
+        self._fy = msg.k[4]
+        self._cx = msg.k[2]
+        self._cy = msg.k[5]
 
     # ── Projection ───────────────────────────────────────────────────────────
 

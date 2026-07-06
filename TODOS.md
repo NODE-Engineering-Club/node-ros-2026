@@ -84,16 +84,17 @@
   It estimates bearing from bbox centre pixel and places obstacles at a hardcoded
   5 m range. Replace with proper pipeline:
   1. Subscribe to raw `/points` (PointCloud2 from lidar) **in addition to** `/obstacles/lidar`
-  2. Subscribe to `/camera/camera_info` for intrinsics matrix K
+  2. ~~Subscribe to `/camera/camera_info` for intrinsics matrix K~~ — **Done**: `fusion_node` now subscribes to `/front_camera_driver/image_raw/camera_info` and updates fx/fy/cx/cy live.
   3. Look up `camera_optical_link → lidar_link` TF at message time
   4. Project each 3D LIDAR point onto the image plane, check if it falls inside a
      YOLO segmentation bbox (or mask when available); label matching points semantically
   5. Fall back to clustered `/obstacles/lidar` for points outside any detection
 
-- [ ] **Publish `CameraInfo` from `camera_driver`**
-  `sensors/sensors/camera_driver.py` only publishes `/image_raw`. It must also
-  publish `/camera/camera_info` (sensor_msgs/CameraInfo) for fusion projection.
-  Calibrate the camera and store K, D in a YAML; load at startup.
+- [x] **Publish `CameraInfo` from `camera_driver`**
+  Done. `camera_driver` now loads a calibration YAML via `camera_info_manager`
+  and publishes `/front_camera_driver/image_raw/camera_info` on every frame.
+  Run `ros2 launch bringup calibrate_camera.launch.py` to generate
+  `bringup/config/front_camera.yaml`.
 
 - [ ] **Add in-memory object persistence to `fusion_node`**
   The node is stateless — the same buoy is re-fused every frame. Add a

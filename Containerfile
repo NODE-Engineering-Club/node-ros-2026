@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Camera calibration
     ros-jazzy-camera-calibration-parsers \
     ros-jazzy-camera-info-manager \
+    ros-jazzy-camera-info-manager-py \
     ros-jazzy-launch-testing-ament-cmake \
     ros-jazzy-camera-calibration \
     python3-pip \

@@ -31,6 +31,8 @@ def generate_launch_description():
             ros_arguments=[
                 "-r", "image:=/front_camera_driver/image_raw",
                 "-p", "camera:=/front_camera_driver",
+            ],
+            arguments=[
                 "--size", LaunchConfiguration("size"),
                 "--square", LaunchConfiguration("square"),
             ],

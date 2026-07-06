@@ -277,6 +277,8 @@ Camera intrinsics are required for accurate LiDAR-camera projection in `fusion_n
 **Prerequisites:** Print a 7×9 interior-corner checkerboard with 20 mm squares ([generate one at calib.io](https://calib.io/pages/camera-calibration-pattern-generator)).
 
 **Run the calibrator** (camera must be connected):
+
+*Dev container:*
 ```bash
 ros2 launch bringup calibrate_camera.launch.py
 # Optional overrides:
@@ -285,14 +287,36 @@ ros2 launch bringup calibrate_camera.launch.py
 #   square:=0.025                (if squares are 25 mm)
 ```
 
+*On the Pi (containerized) — mount the config directory so COMMIT writes the YAML directly to the repo:*
+```bash
+xhost +local:
+sudo podman run --rm --name njord-cal \
+  --privileged \
+  --network host \
+  --ipc host \
+  --pid host \
+  --device /dev/video0 \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd)/src/bringup/config:/root/.ros/camera_info \
+  node-ros-2026:calibration \
+  bash -c "ros2 launch bringup calibrate_camera.launch.py"
+```
+
 The GUI opens automatically. Move the checkerboard around — vary tilt, distance, and position — until all four progress bars (X/Y/Size/Skew) go green. Click **CALIBRATE** → **SAVE** → **COMMIT**.
 
 **Save the result:**
+
+*Dev container:* copy the file from the default camera_info location:
 ```bash
 cp ~/.ros/camera_info/front_camera.yaml src/bringup/config/front_camera.yaml
 ```
 
-Rebuild so the YAML is picked up by `package://bringup/...`:
+*On the Pi:* the volume mount above writes `front_camera.yaml` directly to `src/bringup/config/` — no copy needed.
+
+Commit the YAML to git and rebuild the image so it is baked into the next deployment.
+
+Rebuild locally so the YAML is picked up by `package://bringup/...`:
 ```bash
 colcon build --symlink-install --packages-select bringup
 source install/setup.bash

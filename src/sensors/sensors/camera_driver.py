@@ -51,7 +51,14 @@ class CameraDriver(Node):
         msg.header.frame_id = self._frame_id
         self.pub.publish(msg)
 
-        info = self._cim.getCameraInfo()
+        try:
+            info = self._cim.getCameraInfo()
+        except Exception:
+            from sensor_msgs.msg import CameraInfo
+            info = CameraInfo()
+            h, w = frame.shape[:2]
+            info.height = h
+            info.width = w
         info.header.stamp    = stamp
         info.header.frame_id = self._frame_id
         self.info_pub.publish(info)

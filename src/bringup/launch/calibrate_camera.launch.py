@@ -30,9 +30,9 @@ def generate_launch_description():
             output="screen",
             ros_arguments=[
                 "-r", "image:=/front_camera_driver/image_raw",
-                "-p", "camera:=/front_camera_driver",
             ],
             arguments=[
+                "--no-service-check",
                 "--size", LaunchConfiguration("size"),
                 "--square", LaunchConfiguration("square"),
             ],

@@ -59,7 +59,7 @@ RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts
 RUN pip install --break-system-packages --no-cache-dir \
      "numpy<2" \
      onnxruntime \
-     opencv-python-headless \
+     opencv-python
      rplidar-roboticia
 
 COPY src/ /ros2_ws/src/

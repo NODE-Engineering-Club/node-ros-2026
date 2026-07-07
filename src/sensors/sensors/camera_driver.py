@@ -59,8 +59,6 @@ class CameraDriver(Node):
             h, w = frame.shape[:2]
             info.height = h
             info.width = w
-        info.header.stamp    = stamp
-        info.header.frame_id = self._frame_id
         self.info_pub.publish(info)
 
     def destroy_node(self):

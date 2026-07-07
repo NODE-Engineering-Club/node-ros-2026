@@ -1,5 +1,12 @@
 FROM docker.io/ros:jazzy-ros-base AS base
 
+RUN apt-get update && apt-get install -y \
+    libgtk-3-0 \
+    libglib2.0-0 \
+    libgl1 \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # MAVROS2 + MAVLink
     ros-jazzy-mavros \
@@ -9,7 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-tf2-ros \
     ros-jazzy-tf2-geometry-msgs \
     # Sensors
-    python3-opencv \
     v4l-utils \
     ros-jazzy-cv-bridge \
     # Vision / Perception
@@ -59,7 +65,7 @@ RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts
 RUN pip install --break-system-packages --no-cache-dir \
      "numpy<2" \
      onnxruntime \
-     opencv-python
+     opencv-python \
      rplidar-roboticia
 
 COPY src/ /ros2_ws/src/

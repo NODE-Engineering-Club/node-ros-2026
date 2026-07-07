@@ -40,6 +40,8 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("use_sim",         default_value="false"),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
+        DeclareLaunchArgument("fcu_url",              default_value="tcp://localhost:5777"),
+        DeclareLaunchArgument("gcs_url",              default_value="udp://@localhost:14556"),
     ]
     # fmt: on
 
@@ -63,8 +65,8 @@ def generate_launch_description():
             ])),
             parameters=[
                 {
-                    "fcu_url": "tcp://localhost:5777",
-                    "gcs_url": "udp://@localhost:14556",
+                    "fcu_url": LaunchConfiguration("fcu_url"),
+                    "gcs_url": LaunchConfiguration("gcs_url"),
                     "tgt_system": 1,
                     "tgt_component": 1,
                     "local_position.frame_id": "odom",

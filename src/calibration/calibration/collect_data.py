@@ -1,5 +1,12 @@
 """Interactive two-panel GUI for collecting LiDAR-camera point correspondences.
 
+Method adapted from:
+  [1] L. Zhang et al., "Calibration Method of 2D LIDAR and Camera Based on
+      Indoor Structural Features," Hohai University.
+      https://www.researching.cn/articles/OJbfdef44a334f8d3f
+  [2] X. Zhong, camera_lidar_calibration (ROS1), GitHub, 2018.
+      https://github.com/TurtleZhong/camera_lidar_calibration
+
 Left panel  — undistorted camera image:  click to pick image pixel (u, v)
 Right panel — top-down overhead LiDAR map: click to pick scan point (x, y)
 

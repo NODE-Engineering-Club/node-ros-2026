@@ -1,5 +1,18 @@
 """LiDAR-camera extrinsic calibration solver.
 
+Solves for the 6-DOF rigid transform from the LiDAR frame to the camera
+frame using manually collected 3D-2D point correspondences and OpenCV's
+Perspective-n-Point (PnP) algorithm with Levenberg-Marquardt refinement.
+
+Method adapted from:
+  [1] L. Zhang et al., "Calibration Method of 2D LIDAR and Camera Based on
+      Indoor Structural Features," Hohai University.
+      https://www.researching.cn/articles/OJbfdef44a334f8d3f
+  [2] Q. Zhang and R. Pless, "Extrinsic calibration of a camera and laser
+      range finder (improves camera calibration)," IROS 2004, pp. 2301-2306.
+  [3] X. Zhong, camera_lidar_calibration, GitHub, 2018.
+      https://github.com/TurtleZhong/camera_lidar_calibration
+
 Reads ~/.ros/lidar_camera_data.txt (x y z u v per line),
 solves for the 6-DOF transform from lidar frame to camera frame using
 cv2.solvePnP + LM refinement, and writes the result to

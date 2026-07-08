@@ -30,6 +30,10 @@ def generate_launch_description():
             output="screen",
             ros_arguments=[
                 "-r", "image:=/front_camera_driver/image_raw",
+                # cameracalibrator's COMMIT button always calls the relative
+                # service "camera/set_camera_info"; camera_driver's
+                # CameraInfoManager advertises it unnamespaced as /set_camera_info.
+                "-r", "camera/set_camera_info:=/set_camera_info",
             ],
             arguments=[
                 "--no-service-check",

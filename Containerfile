@@ -5,7 +5,8 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libgl1 \
     pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # MAVROS2 + MAVLink
@@ -42,7 +43,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-camera-calibration \
     python3-pip \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 RUN usermod -aG dialout root
 

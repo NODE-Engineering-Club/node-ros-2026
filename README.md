@@ -330,6 +330,8 @@ ros2 topic echo /front_camera_driver/image_raw/camera_info --once
 
 The calibration file is loaded by `camera_driver` via `camera_info_manager` and the intrinsics are forwarded to `fusion_node` over the `/front_camera_driver/image_raw/camera_info` topic at startup.
 
+**Verified working (as of 2026-07-08):** Full CALIBRATE → SAVE → COMMIT flow completed on hardware via the containerized workflow above; `front_camera.yaml` committed to the repo with real intrinsics from the front camera.
+
 ## Debugging
 
 Run only the subsystems you care about:

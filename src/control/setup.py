@@ -20,8 +20,8 @@ setup(
             "nav_to_pid = control.nav_to_pid:main",
             "pid_controller = control.pid_controller:main",
             "actuator_driver = control.actuator_driver:main",
-            "control_all = control.launch_all:main",
             "pico_bridge = control.pico_bridge:main",
+            "control_all = control.launch_all:main",
         ],
     },
 )

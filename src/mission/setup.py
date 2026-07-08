@@ -19,6 +19,7 @@ setup(
     entry_points={
         "console_scripts": [
             "mission_manager = mission.mission_manager:main",
+            "north_test_mission = mission.north_test_mission:main",
         ],
     },
 )

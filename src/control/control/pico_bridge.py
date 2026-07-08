@@ -7,6 +7,7 @@ import serial
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 
 SERIAL_PORT    = "/dev/ttyACM0"
 BAUD_RATE      = 115200
@@ -27,9 +28,10 @@ class PicoBridge(Node):
             self._ser = serial.Serial(port, baud, timeout=0.1)
             self.get_logger().info(f"Pico connecté sur {port} à {baud} baud")
         except serial.SerialException as e:
-            self.get_logger().error(f"Impossible d'ouvrir {port}: {e}")
+            self.get_logger().warn(f"Impossible d'ouvrir {port}: {e} — mode dry-run (publication seule, pas d'envoi série)")
             self._ser = None
 
+        self._debug_pub = self.create_publisher(String, "/pico_bridge/motor_cmd", 10)
         self.create_subscription(Twist, "/control/effort", self._cb, 10)
         self.create_timer(FAILSAFE_S, self._failsafe)
         self._last_cmd = self.get_clock().now()
@@ -50,9 +52,11 @@ class PicoBridge(Node):
             self._send(0.0, 0.0)
 
     def _send(self, left, right):
+        cmd = f"{left:.3f},{right:.3f}\n"
+        self._debug_pub.publish(String(data=cmd.strip()))
+
         if self._ser is None or not self._ser.is_open:
             return
-        cmd = f"{left:.3f},{right:.3f}\n"
         try:
             self._ser.write(cmd.encode())
         except serial.SerialException as e:

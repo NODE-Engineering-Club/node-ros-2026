@@ -42,6 +42,8 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
         DeclareLaunchArgument("fcu_url",              default_value="tcp://localhost:5777"),
         DeclareLaunchArgument("gcs_url",              default_value="udp://@localhost:14556"),
+        DeclareLaunchArgument("use_pico_bridge",      default_value="false"),
+        DeclareLaunchArgument("pico_port",            default_value="/dev/ttyACM0"),
     ]
     # fmt: on
 
@@ -195,9 +197,24 @@ def generate_launch_description():
             name="actuator_driver",
             condition=IfCondition(PythonExpression([
                 "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
-                LaunchConfiguration("use_sim"), "' != 'true'"
+                LaunchConfiguration("use_sim"), "' != 'true' and '",
+                LaunchConfiguration("use_pico_bridge"), "' != 'true'"
             ])),
             parameters=[sim_time],
+        ),
+        # Pico bridge — alternative actuation path: motor commands over serial
+        # to a Raspberry Pi Pico, bypassing MAVROS/the Pixhawk for motor control.
+        # mavros is still used for GPS/IMU sensing in this mode.
+        Node(
+            package="control",
+            executable="pico_bridge",
+            name="pico_bridge",
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true' and '",
+                LaunchConfiguration("use_pico_bridge"), "' == 'true'"
+            ])),
+            parameters=[{"port": LaunchConfiguration("pico_port")}, sim_time],
         ),
         # Mission
         Node(

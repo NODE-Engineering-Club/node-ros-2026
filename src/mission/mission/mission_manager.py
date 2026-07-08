@@ -1,8 +1,11 @@
 """Mission manager — idle until /mission/start is called via service."""
 
+import math
+
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Quaternion
 from nav2_msgs.action import NavigateToPose
+from nav_msgs.msg import Odometry
 from njord_msgs.srv import StartMission
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -16,6 +19,7 @@ class MissionManager(Node):
 
         self._nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self._fromll = self.create_client(FromLL, "/fromLL")
+        self.create_subscription(Odometry, "/odometry/filtered", self._odom_cb, 10)
 
         self.create_service(StartMission, "/mission/start", self._start_cb)
         self.create_service(Trigger, "/mission/abort", self._abort_cb)
@@ -26,8 +30,12 @@ class MissionManager(Node):
         self._active = False
         self._nav_handle = None
         self._timer = None
+        self._current_pose = None
 
         self.get_logger().info("Mission manager ready — call /mission/start to begin")
+
+    def _odom_cb(self, msg):
+        self._current_pose = msg.pose.pose
 
     # ── Service handlers ──────────────────────────────────────────────────────
 
@@ -108,7 +116,22 @@ class MissionManager(Node):
         goal.pose.header.frame_id = "map"
         goal.pose.header.stamp = self.get_clock().now().to_msg()
         goal.pose.pose.position = pt
+        goal.pose.pose.orientation = self._heading_to(pt)
         self._nav.send_goal_async(goal).add_done_callback(self._on_accepted)
+
+    def _heading_to(self, target):
+        """Quaternion facing from the boat's current map-frame position toward target.
+
+        map is ENU (X=East, Y=North), so atan2(dy, dx) gives the correct yaw for
+        any direction, not just north. Falls back to identity (facing east) if
+        odometry hasn't arrived yet.
+        """
+        if self._current_pose is None:
+            return Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        dx = target.x - self._current_pose.position.x
+        dy = target.y - self._current_pose.position.y
+        yaw = math.atan2(dy, dx)
+        return Quaternion(x=0.0, y=0.0, z=math.sin(yaw / 2.0), w=math.cos(yaw / 2.0))
 
     def _on_accepted(self, future):
         handle = future.result()

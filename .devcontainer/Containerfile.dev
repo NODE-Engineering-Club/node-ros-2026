@@ -29,8 +29,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Camera calibration
     ros-jazzy-camera-calibration-parsers \
     ros-jazzy-camera-info-manager \
+    ros-jazzy-camera-info-manager-py \
     ros-jazzy-launch-testing-ament-cmake \
     ros-jazzy-camera-calibration \
+    # LiDAR-camera extrinsic calibration
+    ros-jazzy-laser-geometry \
+    python3-scipy \
     python3-pip \
     git \
     && rm -rf /var/lib/apt/lists/*

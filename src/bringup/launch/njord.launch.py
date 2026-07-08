@@ -40,6 +40,9 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("use_sim",         default_value="false"),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
+        DeclareLaunchArgument("lidar_camera_extrinsic", default_value="",
+                              description="Path to lidar_camera_extrinsic.yaml; "
+                                          "empty = use URDF nominal TF for lidar→front_camera"),
     ]
     # fmt: on
 
@@ -170,12 +173,33 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("enable_perception")),
             parameters=[sim_time],
         ),
+        # Calibrated LiDAR→camera TF (only when extrinsic YAML is provided)
+        Node(
+            package="calibration",
+            executable="extrinsic_tf_publisher",
+            name="lidar_camera_extrinsic_tf",
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("lidar_camera_extrinsic"), "' != ''"
+            ])),
+            parameters=[{
+                "extrinsic_yaml": LaunchConfiguration("lidar_camera_extrinsic"),
+                "parent_frame":   "lidar",
+                "child_frame":    "front_camera_cal",
+            }],
+        ),
         Node(
             package="perception",
             executable="fusion_node",
             name="fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
-            parameters=[{"lidar_frame": "lidar", "camera_frame": "front_camera"}, sim_time],
+            parameters=[{
+                "lidar_frame":  "lidar",
+                "camera_frame": PythonExpression([
+                    "'front_camera_cal' if '",
+                    LaunchConfiguration("lidar_camera_extrinsic"),
+                    "' != '' else 'front_camera'",
+                ]),
+            }, sim_time],
         ),
         # Control
         Node(

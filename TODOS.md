@@ -126,6 +126,21 @@
   `desired_linear_vel`, `lookahead_dist`, and `min_lookahead_dist` based on
   real on-water measurements.
 
+## Calibration
+
+- [ ] **Fix URDF sensor heights to match physical hardware**
+  Measured heights above hull (`base_link`):
+  - LiDAR scan plane: ~52.5 mm (URDF has 174.8 mm — delta −122 mm)
+  - Camera lens: ~24.5 mm (URDF has 137.3 mm — delta −113 mm)
+
+  Update `src/description/urdf/asket.urdf.xacro`:
+  - `front_camera_joint` origin z: `0.137275` → `0.0245`
+  - `lidar_mount_joint`  origin z: `0.137275` → `0.015`
+    (so `lidar_mount` z + `lidar_joint` z = 0.015 + 0.0375 = 0.0525)
+
+  Verify in Foxglove/RViz2 that the sensor frames appear at the correct heights on the hull mesh.
+  Note: do not change sim Gazebo sensor positions (those are set by `<pose>` in the URDF Gazebo extensions, which may differ).
+
 ## Infrastructure
 
 - [ ] **Bind-mount config at runtime instead of baking it in the image**

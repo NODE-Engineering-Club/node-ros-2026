@@ -32,6 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_nav2",          default_value="true"),
         DeclareLaunchArgument("enable_sensors",       default_value="true"),
         DeclareLaunchArgument("enable_perception",    default_value="true"),
+        DeclareLaunchArgument("enable_geo_fusion",    default_value="true"),
         DeclareLaunchArgument("enable_control",       default_value="true"),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -200,6 +201,15 @@ def generate_launch_description():
                     "' != '' else 'front_camera'",
                 ]),
             }, sim_time],
+        ),
+        # Geo-referenced fusion — labelled obstacles in the global GPS frame on
+        # /obstacles/global (runs alongside fusion_node for comparison).
+        Node(
+            package="fusion",
+            executable="geo_fusion_node",
+            name="geo_fusion_node",
+            condition=IfCondition(LaunchConfiguration("enable_geo_fusion")),
+            parameters=[{"lidar_frame": "lidar", "base_frame": "base_link", "map_frame": "map"}, sim_time],
         ),
         # Control
         Node(

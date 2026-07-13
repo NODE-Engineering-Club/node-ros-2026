@@ -59,7 +59,13 @@ class GeoFusionNode(Node):
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("camera_hfov_deg", 60.0)
         self.declare_parameter("image_width", 640)
-        # extrinsic calibration (lidar -> camera/base), the main tuning knobs
+        # extrinsic calibration (lidar -> camera). When camera_frame is
+        # "front_camera_cal" (set by njord.launch.py once lidar_camera_extrinsic
+        # is provided), the lidar->camera_frame TF from extrinsic_tf_publisher —
+        # sourced from lidar_camera_extrinsic.yaml — is used instead of these
+        # manual knobs, which remain only as the pre-calibration fallback.
+        self.declare_parameter("lidar_frame", "lidar")
+        self.declare_parameter("camera_frame", "front_camera")
         self.declare_parameter("lidar_yaw_offset_deg", 0.0)
         self.declare_parameter("lidar_offset_x_m", 0.0)
         self.declare_parameter("lidar_offset_y_m", 0.0)
@@ -83,6 +89,9 @@ class GeoFusionNode(Node):
         self._map_frame = p("map_frame").value
         self._hfov = math.radians(p("camera_hfov_deg").value)
         self._img_w = p("image_width").value
+        self._lidar_frame = p("lidar_frame").value
+        self._camera_frame = p("camera_frame").value
+        self._cam_tf = None  # lazily resolved lidar->camera_frame TF (calibrated path only)
         theta = math.radians(p("lidar_yaw_offset_deg").value)
         self._cos_t, self._sin_t = math.cos(theta), math.sin(theta)
         self._off_x = p("lidar_offset_x_m").value
@@ -140,6 +149,7 @@ class GeoFusionNode(Node):
             return
 
         stamp = lidar_msg.header.stamp
+        self._ensure_cam_tf(stamp)
 
         # Only TF we need: map <- base (for heading + lifting tracks to lat/lon).
         # lidar -> base is handled by the extrinsic calibration in lidar_to_camera.
@@ -193,7 +203,33 @@ class GeoFusionNode(Node):
 
     # ── Fusion (ported from the tested standalone script) ──────────────────────
 
+    def _ensure_cam_tf(self, stamp):
+        """Resolve the calibrated lidar->camera_frame TF once it's available.
+
+        Only meaningful when camera_frame is "front_camera_cal": that frame is
+        broadcast by extrinsic_tf_publisher straight from solvePnP's rvec/tvec,
+        which is always in OpenCV's optical convention (x-right, y-down,
+        z-forward) by construction. The nominal "front_camera" URDF frame is
+        not verified to match that convention, so it's deliberately not routed
+        through this path — lidar_to_camera() falls back to the manual offset
+        parameters instead.
+        """
+        if self._cam_tf is not None or self._camera_frame != "front_camera_cal":
+            return
+        t = self._lookup(self._camera_frame, self._lidar_frame, stamp)
+        if t is not None:
+            self._cam_tf = t
+            self.get_logger().info(
+                f"Acquired calibrated extrinsic TF {self._lidar_frame} -> {self._camera_frame}"
+            )
+
     def lidar_to_camera(self, xl, yl):
+        if self._camera_frame == "front_camera_cal" and self._cam_tf is not None:
+            p = self._apply(self._cam_tf, xl, yl)
+            # p is in optical convention (x-right, y-down, z-forward); bearing
+            # is measured in its horizontal (x-z) plane. Returned as
+            # (forward, left) to match this method's existing callers.
+            return p.z, -p.x
         xc = self._cos_t * xl - self._sin_t * yl + self._off_x
         yc = self._sin_t * xl + self._cos_t * yl + self._off_y
         return xc, yc

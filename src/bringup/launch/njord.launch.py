@@ -209,7 +209,16 @@ def generate_launch_description():
             executable="geo_fusion_node",
             name="geo_fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_geo_fusion")),
-            parameters=[{"lidar_frame": "lidar", "base_frame": "base_link", "map_frame": "map"}, sim_time],
+            parameters=[{
+                "lidar_frame": "lidar",
+                "base_frame":  "base_link",
+                "map_frame":   "map",
+                "camera_frame": PythonExpression([
+                    "'front_camera_cal' if '",
+                    LaunchConfiguration("lidar_camera_extrinsic"),
+                    "' != '' else 'front_camera'",
+                ]),
+            }, sim_time],
         ),
         # Control
         Node(

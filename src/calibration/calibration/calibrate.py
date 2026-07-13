@@ -35,7 +35,7 @@ import yaml
 
 DATA_PATH      = Path.home() / ".ros" / "lidar_camera_data.txt"
 EXTRINSIC_PATH = Path.home() / ".ros" / "lidar_camera_extrinsic.yaml"
-CAMERA_INFO    = Path(__file__).parents[4] / "src/bringup/config/front_camera.yaml"
+CAMERA_INFO    = Path(__file__).parents[3] / "src/bringup/config/front_camera.yaml"
 
 
 def _load_camera_info(path: Path) -> tuple[np.ndarray, np.ndarray]:

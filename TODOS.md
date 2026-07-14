@@ -128,6 +128,46 @@
 
 ## Calibration
 
+- [x] **Camera intrinsic calibration**
+  Done via `calibrate_camera.launch.py` — `bringup/config/front_camera.yaml`
+  committed. Note: the solve's own reprojection error was never recorded (only
+  shown live in the calibrator GUI, not logged, and the raw calibration images
+  weren't saved anywhere persistent). Everything downstream — the LiDAR-camera
+  extrinsic below, `fusion_node`'s projection — inherits whatever error is
+  baked into these intrinsics. Worth redoing with more checkerboard samples
+  and actually noting the on-screen error next time.
+
+- [x] **LiDAR-camera extrinsic calibration**
+  Done via `calibrate_lidar_camera.launch.py` + `ros2 run calibration
+  calibrate` — `bringup/config/lidar_camera_extrinsic.yaml` committed,
+  2.51 px mean reprojection error (7/12 RANSAC inliers). Not yet visually
+  verified end-to-end — see below.
+
+- [ ] **Visually verify LiDAR-camera alignment in RViz2**
+  Per the README's documented last step: launch RViz2, add Image
+  (`/front_camera_driver/image_raw`) + PointCloud2 (`/lidar_driver/cloud`,
+  fixed frame `front_camera_cal`), confirm LiDAR points actually land on
+  visible surfaces in the image. The 2.51 px figure is a curve-fit quality
+  metric, not proof the whole pipeline (TF wiring, frame conventions) is
+  correct end-to-end — this is the real sanity check and hasn't been run yet.
+
+- [ ] **Live-test `fusion_node`/`geo_fusion_node` with the calibrated extrinsic**
+  Both were only verified against synthetic/unit data so far
+  (`src/fusion/test/test_geo_fusion.py`, and a hand-built synthetic TF for
+  `geo_fusion_node.lidar_to_camera`). Run `njord.launch.py` with
+  `lidar_camera_extrinsic:=$(pwd)/src/bringup/config/lidar_camera_extrinsic.yaml`
+  against a real object and confirm `/obstacles/fused` and `/obstacles/global`
+  report sane positions.
+
+- [x] **Fix LiDAR mount yaw sign in URDF**
+  `lidar_mount_joint` was `-90°`; verified empirically (an object measured
+  dead ahead of the boat read as lidar-local `y≈-range` on
+  `/lidar_driver/scan_raw` — only `+90°` predicts that sign) to be wrong, and
+  fixed. This joint feeds the `base_link<->lidar` TF used by anything
+  consuming `/obstacles/lidar` via tf2 (e.g. Nav2 costmap layers) — with the
+  wrong sign, an obstacle dead ahead of the boat would resolve to roughly
+  180° from its true position in `base_link`/`map` frame.
+
 - [ ] **Fix URDF sensor heights to match physical hardware**
   Measured heights above hull (`base_link`):
   - LiDAR scan plane: ~52.5 mm (URDF has 174.8 mm — delta −122 mm)
@@ -140,6 +180,10 @@
 
   Verify in Foxglove/RViz2 that the sensor frames appear at the correct heights on the hull mesh.
   Note: do not change sim Gazebo sensor positions (those are set by `<pose>` in the URDF Gazebo extensions, which may differ).
+  Note: does not affect the LiDAR-camera extrinsic above (solved directly from
+  point correspondences, independent of URDF geometry) — but does affect the
+  scan-plane guide overlay's accuracy and the nominal/uncalibrated fallback
+  path (`front_camera` without `lidar_camera_extrinsic` set).
 
 ## Infrastructure
 

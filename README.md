@@ -356,11 +356,16 @@ Extrinsic calibration finds the precise rigid-body transform from the LiDAR fram
 ```bash
 ros2 launch bringup calibrate_lidar_camera.launch.py
 ```
-Two OpenCV windows open — camera image (left) and top-down LiDAR map (right).
+Two OpenCV windows open — camera image (left) and top-down LiDAR map (right). The
+camera panel also overlays a magenta guide showing roughly where the LiDAR scan
+plane should cross the image, projected from the nominal (uncalibrated)
+`base_link→lidar`/`front_camera` TF — useful for lining up clicks vertically, but
+not calibrated itself, so don't trust it horizontally.
 - Press **`f`** to freeze frames
 - Click the **same physical corner** in both windows
 - Press **`a`** to add the pair
-- Repeat for ≥ 6 corners across ≥ 3 different board positions/angles
+- Repeat for ≥ 6 corners across ≥ 3 different board positions/angles — collecting
+  more than the minimum (10–15 pairs) gives RANSAC room to filter out noisy clicks
 - Press **`s`** to save → `~/.ros/lidar_camera_data.txt`
 
 **Step 2 — Solve:**
@@ -385,6 +390,11 @@ ros2 run rviz2 rviz2
 # Add: Image (/front_camera_driver/image_raw) + PointCloud2 (/lidar_driver/cloud, fixed frame: front_camera_cal)
 # LiDAR points should project onto visible surfaces in the image
 ```
+
+**Verified working (as of 2026-07-14):** Full collect → solve → apply flow completed
+on hardware — `lidar_camera_extrinsic.yaml` committed with 2.51 px mean reprojection
+error (7/12 RANSAC inliers). Not yet visually re-verified in RViz2 per the step
+above; see `TODOS.md`.
 
 **References:**
 

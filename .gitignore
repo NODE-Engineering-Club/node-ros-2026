@@ -18,3 +18,11 @@ frames_*.gv
 frames_*.pdf
 
 .ruff_cache
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Generated reports and stray launch logs
+reports/
+*.log

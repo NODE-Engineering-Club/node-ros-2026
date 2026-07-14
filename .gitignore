@@ -22,6 +22,7 @@ frames_*.pdf
 # Editor / IDE
 .vscode/
 .idea/
+.claude/
 
 # Generated reports and stray launch logs
 reports/

@@ -95,9 +95,18 @@ def main(args=None):
     K, D = _load_camera_info(cam_path)
     print(f"Camera intrinsics loaded from {cam_path}")
 
+    # collect_data.py's Camera panel shows cv2.undistort(image, K, D) — pixels
+    # are clicked (and stored in DATA_PATH) in that UNDISTORTED image, which by
+    # definition matches an ideal distortion-free pinhole camera using the same
+    # K. Passing the real D here would double-apply distortion correction and
+    # silently corrupt the solve (verified: RANSAC couldn't find any valid
+    # inlier set with real D, vs. a clean fit with D=0). K stays real; only D
+    # is zeroed for the solve.
+    D_solve = np.zeros_like(D)
+
     # ── Solve PnP ─────────────────────────────────────────────────────────────
     ok, rvec, tvec, inliers = cv2.solvePnPRansac(
-        pts3d, pts2d, K, D,
+        pts3d, pts2d, K, D_solve,
         flags=cv2.SOLVEPNP_ITERATIVE,
         reprojectionError=8.0,
         confidence=0.999,
@@ -116,13 +125,13 @@ def main(args=None):
     else:
         pts3_in, pts2_in = pts3d, pts2d
 
-    _, rvec, tvec = cv2.solvePnP(pts3_in, pts2_in, K, D, rvec, tvec,
+    _, rvec, tvec = cv2.solvePnP(pts3_in, pts2_in, K, D_solve, rvec, tvec,
                                   useExtrinsicGuess=True,
                                   flags=cv2.SOLVEPNP_ITERATIVE)
-    cv2.solvePnPRefineLM(pts3_in, pts2_in, K, D, rvec, tvec)
+    cv2.solvePnPRefineLM(pts3_in, pts2_in, K, D_solve, rvec, tvec)
 
     # ── Reprojection error ────────────────────────────────────────────────────
-    proj, _ = cv2.projectPoints(pts3_in, rvec, tvec, K, D)
+    proj, _ = cv2.projectPoints(pts3_in, rvec, tvec, K, D_solve)
     errors  = np.linalg.norm(pts2_in - proj.squeeze(1), axis=1)
     mean_err = errors.mean()
     max_err  = errors.max()

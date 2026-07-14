@@ -27,15 +27,29 @@ from pathlib import Path
 import cv2
 import numpy as np
 import rclpy
+import tf2_geometry_msgs  # noqa: F401  (registers do_transform_point for PointStamped)
 from cv_bridge import CvBridge
+from geometry_msgs.msg import PointStamped
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image, LaserScan
+from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 
 # Overhead map rendering
 MAP_SIZE   = 600   # pixels
 MAP_RANGE  = 5.0   # metres visible in each direction
 MAP_CENTRE = MAP_SIZE // 2
+
+# Fixed rotation from the URDF's front_camera frame's own local axes into true
+# OpenCV optical convention (x=right, y=down, z=forward). Verified numerically
+# against asket.urdf.xacro's front_camera_joint rpy — see calibrate_lidar_camera
+# session notes. Only valid for the *nominal* (uncalibrated) front_camera frame;
+# front_camera_cal (once calibrated) is already in optical convention directly.
+_R_FIX = np.array([
+    [0., -1., 0.],
+    [1.,  0., 0.],
+    [0.,  0., 1.],
+])
 
 
 def _lidar_to_map(x: float, y: float) -> tuple[int, int]:
@@ -76,6 +90,13 @@ class CollectData(Node):
 
         # Collected pairs  [(x, y, z, u, v), ...]
         self._pairs: list[tuple] = []
+
+        # Approximate (uncalibrated) LiDAR-scan-plane guide line, drawn on the
+        # camera panel from the nominal URDF geometry — helps line up clicks
+        # but is not the calibration result itself.
+        self._tf_buffer   = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+        self._guide_pts: list[tuple[int, int]] | None = None
 
         be_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -122,6 +143,50 @@ class CollectData(Node):
             self._sel_lidar = (lx, ly)
             self.get_logger().info(f"LiDAR point selected: x={lx:.3f} m, y={ly:.3f} m")
 
+    # ── Guide line ─────────────────────────────────────────────────────────────
+
+    def _compute_guide_line(self, K):
+        """Project the LiDAR's z=0 scan plane onto the (undistorted) camera
+        image using the nominal, uncalibrated base_link->lidar/front_camera
+        TF from the URDF. Returns None if that TF isn't available yet (tried
+        again next frame), else a list of (u, v) pixels — the visible sliver
+        of a dense grid sampled across the plane, which is what a flat plane
+        always projects to under perspective. This is an approximate guide
+        for where to click, not a calibration result.
+        """
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                "front_camera", "lidar", rclpy.time.Time()
+            )
+        except (LookupException, ConnectivityException, ExtrapolationException):
+            return None
+
+        h, w = 480, 640
+        pts_optical = []
+        for x in np.arange(0.2, 5.0, 0.1):
+            for y in np.arange(-4.0, 4.0, 0.1):
+                ps = PointStamped()
+                ps.point.x, ps.point.y, ps.point.z = float(x), float(y), 0.0
+                p_cam_local = tf2_geometry_msgs.do_transform_point(ps, tf).point
+                # p_cam_local is in front_camera's own (non-optical) URDF axes;
+                # rotate into true OpenCV optical convention (x-right, y-down,
+                # z-forward) via the fixed correction verified against the URDF.
+                v_local = np.array([p_cam_local.x, p_cam_local.y, p_cam_local.z])
+                opt = _R_FIX @ v_local
+                if opt[2] > 0.05:  # in front of the camera
+                    pts_optical.append(opt)
+
+        if not pts_optical:
+            return None
+        pts_optical = np.array(pts_optical, dtype=np.float64)
+        # D=0: guide is drawn on the undistorted display (see _render).
+        proj, _ = cv2.projectPoints(
+            pts_optical, np.zeros(3), np.zeros(3), K, np.zeros(5)
+        )
+        proj = proj.reshape(-1, 2)
+        pts = [(int(u), int(v)) for u, v in proj if 0 <= u < w and 0 <= v < h]
+        return pts if pts else None
+
     # ── Rendering ──────────────────────────────────────────────────────────────
 
     def _render(self):
@@ -134,6 +199,11 @@ class CollectData(Node):
             display = img.copy()
             if K is not None and D is not None:
                 display = cv2.undistort(display, K, D)
+            if self._guide_pts is None and K is not None:
+                self._guide_pts = self._compute_guide_line(K)
+            if self._guide_pts:
+                for u, v in self._guide_pts:
+                    cv2.circle(display, (u, v), 1, (255, 0, 255), -1)
             if self._sel_pixel:
                 cv2.drawMarker(display, self._sel_pixel, (0, 255, 0),
                                cv2.MARKER_CROSS, 20, 2)
@@ -143,6 +213,9 @@ class CollectData(Node):
             label = "FROZEN" if self._frozen else "LIVE"
             cv2.putText(display, f"{label}  pairs:{len(self._pairs)}",
                         (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            guide_note = "magenta = approx. LiDAR-height guide (uncalibrated)" if self._guide_pts else "guide: waiting for TF..."
+            cv2.putText(display, guide_note, (10, display.shape[0] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
             cv2.imshow("Camera", display)
 
         if scan is not None:
@@ -241,11 +314,15 @@ class CollectData(Node):
             return
         pts3d = np.array([[x, y, z] for x, y, z, _, _ in self._pairs], dtype=np.float64)
         pts2d = np.array([[u, v]     for _, _, _, u, v in self._pairs], dtype=np.float64)
-        ok, rvec, tvec, inliers = cv2.solvePnPRansac(pts3d, pts2d, K, D)
+        # Points are clicked on the undistorted display (see _render), which
+        # matches an ideal distortion-free pinhole camera — solve with D=0,
+        # not the real D, or RANSAC silently fails to find a valid inlier set.
+        D_solve = np.zeros_like(D)
+        ok, rvec, tvec, inliers = cv2.solvePnPRansac(pts3d, pts2d, K, D_solve)
         if not ok:
             self.get_logger().warn("solvePnPRansac failed.")
             return
-        proj, _ = cv2.projectPoints(pts3d, rvec, tvec, K, D)
+        proj, _ = cv2.projectPoints(pts3d, rvec, tvec, K, D_solve)
         err = np.linalg.norm(pts2d - proj.squeeze(), axis=1).mean()
         self.get_logger().info(
             f"Preview: reprojection error = {err:.2f} px  "

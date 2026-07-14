@@ -55,6 +55,8 @@ source install/setup.bash
 | `vision_confidence` | `0.5` | YOLO detection confidence threshold |
 | `camera_device` | `/dev/video0` | Camera device path |
 | `lidar_device` | `/dev/ttyUSB0` | LiDAR serial device path |
+| `camera_info_url` | `package://bringup/config/front_camera.yaml` | `camera_info_manager` URL for camera intrinsics YAML |
+| `lidar_camera_extrinsic` | `""` | Path to `lidar_camera_extrinsic.yaml`; empty = use URDF nominal `lidar→front_camera` TF |
 
 ## Workspace Layout
 
@@ -66,12 +68,15 @@ src/
 ├── control/        # nav_to_pid, pid_controller, actuator_driver
 ├── mission/        # mission_manager (GPS waypoint sequencer)
 ├── vision/         # vision_node (YOLO26n-seg ONNX inference)
+├── calibration/    # scan_to_cloud, collect_data, calibrate, extrinsic_tf_publisher
 └── bringup/        # njord.launch.py + config/
     └── config/
-        ├── ekf.yaml          # robot_localization EKF params
-        ├── navsat.yaml       # NavSat transform params
-        ├── nav2_params.yaml  # Nav2 planner/controller/costmap params
-        └── gz_bridge.yaml    # Gazebo ↔ ROS topic bridges
+        ├── ekf.yaml                      # robot_localization EKF params
+        ├── navsat.yaml                   # NavSat transform params
+        ├── nav2_params.yaml              # Nav2 planner/controller/costmap params
+        ├── gz_bridge.yaml                # Gazebo ↔ ROS topic bridges
+        ├── front_camera.yaml             # camera intrinsics (generate with calibrate_camera.launch.py)
+        └── lidar_camera_extrinsic.yaml   # LiDAR→camera extrinsic (generate with calibrate_lidar_camera.launch.py)
 models/             # ONNX weights (bind-mounted, gitignored)
 ```
 
@@ -185,7 +190,9 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 | Topic | Type | Direction | Description |
 |---|---|---|---|
 | `/lidar_driver/scan_raw` | `sensor_msgs/LaserScan` | in | LiDAR scan (hardware driver or Gazebo bridge) |
+| `/lidar_driver/cloud` | `sensor_msgs/PointCloud2` | out | LaserScan reprojected to 3D (z=0, frame `lidar`) — published by `scan_to_cloud` during calibration |
 | `/front_camera_driver/image_raw` | `sensor_msgs/Image` | in | Front camera frame (BGR8 640×480) |
+| `/front_camera_driver/image_raw/camera_info` | `sensor_msgs/CameraInfo` | out | Camera intrinsics (K, D) loaded from `front_camera.yaml` via `camera_info_manager` |
 | `/imu_driver/imu_raw` | `sensor_msgs/Imu` | in | IMU data |
 | `/gps_driver/gps_raw` | `sensor_msgs/NavSatFix` | in | GPS fix |
 | `/odom` | `nav_msgs/Odometry` | in (sim) | Gazebo ground-truth odometry (OdometryPublisher) |
@@ -208,13 +215,13 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 - **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
 
 ### `sensors`
-- **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw`. Starts in degraded mode if no camera connected. Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
+- **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw` + `/front_camera_driver/image_raw/camera_info`. Starts in degraded mode if no camera connected. Loads camera intrinsics via `camera_info_manager` from the URL given by the `camera_info_url` parameter (default `package://bringup/config/front_camera.yaml`). Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
 - **`lidar_driver`** — RPLidar serial → `/lidar_driver/scan_raw` (`sensor_msgs/LaserScan`, `frame_id: lidar`, 360 rays, 0.2–12 m). Reconnects automatically on disconnect.
 - **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data` → `/imu_driver/imu_raw`) and GPS (`/mavros/global_position/raw/fix` → `/gps_driver/gps_raw`) to the unified driver topic names. Hardware only (disabled in sim).
 
 ### `perception`
 - **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
-- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `front_camera → lidar` transform to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Frame names are configurable via `lidar_frame` (default `lidar`) and `camera_frame` (default `front_camera`) parameters.
+- **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `lidar → camera_frame` in TF to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Camera intrinsics update live from `/front_camera_driver/image_raw/camera_info`. Parameters: `lidar_frame` (default `lidar`), `camera_frame` (default `front_camera`, switches to `front_camera_cal` when `lidar_camera_extrinsic` launch arg is set), `camera_info_topic`.
 
 ### `vision`
 - **`vision_node`** — YOLO26n-seg ONNX Runtime inference (CPU). Publishes `Detection2DArray` and an instance mask image. Confidence threshold configurable via `vision_confidence` launch arg.
@@ -226,6 +233,12 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 
 ### `mission`
 - **`mission_manager`** — Sequences hardcoded `(lat, lon)` waypoints through Nav2's `NavigateToPose` action. Converts GPS → map frame via `robot_localization/FromLL`.
+
+### `calibration`
+- **`scan_to_cloud`** — Converts `/lidar_driver/scan_raw` (LaserScan) → `/lidar_driver/cloud` (PointCloud2, frame `lidar`, z=0) using `laser_geometry`. Used during calibration for RViz2 visualisation.
+- **`collect_data`** — Interactive two-panel OpenCV GUI: left panel = undistorted camera image, right panel = colour-coded top-down LiDAR map. Click corresponding corners in each panel, press `a` to add pair, `s` to save. Saves pairs to `~/.ros/lidar_camera_data.txt` (`x y z u v` per line).
+- **`calibrate`** — Standalone PnP solver (no ROS node). Reads the data file and `front_camera.yaml`, runs `cv2.solvePnPRansac` + LM refinement, prints reprojection error, saves `~/.ros/lidar_camera_extrinsic.yaml`.
+- **`extrinsic_tf_publisher`** — Reads `lidar_camera_extrinsic.yaml` and broadcasts `lidar → front_camera_cal` as a static TF. Started automatically by `njord.launch.py` when `lidar_camera_extrinsic` arg is non-empty.
 
 ### `bringup`
 - **`njord.launch.py`** — Single launch file for the entire stack with per-subsystem enable flags and sim/hardware switching.
@@ -266,6 +279,130 @@ Gazebo Harmonic (Sim 8) integration via `ros_gz_bridge` and `ros_gz_sim`:
 - GPS waypoint conversion via `/fromLL` returns correct map-frame coordinates
 - `navigate_to_pose` goals accepted and executed; WP1 `Goal succeeded` confirmed
 - Robot physically moves in Gazebo via VelocityControl plugin
+
+## Camera Calibration
+
+Camera intrinsics are required for accurate LiDAR-camera projection in `fusion_node`. Calibration must be performed once on the vehicle with the physical camera and a printed checkerboard.
+
+**Prerequisites:** Print a 7×9 interior-corner checkerboard with 20 mm squares ([generate one at calib.io](https://calib.io/pages/camera-calibration-pattern-generator)).
+
+**Run the calibrator** (camera must be connected):
+
+*Dev container:*
+```bash
+ros2 launch bringup calibrate_camera.launch.py
+# Optional overrides:
+#   camera_device:=/dev/video1   (if camera is not at /dev/video0)
+#   size:=6x8                    (if using a different board)
+#   square:=0.025                (if squares are 25 mm)
+```
+
+*On the Pi (containerized) — mount the config directory so COMMIT writes the YAML directly to the repo:*
+```bash
+xhost +local:
+sudo podman run --rm --name njord-cal \
+  --privileged \
+  --network host \
+  --ipc host \
+  --pid host \
+  --device /dev/video0 \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd)/src/bringup/config:/root/.ros/camera_info \
+  node-ros-2026:calibration \
+  bash -c "ros2 launch bringup calibrate_camera.launch.py"
+```
+
+The GUI opens automatically. Move the checkerboard around — vary tilt, distance, and position — until all four progress bars (X/Y/Size/Skew) go green. Click **CALIBRATE** → **SAVE** → **COMMIT**.
+
+**Save the result:**
+
+*Dev container:* copy the file from the default camera_info location:
+```bash
+cp ~/.ros/camera_info/front_camera.yaml src/bringup/config/front_camera.yaml
+```
+
+*On the Pi:* the volume mount above writes `front_camera.yaml` directly to `src/bringup/config/` — no copy needed.
+
+Commit the YAML to git and rebuild the image so it is baked into the next deployment.
+
+Rebuild locally so the YAML is picked up by `package://bringup/...`:
+```bash
+colcon build --symlink-install --packages-select bringup
+source install/setup.bash
+```
+
+**Verify:**
+```bash
+ros2 topic echo /front_camera_driver/image_raw/camera_info --once
+# K[0] and K[4] should be non-zero focal lengths from your calibration
+```
+
+The calibration file is loaded by `camera_driver` via `camera_info_manager` and the intrinsics are forwarded to `fusion_node` over the `/front_camera_driver/image_raw/camera_info` topic at startup.
+
+**Verified working (as of 2026-07-08):** Full CALIBRATE → SAVE → COMMIT flow completed on hardware via the containerized workflow above; `front_camera.yaml` committed to the repo with real intrinsics from the front camera (fx=700.2, fy=696.5, cx=294.6, cy=226.6).
+
+## Camera–LiDAR Extrinsic Calibration
+
+Extrinsic calibration finds the precise rigid-body transform from the LiDAR frame to the camera frame, correcting the nominal URDF values. Uses the [TurtleZhong point-correspondence method](https://github.com/TurtleZhong/camera_lidar_calibration) adapted for ROS2: manually pick matching corners in the camera image and LiDAR scan, then solve with `cv2.solvePnP`.
+
+**Prerequisites:** Camera intrinsic calibration must be complete (`front_camera.yaml` must exist in `bringup/config/`).
+
+**Physical setup:**
+- Use a flat board (≥ 40 cm wide) mounted vertically on a stand.
+- `base_link` is the hull. The LiDAR scan plane is ~52.5 mm above the hull; the camera lens is ~24.5 mm above the hull. Position the board so its horizontal midline is at LiDAR scan height (~52.5 mm above hull).
+
+**Step 1 — Collect point pairs** (both sensors must be connected):
+```bash
+ros2 launch bringup calibrate_lidar_camera.launch.py
+```
+Two OpenCV windows open — camera image (left) and top-down LiDAR map (right). The
+camera panel also overlays a magenta guide showing roughly where the LiDAR scan
+plane should cross the image, projected from the nominal (uncalibrated)
+`base_link→lidar`/`front_camera` TF — useful for lining up clicks vertically, but
+not calibrated itself, so don't trust it horizontally.
+- Press **`f`** to freeze frames
+- Click the **same physical corner** in both windows
+- Press **`a`** to add the pair
+- Repeat for ≥ 6 corners across ≥ 3 different board positions/angles — collecting
+  more than the minimum (10–15 pairs) gives RANSAC room to filter out noisy clicks
+- Press **`s`** to save → `~/.ros/lidar_camera_data.txt`
+
+**Step 2 — Solve:**
+```bash
+ros2 run calibration calibrate
+# Prints reprojection error — aim for < 5 px
+```
+
+**Step 3 — Apply:**
+```bash
+cp ~/.ros/lidar_camera_extrinsic.yaml src/bringup/config/lidar_camera_extrinsic.yaml
+# Commit to git, then launch with:
+ros2 launch bringup njord.launch.py \
+  lidar_camera_extrinsic:=$(pwd)/src/bringup/config/lidar_camera_extrinsic.yaml
+```
+
+When `lidar_camera_extrinsic` is set, `njord.launch.py` publishes a `lidar → front_camera_cal` static TF and `fusion_node` automatically uses it instead of the URDF-derived `front_camera` frame. Without the argument the stack behaves exactly as before.
+
+**Verify alignment in RViz2:**
+```bash
+ros2 run rviz2 rviz2
+# Add: Image (/front_camera_driver/image_raw) + PointCloud2 (/lidar_driver/cloud, fixed frame: front_camera_cal)
+# LiDAR points should project onto visible surfaces in the image
+```
+
+**Verified working (as of 2026-07-14):** Full collect → solve → apply flow completed
+on hardware — `lidar_camera_extrinsic.yaml` committed with 2.51 px mean reprojection
+error (7/12 RANSAC inliers). Not yet visually re-verified in RViz2 per the step
+above; see `TODOS.md`.
+
+**References:**
+
+> [1] L. Zhang, X. Xu, J. He, K. Zhu, M. Luo, and Z. Tan, "Calibration Method of 2D LIDAR and Camera Based on Indoor Structural Features," Hohai University. Available: <https://www.researching.cn/articles/OJbfdef44a334f8d3f>
+
+> [2] Q. Zhang and R. Pless, "Extrinsic calibration of a camera and laser range finder (improves camera calibration)," in *2004 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, vol. 3, Sept. 2004, pp. 2301–2306.
+
+> [3] X. Zhong, *camera_lidar_calibration: A tool used to calibrate the extrinsic between a 2D laser range finder (LRF) and camera*, GitHub, 2018. Available: <https://github.com/TurtleZhong/camera_lidar_calibration>
 
 ## Debugging
 

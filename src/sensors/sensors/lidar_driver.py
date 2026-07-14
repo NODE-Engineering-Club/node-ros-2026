@@ -57,7 +57,10 @@ class LidarDriver(Node):
                 for _, angle, distance in scan:
                     if distance == 0:
                         continue
-                    idx = int(angle) % NUM_READINGS
+                    # RPLidar hardware reports angle increasing clockwise; the
+                    # published scan declares a positive (counter-clockwise,
+                    # REP-103) angle_increment, so mirror it to match.
+                    idx = int(360 - angle) % NUM_READINGS
                     metres = distance / 1000.0
                     if metres < ranges[idx]:
                         ranges[idx] = metres

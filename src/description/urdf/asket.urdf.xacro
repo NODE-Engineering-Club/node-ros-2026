@@ -225,7 +225,10 @@
     <child link="lidar" />
   </joint>
   <joint name="lidar_mount_joint" type="fixed">
-    <origin xyz="-0.103585 0 0.137275" rpy="0 0 -1.570796" />
+    <!-- yaw verified empirically: an object measured dead ahead of the boat
+         reads as lidar-local (x~=0, y~=-range), which only +90deg predicts
+         (the previous -90deg predicted the opposite sign). -->
+    <origin xyz="-0.103585 0 0.137275" rpy="0 0 1.570796" />
     <parent link="base_link" />
     <child link="lidar_mount" />
   </joint>

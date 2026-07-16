@@ -32,6 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_nav2",          default_value="true"),
         DeclareLaunchArgument("enable_sensors",       default_value="true"),
         DeclareLaunchArgument("enable_perception",    default_value="true"),
+        DeclareLaunchArgument("enable_geo_fusion",    default_value="true"),
         DeclareLaunchArgument("enable_control",       default_value="true"),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -44,6 +45,9 @@ def generate_launch_description():
         DeclareLaunchArgument("gcs_url",              default_value="udp://@localhost:14556"),
         DeclareLaunchArgument("use_pico_bridge",      default_value="false"),
         DeclareLaunchArgument("pico_port",            default_value="/dev/ttyACM0"),
+        DeclareLaunchArgument("lidar_camera_extrinsic", default_value="",
+                              description="Path to lidar_camera_extrinsic.yaml; "
+                                          "empty = use URDF nominal TF for lidar→front_camera"),
     ]
     # fmt: on
 
@@ -139,7 +143,12 @@ def generate_launch_description():
                 "'", LaunchConfiguration("enable_sensors"), "' == 'true' and '",
                 LaunchConfiguration("use_sim"), "' != 'true'"
             ])),
-            parameters=[{"device": LaunchConfiguration("camera_device"), "frame_id": "front_camera", "topic": "/front_camera_driver/image_raw"}, sim_time],
+            parameters=[{
+                "device":          LaunchConfiguration("camera_device"),
+                "frame_id":        "front_camera",
+                "topic":           "/front_camera_driver/image_raw",
+                "camera_info_url": "package://bringup/config/front_camera.yaml",
+            }, sim_time],
         ),
         Node(
             package="sensors",
@@ -169,12 +178,51 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("enable_perception")),
             parameters=[sim_time],
         ),
+        # Calibrated LiDAR→camera TF (only when extrinsic YAML is provided)
+        Node(
+            package="calibration",
+            executable="extrinsic_tf_publisher",
+            name="lidar_camera_extrinsic_tf",
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("lidar_camera_extrinsic"), "' != ''"
+            ])),
+            parameters=[{
+                "extrinsic_yaml": LaunchConfiguration("lidar_camera_extrinsic"),
+                "parent_frame":   "lidar",
+                "child_frame":    "front_camera_cal",
+            }],
+        ),
         Node(
             package="perception",
             executable="fusion_node",
             name="fusion_node",
             condition=IfCondition(LaunchConfiguration("enable_perception")),
-            parameters=[{"lidar_frame": "lidar", "camera_frame": "front_camera"}, sim_time],
+            parameters=[{
+                "lidar_frame":  "lidar",
+                "camera_frame": PythonExpression([
+                    "'front_camera_cal' if '",
+                    LaunchConfiguration("lidar_camera_extrinsic"),
+                    "' != '' else 'front_camera'",
+                ]),
+            }, sim_time],
+        ),
+        # Geo-referenced fusion — labelled obstacles in the global GPS frame on
+        # /obstacles/global (runs alongside fusion_node for comparison).
+        Node(
+            package="fusion",
+            executable="geo_fusion_node",
+            name="geo_fusion_node",
+            condition=IfCondition(LaunchConfiguration("enable_geo_fusion")),
+            parameters=[{
+                "lidar_frame": "lidar",
+                "base_frame":  "base_link",
+                "map_frame":   "map",
+                "camera_frame": PythonExpression([
+                    "'front_camera_cal' if '",
+                    LaunchConfiguration("lidar_camera_extrinsic"),
+                    "' != '' else 'front_camera'",
+                ]),
+            }, sim_time],
         ),
         # Control
         Node(

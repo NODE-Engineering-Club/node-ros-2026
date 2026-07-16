@@ -1,5 +1,13 @@
 FROM docker.io/ros:jazzy-ros-base AS base
 
+RUN apt-get update && apt-get install -y \
+    libgtk-3-0 \
+    libglib2.0-0 \
+    libgl1 \
+    pkg-config \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # MAVROS2 + MAVLink
     ros-jazzy-mavros \
@@ -9,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-tf2-ros \
     ros-jazzy-tf2-geometry-msgs \
     # Sensors
-    python3-opencv \
     v4l-utils \
     ros-jazzy-cv-bridge \
     # Vision / Perception
@@ -28,9 +35,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ros-jazzy-web-video-server \
     ros-jazzy-foxglove-bridge \
     ros-jazzy-ros-gz-bridge \
+    # Camera calibration
+    ros-jazzy-camera-calibration-parsers \
+    ros-jazzy-camera-info-manager \
+    ros-jazzy-camera-info-manager-py \
+    ros-jazzy-launch-testing-ament-cmake \
+    ros-jazzy-camera-calibration \
+    # LiDAR-camera extrinsic calibration
+    ros-jazzy-laser-geometry \
+    python3-scipy \
     python3-pip \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 RUN usermod -aG dialout root
 
@@ -53,8 +70,9 @@ RUN wget -q https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts
 RUN pip install --break-system-packages --no-cache-dir \
      "numpy<2" \
      onnxruntime \
-     opencv-python-headless \
-     rplidar-roboticia
+     opencv-python \
+     rplidar-roboticia \
+     transforms3d
 
 COPY src/ /ros2_ws/src/
 

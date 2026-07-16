@@ -18,7 +18,9 @@ import struct
 
 import numpy as np
 import rclpy
+import tf2_geometry_msgs  # noqa: F401  (registers do_transform_point for PointStamped)
 from cv_bridge import CvBridge
+from geometry_msgs.msg import PointStamped
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
@@ -100,27 +102,49 @@ class FusionNode(Node):
 
     # ── Projection ───────────────────────────────────────────────────────────
 
-    def _lidar_to_camera_transform(self):
-        """Return (tx, ty, tz) translation from lidar→camera frame, or None."""
+    def _lidar_to_camera_tf(self):
+        """Return the full lidar->camera_frame TransformStamped, or None."""
         try:
-            tf = self._tf_buffer.lookup_transform(
+            return self._tf_buffer.lookup_transform(
                 self._camera_frame, self._lidar_frame, rclpy.time.Time()
             )
-            t = tf.transform.translation
-            return t.x, t.y, t.z
         except (LookupException, ConnectivityException, ExtrapolationException):
             return None
 
-    def _project(self, x, y, z):
-        """Project point (robot convention: x=fwd, y=left, z=up) to pixel (u, v).
-
-        Returns (u, v) or None if point is behind camera.
+    def _project_calibrated(self, x, y, z, tf):
+        """Project a lidar-frame point using the full calibrated TF
+        (translation + rotation). front_camera_cal is guaranteed true
+        optical convention (x-right, y-down, z-forward) by construction —
+        it's built directly from solvePnP's rvec/tvec. Returns (u, v) or
+        None if behind the camera.
         """
-        if x <= 0:
+        ps = PointStamped()
+        ps.point.x, ps.point.y, ps.point.z = float(x), float(y), float(z)
+        p = tf2_geometry_msgs.do_transform_point(ps, tf).point
+        if p.z <= 0:
             return None
-        u = int(self._fx * (-y / x) + self._cx)
-        v = int(self._fy * (-z / x) + self._cy)
+        u = int(self._fx * p.x / p.z + self._cx)
+        v = int(self._fy * p.y / p.z + self._cy)
         return u, v
+
+    def _project_nominal(self, x, y, z, tf):
+        """Legacy translation-only approximation for the uncalibrated
+        (nominal front_camera) fallback frame, which isn't verified to
+        match optical convention — kept unchanged from before the
+        calibrated path existed. Returns (u, v) or None if behind camera.
+        """
+        t = tf.transform.translation
+        cx, cy, cz = x + t.x, y + t.y, z + t.z
+        if cx <= 0:
+            return None
+        u = int(self._fx * (-cy / cx) + self._cx)
+        v = int(self._fy * (-cz / cx) + self._cy)
+        return u, v
+
+    def _project(self, x, y, z, tf):
+        if self._camera_frame == "front_camera_cal":
+            return self._project_calibrated(x, y, z, tf)
+        return self._project_nominal(x, y, z, tf)
 
     # ── Publish ───────────────────────────────────────────────────────────────
 
@@ -128,19 +152,17 @@ class FusionNode(Node):
         fused        = []
         det_has_lidar = set()  # indices of detections confirmed by LIDAR
 
-        tf_offset = self._lidar_to_camera_transform()
-        mask      = self._seg_mask
-        h         = mask.shape[0] if mask is not None else IMAGE_HEIGHT
-        w         = mask.shape[1] if mask is not None else IMAGE_WIDTH
+        tf   = self._lidar_to_camera_tf()
+        mask = self._seg_mask
+        h    = mask.shape[0] if mask is not None else IMAGE_HEIGHT
+        w    = mask.shape[1] if mask is not None else IMAGE_WIDTH
 
         for (lx, ly, lz) in self._lidar_pts:
             fused.append((lx, ly, lz))  # always include LIDAR points
 
             # If TF and mask are available, correlate with detections
-            if tf_offset is not None and mask is not None:
-                tx, ty, tz = tf_offset
-                cx, cy, cz = lx + tx, ly + ty, lz + tz
-                uv = self._project(cx, cy, cz)
+            if tf is not None and mask is not None:
+                uv = self._project(lx, ly, lz, tf)
                 if uv is not None:
                     u, v = uv
                     if 0 <= u < w and 0 <= v < h:

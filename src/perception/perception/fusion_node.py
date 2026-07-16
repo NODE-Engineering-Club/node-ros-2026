@@ -149,7 +149,10 @@ class FusionNode(Node):
     # ── Publish ───────────────────────────────────────────────────────────────
 
     def _publish(self):
-        fused        = []
+        # label: 0 = plain LIDAR point (no camera correlation), 1 = LIDAR
+        # point that lands on a camera detection's mask (confirmed obstacle),
+        # 2 = camera-only bearing estimate (no LIDAR match found).
+        fused         = []
         det_has_lidar = set()  # indices of detections confirmed by LIDAR
 
         tf   = self._lidar_to_camera_tf()
@@ -158,7 +161,7 @@ class FusionNode(Node):
         w    = mask.shape[1] if mask is not None else IMAGE_WIDTH
 
         for (lx, ly, lz) in self._lidar_pts:
-            fused.append((lx, ly, lz))  # always include LIDAR points
+            label = 0
 
             # If TF and mask are available, correlate with detections
             if tf is not None and mask is not None:
@@ -169,6 +172,9 @@ class FusionNode(Node):
                         det_idx = int(mask[v, u])
                         if det_idx > 0:
                             det_has_lidar.add(det_idx - 1)  # mask value = det index + 1
+                            label = 1
+
+            fused.append((lx, ly, lz, label))  # always include LIDAR points
 
         # Bearing estimate fallback for detections with no LIDAR coverage
         for i, det in enumerate(self._detections):
@@ -178,6 +184,7 @@ class FusionNode(Node):
                     DEFAULT_OBSTACLE_DISTANCE * math.cos(bearing),
                     DEFAULT_OBSTACLE_DISTANCE * math.sin(bearing),
                     0.0,
+                    2,
                 ))
 
         if not fused:
@@ -189,14 +196,15 @@ class FusionNode(Node):
         msg.height           = 1
         msg.width            = len(fused)
         msg.fields           = [
-            PointField(name="x", offset=0,  datatype=PointField.FLOAT32, count=1),
-            PointField(name="y", offset=4,  datatype=PointField.FLOAT32, count=1),
-            PointField(name="z", offset=8,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="x",     offset=0,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="y",     offset=4,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="z",     offset=8,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="label", offset=12, datatype=PointField.FLOAT32, count=1),
         ]
         msg.is_bigendian = False
-        msg.point_step   = 12
-        msg.row_step     = 12 * len(fused)
-        msg.data         = b"".join(struct.pack("fff", *p) for p in fused)
+        msg.point_step   = 16
+        msg.row_step     = 16 * len(fused)
+        msg.data         = b"".join(struct.pack("ffff", x, y, z, float(label)) for x, y, z, label in fused)
         msg.is_dense     = True
         self.pub.publish(msg)
 

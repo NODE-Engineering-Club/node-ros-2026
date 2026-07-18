@@ -1,13 +1,44 @@
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
 
+  <!--
+    Njord 2026 - Task 1: Maneuvering & Path Finding
+
+    The tree continuously:
+      1. Verifies odometry/localization.
+      2. Checks fused obstacles for a cardinal marker.
+      3. Determines the required passing side when a marker is detected.
+      4. Continues monitoring the active GPS/Nav2 mission.
+      5. Finishes only when the mission itself succeeds or fails.
+
+    Cardinal-marker class IDs are kept configurable in C++ because the
+    current YOLO model exposes IDs 0-5, while their semantic mapping is
+    not yet documented in the repository.
+  -->
+
   <BehaviorTree ID="MainTree">
-    <Sequence name="NjordMission">
+
+    <ReactiveSequence name="NjordTask1">
 
       <WaitForOdom/>
 
+      <Fallback name="OptionalCardinalMarkerHandling">
+
+        <Sequence name="CardinalMarkerHandling">
+
+          <CardinalMarkerDetected/>
+
+          <DeterminePassingSide/>
+
+        </Sequence>
+
+        <AlwaysSuccess/>
+
+      </Fallback>
+
       <MissionMonitor/>
 
-    </Sequence>
+    </ReactiveSequence>
+
   </BehaviorTree>
 
 </root>

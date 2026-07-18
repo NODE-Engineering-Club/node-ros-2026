@@ -10,6 +10,8 @@ find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(njord_msgs REQUIRED)
 
 add_executable(
   boat_bt_node
@@ -22,6 +24,8 @@ ament_target_dependencies(
   nav_msgs
   geometry_msgs
   behaviortree_cpp
+  ament_index_cpp
+  njord_msgs
 )
 
 install(

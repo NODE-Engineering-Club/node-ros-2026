@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/StartMission.srv"
   "msg/Obstacle.msg"
   "msg/ObstacleArray.msg"
+  "msg/MissionStatus.msg"
   DEPENDENCIES geographic_msgs geometry_msgs std_msgs
 )
 

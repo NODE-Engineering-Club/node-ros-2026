@@ -1,26 +1,68 @@
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
 
   <!--
-    Njord 2026 - Task 1: Maneuvering & Path Finding
+    Njord 2026 autonomous mission Behavior Tree
 
-    The tree continuously:
-      1. Verifies odometry/localization.
-      2. Checks fused obstacles for a cardinal marker.
-      3. Determines the required passing side when a marker is detected.
-      4. Continues monitoring the active GPS/Nav2 mission.
-      5. Finishes only when the mission itself succeeds or fails.
+    Implemented task-level behaviors:
+      - Maneuvering / Path Finding
+      - Cardinal marker handling
+      - Collision Avoidance
 
-    Cardinal-marker class IDs are kept configurable in C++ because the
-    current YOLO model exposes IDs 0-5, while their semantic mapping is
-    not yet documented in the repository.
+    Docking is intentionally not included yet.
+
+    Priority:
+      1. Localization must be available.
+      2. Collision risks are handled first.
+      3. Cardinal-marker path-finding decisions are handled next.
+      4. Mission lifecycle is monitored continuously.
+
+    Navigation changes are requested through Mission Manager.
+    The Behavior Tree does not send NavigateToPose goals directly.
   -->
 
   <BehaviorTree ID="MainTree">
 
-    <ReactiveSequence name="NjordTask1">
+    <ReactiveSequence name="NjordMission">
 
       <WaitForOdom/>
 
+      <!--
+        Highest-priority task behavior.
+
+        When a dangerous obstacle is detected:
+          CollisionRiskDetected
+            -> DetermineAvoidanceTarget
+            -> RequestAvoidance
+
+        If no collision risk exists, normal mission execution continues.
+      -->
+      <Fallback name="OptionalCollisionAvoidance">
+
+        <Sequence name="CollisionAvoidance">
+
+          <CollisionRiskDetected/>
+
+          <DetermineAvoidanceTarget/>
+
+          <RequestAvoidance/>
+
+        </Sequence>
+
+        <AlwaysSuccess/>
+
+      </Fallback>
+
+      <!--
+        Maneuvering / Path Finding.
+
+        When a configured cardinal marker is detected:
+          CardinalMarkerDetected
+            -> DeterminePassingSide
+            -> DetermineCardinalBypassTarget
+            -> RequestCardinalBypass
+
+        If no relevant marker exists, normal GPS/Nav2 navigation continues.
+      -->
       <Fallback name="OptionalCardinalMarkerHandling">
 
         <Sequence name="CardinalMarkerHandling">
@@ -29,12 +71,23 @@
 
           <DeterminePassingSide/>
 
+          <DetermineCardinalBypassTarget/>
+
+          <RequestCardinalBypass/>
+
         </Sequence>
 
         <AlwaysSuccess/>
 
       </Fallback>
 
+      <!--
+        Mission lifecycle:
+          IDLE / RUNNING -> RUNNING
+          SUCCEEDED      -> SUCCESS
+          FAILED         -> FAILURE
+          ABORTED        -> FAILURE
+      -->
       <MissionMonitor/>
 
     </ReactiveSequence>

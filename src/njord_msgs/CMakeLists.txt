@@ -9,6 +9,7 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/StartMission.srv"
+  "srv/SetBypassTarget.srv"
   "msg/Obstacle.msg"
   "msg/ObstacleArray.msg"
   "msg/MissionStatus.msg"

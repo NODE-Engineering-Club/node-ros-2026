@@ -65,13 +65,25 @@ class VisionNode(Node):
         )
         self.det_pub = self.create_publisher(Detection2DArray, "/yolo/detections", qos)
         self.mask_pub = self.create_publisher(Image, "/yolo/seg_mask", qos)
+        # /yolo/seg_mask encodes detection_index + 1 per pixel for fusion_node's
+        # exact-index lookup — with 1-2 detections that's barely above black in an
+        # 8-bit image. This topic is a scaled, human-viewable copy only.
+        self.mask_viz_pub = self.create_publisher(Image, "/yolo/seg_mask_viz", qos)
         self.create_subscription(Image, "/front_camera_driver/image_raw", self._cb, qos)
 
         self._available = True
         self.get_logger().info("Vision node ready")
 
     def _preprocess(self, frame):
-        """Letterbox resize to INPUT_SIZE x INPUT_SIZE, normalise to [0,1], NCHW."""
+        """Letterbox resize to INPUT_SIZE x INPUT_SIZE, normalise to [0,1], NCHW.
+
+        frame arrives as BGR (cv_bridge's "bgr8" encoding); the model was
+        exported from an RGB-trained pipeline (Ultralytics convention) and
+        expects RGB input. Verified: feeding BGR directly capped max
+        confidence at ~0.11 on a live frame with a visible buoy; converting
+        to RGB brought the same frame to ~0.97.
+        """
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w = frame.shape[:2]
         scale = INPUT_SIZE / max(h, w)
         nh, nw = int(h * scale), int(w * scale)
@@ -165,6 +177,11 @@ class VisionNode(Node):
         mask_msg = self.bridge.cv2_to_imgmsg(seg_map, encoding="mono8")
         mask_msg.header = img_msg.header
         self.mask_pub.publish(mask_msg)
+
+        viz = np.clip(seg_map.astype(np.uint16) * 50, 0, 255).astype(np.uint8)
+        viz_msg = self.bridge.cv2_to_imgmsg(viz, encoding="mono8")
+        viz_msg.header = img_msg.header
+        self.mask_viz_pub.publish(viz_msg)
 
 
 def main(args=None):

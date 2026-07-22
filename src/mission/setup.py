@@ -20,6 +20,7 @@ setup(
         "console_scripts": [
             "mission_manager = mission.mission_manager:main",
             "north_test_mission = mission.north_test_mission:main",
+            "random_test_mission = mission.random_test_mission:main",
         ],
     },
 )

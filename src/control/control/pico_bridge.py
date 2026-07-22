@@ -54,8 +54,6 @@ class PicoBridge(Node):
         self._z = 0.0
 
         self._debug_pub = self.create_publisher(String, "/pico_bridge/motor_cmd", 10)
-        self.create_subscription(Twist, "/control/effort", self._cb, 10)
-        self.create_timer(FAILSAFE_S, self._failsafe)
         self._last_cmd = self.get_clock().now()
         self._rx = b""  # buffer de lecture serie
 
@@ -93,6 +91,7 @@ class PicoBridge(Node):
         if elapsed <= self._cmd_timeout:
             left, right = self._mix(self._x, self._z)
             self._write(f"{left:.3f},{right:.3f}")
+            self._send(left, right)
         else:
             # Pas de consigne fraiche : on garde le lien vivant, le Pico met neutre seul.
             self._write("PING")

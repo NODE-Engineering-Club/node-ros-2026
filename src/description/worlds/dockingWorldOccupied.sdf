@@ -1,0 +1,225 @@
+<?xml version="1.0" ?>
+<sdf version="1.10">
+    <world name="default">
+        <spherical_coordinates>
+            <surface_model>EARTH_WGS84</surface_model>
+            <world_frame_orientation>ENU</world_frame_orientation>
+            <latitude_deg>63.4305</latitude_deg>
+            <longitude_deg>10.3951</longitude_deg>
+            <elevation>0</elevation>
+            <heading_deg>0</heading_deg>
+        </spherical_coordinates>
+        <physics name="1ms" type="ignored">
+            <max_step_size>0.001</max_step_size>
+            <real_time_factor>1.0</real_time_factor>
+        </physics>
+        <plugin
+            filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics">
+        </plugin>
+        <plugin
+            filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands">
+        </plugin>
+        <plugin
+            filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster">
+        </plugin>
+        <plugin
+            filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin>
+        <plugin
+            filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu">
+        </plugin>
+        <plugin
+            filename="gz-sim-navsat-system"
+            name="gz::sim::systems::NavSat">
+        </plugin>
+
+        <light type="directional" name="sun">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+
+        <model name="ground_plane">
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                        </plane>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <ambient>0.8 0.8 0.8 1</ambient>
+                        <diffuse>0.8 0.8 0.8 1</diffuse>
+                        <specular>0.8 0.8 0.8 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!--
+            Task 3.1 "normal docking" — TWO adjoining 2m x 2m (interior) berths
+            sharing a middle wall, one of which (Berth B) is occupied by a
+            static decoy boat. This mirrors the real competition layout: a row
+            of berths where only one is free/assigned (via AR-tags), and an
+            already-docked boat marks the other as unavailable when tags
+            aren't used. See dockingWorld.sdf for the single-berth version
+            this extends — same local-frame-then-yaw convention, same
+            gpu_lidar FOV/mount-quirk reasoning (read that file's comment for
+            the full explanation; not repeated here).
+
+            Local frame (pre-yaw): opening at local x~=5.0, back wall at
+            local x~=7.05, arms at local y = -2.10, 0.00, +2.10 (pitch 2.10m
+            matches the single-berth file's arm spacing exactly). This gives:
+              Berth A: y in [0.05, 2.05]   (between middle_arm and left_arm)
+              Berth B: y in [-2.05, -0.05] (between right_arm and middle_arm)
+            Each berth is a true 2.0m x 2.0m interior (arm length = depth,
+            arm-to-arm gap = width), matching the official Task 3.1 spec.
+            back_wall length (4.3m) spans the outer edges of left_arm/right_arm.
+
+            The whole dock + decoy share the same <pose> yaw (+90deg) so their
+            local-frame numbers stay directly comparable to dockingWorld.sdf's.
+        -->
+        <model name="dock_task_3_1_occupied">
+            <static>true</static>
+            <pose>0 0 0 0 0 1.570796</pose>
+
+            <link name="left_arm">
+                <pose>6.0 2.10 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+
+            <link name="middle_arm">
+                <pose>6.0 0.00 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+
+            <link name="right_arm">
+                <pose>6.0 -2.10 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+
+            <link name="back_wall">
+                <pose>7.05 0.00 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>0.1 4.3 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>0.1 4.3 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!--
+            Decoy "already docked" boat occupying Berth B (right,
+            y in [-2.05, -0.05]) — reuses Asket's own hull mesh as a
+            static, plugin-free Gazebo prop (no ROS2 plugins/topics), since
+            asket.urdf.xacro has no prefix/namespace mechanism and spawning a
+            second *live* robot instance would collide with the real robot's
+            global topics (/cmd_vel, /gps_driver/gps_raw, etc.). Centered in
+            the berth both laterally (y=-1.05) and in depth (x=6.0), bow-in
+            (yaw 0, matching the hull's own +x-forward convention).
+
+            NOTE: relative mesh URI resolution from worlds/ to ../meshes/ is
+            unverified in this repo (no other world file references a mesh)
+            — if gz sim fails to resolve it, replace the <mesh> geometries
+            below with a <box><size>1.3 0.5 0.4</size></box> approximating
+            the hull footprint; sufficient for testing the occupancy
+            algorithm even without visual fidelity.
+        -->
+        <model name="decoy_boat">
+            <static>true</static>
+            <pose>0 0 0 0 0 1.570796</pose>
+            <link name="hull">
+                <pose>6.0 -1.05 0.1 0 0 0</pose>
+                <visual name="visual">
+                    <geometry>
+                        <mesh><uri>../meshes/hull_visual.obj</uri></mesh>
+                    </geometry>
+                    <material>
+                        <ambient>0.073237 0.073237 0.073237 1</ambient>
+                        <diffuse>0.073237 0.073237 0.073237 1</diffuse>
+                    </material>
+                </visual>
+                <collision name="collision">
+                    <geometry>
+                        <mesh><uri>../meshes/hull_collision.stl</uri></mesh>
+                    </geometry>
+                </collision>
+            </link>
+        </model>
+    </world>
+</sdf>

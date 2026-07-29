@@ -17,3 +17,5 @@ float32 heading                      # rad, inward-facing normal of the back wal
 float32 width                        # m, spacing between the two arm tips (inner)
 float32 depth                        # m, arm length (berth depth)
 float32 confidence                   # 0..1, how well the cluster matched the U template
+bool occupied                        # true if points inside the berth interior aren't
+                                      # explained by the 3 matched walls (likely obstructed)

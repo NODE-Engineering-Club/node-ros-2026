@@ -24,13 +24,37 @@
 
 Dock **detection** now exists: `perception/dock_detector_node` clusters
 `/obstacles/lidar` (DBSCAN), extracts wall segments (RANSAC), and matches
-them against a U-shaped berth template, publishing boat-relative
-`njord_msgs/DockTarget` on `/perception/dock_target`.
-`description/worlds/dockingWorld.sdf` provides a `dock_task_3_1` berth
-model for sim testing (`world:=dockingWorld.sdf`). This superseded the
-vision/AprilTag dock-pose idea below — LiDAR gives short-range geometry
-directly without needing a fiducial marker on the dock. What's still
-missing is everything downstream of detection:
+them against a U-shaped berth template — including multiple adjoining
+berths sharing a wall, each independently classified occupied/free.
+Publishes every recognized berth on `/perception/dock_targets`
+(`njord_msgs/DockTargetArray`), plus a backward-compatible
+`/perception/dock_target` (highest-confidence FREE berth only).
+`description/worlds/dockingWorld.sdf` (single berth) and
+`dockingWorldOccupied.sdf` (two berths, one occupied by a static decoy
+boat) provide sim testing worlds. This superseded the vision/AprilTag
+dock-pose idea below — LiDAR gives short-range geometry directly without
+needing a fiducial marker on the dock. What's still missing is everything
+downstream of detection:
+
+- [x] **Multi-berth + occupancy detection** — done. Verified both via a
+  synthetic test suite (`src/perception/test/test_dock_detector.py`, no
+  Gazebo needed — 27-case distance/angle/occupied-berth matrix, 0 failures)
+  and against real simulated LiDAR data in `dockingWorldOccupied.sdf`
+  (confirmed: the occupied berth is flagged `occupied=true` and excluded
+  from `/perception/dock_target`; the free berth reports `occupied=false`).
+  The real-Gazebo pass caught 3 bugs the synthetic-only test couldn't:
+  (1) a shared back wall's per-berth corner can fall mid-segment, not at
+  an endpoint — `_find_u_shapes`' corner-gap check now measures distance
+  to the back-wall *segment*, not just its two endpoints; (2) real
+  (non-uniform) LiDAR sampling can fragment one physical wall into
+  multiple DBSCAN clusters — `cluster_eps` raised 0.4→0.6; (3) a border-line
+  weak RANSAC fit (exactly at the old `ransac_min_inliers=6` floor) could
+  absorb a few of an occupying boat's hull points as if they were "wall,"
+  silently defeating the occupancy check — raised to 10, and a real
+  index-mapping bug (`wall_inlier_idx` was cluster-local but compared
+  against the full-scan point array) was also fixed. `ransac_dist_threshold_m`
+  was tightened 0.05→0.03 so RANSAC cleanly separates a shared wall's two
+  faces (~0.1 m apart) instead of fitting one straddling "compromise" line.
 
 - [ ] **Temporal filtering/tracking for `dock_detector_node`**
   Detection currently runs per-scan only — no smoothing or persistence of
@@ -46,7 +70,12 @@ missing is everything downstream of detection:
   `/perception/dock_target`, mirroring the existing
   `CardinalMarkerDetected`/`updateCardinalMarkerState` pattern), and a
   `Sequence`/`Fallback` branch in `simple_boat.xml` analogous to
-  `OptionalCardinalMarkerHandling`.
+  `OptionalCardinalMarkerHandling`. The singular `/perception/dock_target`
+  topic already filters to the best FREE berth, so a naive consumer gets
+  occupancy-safety for free — but if a future consumer switches to
+  `/perception/dock_targets` (e.g. to choose among several free berths, or
+  to reason about *which* berth is occupied), it must explicitly filter on
+  `occupied == false` itself; `detected` alone does not mean available.
 
 - [ ] **Docking-approach path planning / maneuver**
   Design and implement the actual final-approach maneuver once `DockTarget`
@@ -61,18 +90,23 @@ missing is everything downstream of detection:
   waypoints exhausted, or on operator command) and how it exits on
   success/failure.
 
-- [ ] **Sim verification against `dockingWorld.sdf`**
-  Launch with `world:=dockingWorld.sdf`, confirm
-  `/perception/dock_target.detected` flips true when approaching
-  `dock_task_3_1`, and that `opening_center`/`heading`/`width`/`depth` are
-  sane against the world's known geometry (arms at local x=6.0, back wall
-  at x≈7.05, ~2.1 m apart, model yawed +90° per the SDF's inline comments
-  about the sim `gpu_lidar`'s FOV).
+- [ ] **Improve detection robustness/range against `dockingWorldOccupied.sdf`**
+  Occupancy classification itself is verified (see above), but detection is
+  still viewing-angle-sensitive: from the default spawn pose (dead-center,
+  ~5 m out, symmetric between both berths) the two-berth structure isn't
+  cleanly resolved at all (`detected=false` — a safe fallback, not a
+  false positive, but not useful either); off-center vantage points closer
+  to one berth resolve cleanly. Worth tuning further (segment budget,
+  clustering, or a wider approach-angle sweep in the BT/mission layer) so a
+  boat navigating straight in on the GPS waypoint doesn't need to be
+  laterally offset to get a clean read.
 
 - [ ] **Tune detection parameters against real hardware LiDAR noise**
-  Current defaults (`cluster_eps=0.4`, `ransac_dist_threshold_m=0.05`,
-  angle/width tolerances) are untested outside sim. Also verify
-  `lidar_yaw_offset_deg` (currently 90°, sim-derived) against the real mount.
+  Current defaults (`cluster_eps=0.6`, `ransac_dist_threshold_m=0.03`,
+  `ransac_min_inliers=10`, angle/width tolerances) were tuned against sim
+  data (including the multi-berth/occupancy fixes above) and are untested
+  on hardware. Also verify `lidar_yaw_offset_deg` (currently 90°,
+  sim-derived) against the real mount.
 
 - [ ] **Resolve the orphaned `opennav_docking` wiring**
   `src/bringup/launch/navigation_no_collision.launch.py` already

@@ -23,10 +23,13 @@ def generate_launch_description():
     urdf_path = os.path.join(desc_share, "asket.urdf")
     with open(urdf_path, "w") as f:
         f.write(urdf)
-    world = os.path.join(desc_share, "worlds", "basicWorld.sdf")
+    worlds_dir = os.path.join(desc_share, "worlds")
 
     # fmt: off
     args = [
+        DeclareLaunchArgument("world",                default_value="basicWorld.sdf",
+                              description="World file name under description/worlds/ to load in Gazebo "
+                                          "(e.g. dockingWorld.sdf for the U-shaped Task 3.1 berth)"),
         DeclareLaunchArgument("enable_mavros",       default_value="true"),
         DeclareLaunchArgument("enable_localization",  default_value="true"),
         DeclareLaunchArgument("enable_nav2",          default_value="true"),
@@ -202,6 +205,15 @@ def generate_launch_description():
                 ]),
             }, sim_time],
         ),
+        # U-shaped docking-berth detector (Task 3.1) — DBSCAN + RANSAC over
+        # /obstacles/lidar, publishes /perception/dock_target.
+        Node(
+            package="perception",
+            executable="dock_detector_node",
+            name="dock_detector_node",
+            condition=IfCondition(LaunchConfiguration("enable_perception")),
+            parameters=[sim_time],
+        ),
         # Geo-referenced fusion — labelled obstacles in the global GPS frame on
         # /obstacles/global (runs alongside fusion_node for comparison).
         Node(
@@ -314,7 +326,11 @@ def generate_launch_description():
         ),
         # Gazebo simulation
         ExecuteProcess(
-            cmd=["gz", "sim", "-r", world] if "DISPLAY" in os.environ else ["gz", "sim", "-s", "-r", world],
+            cmd=(
+                ["gz", "sim", "-r", PathJoinSubstitution([worlds_dir, LaunchConfiguration("world")])]
+                if "DISPLAY" in os.environ else
+                ["gz", "sim", "-s", "-r", PathJoinSubstitution([worlds_dir, LaunchConfiguration("world")])]
+            ),
             output="screen",
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),

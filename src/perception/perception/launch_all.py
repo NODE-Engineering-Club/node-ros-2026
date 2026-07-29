@@ -2,12 +2,13 @@ import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from perception.lidar_obstacle_node import LidarObstacleNode
 from perception.fusion_node import FusionNode
+from perception.dock_detector_node import DockDetectorNode
 
 
 def main(args=None):
     rclpy.init(args=args)
     executor = MultiThreadedExecutor()
-    nodes = [LidarObstacleNode(), FusionNode()]
+    nodes = [LidarObstacleNode(), FusionNode(), DockDetectorNode()]
     for n in nodes:
         executor.add_node(n)
     try:

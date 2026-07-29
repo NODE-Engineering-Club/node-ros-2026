@@ -22,27 +22,68 @@
 
 ## Navigation (Docking)
 
-- [ ] **Restore `opennav_docking` for the docking challenge**
-  The Nav2 docking server (`opennav_docking`) was intentionally omitted from
-  `bringup/launch/njord.launch.py` and `Containerfile` because the package
-  isn't installed and including it would crash the lifecycle manager. We need
-  it back for the docking challenge. Required:
-  1. Add `ros-jazzy-opennav-docking` to `Containerfile` (verify exact package
-     name; may be split into `opennav-docking` + `opennav-docking-bt`).
-  2. Add a `docking_server` Node to the Nav2 group in `njord.launch.py` and
-     include `"docking_server"` in the `lifecycle_manager` `node_names`.
-  3. Add a `docking_server:` block to `bringup/config/nav2_params.yaml` with:
-     - `controller:` (graceful_controller params — works for forward-only USV)
-     - `dock_plugins:` list of supported dock types
-     - `docks:` static instances OR `dock_database` YAML path
-  4. Decide on dock-pose source — options:
-     - **Hardcoded GPS**: cheapest, fragile, fine for static known docks
-     - **Vision-based**: AprilTag/ArUco detector publishing dock pose, or a
-       YOLO class for the dock target with PnP for pose
-  5. Custom BT XML that sequences `NavigateToPose` → `DockRobot` → mission
-     continuation (default Nav2 trees don't include docking nodes).
-  6. Sim verification before water: add a dock model to `basicWorld.sdf` and
-     run a full nav-to-dock sequence end-to-end.
+Dock **detection** now exists: `perception/dock_detector_node` clusters
+`/obstacles/lidar` (DBSCAN), extracts wall segments (RANSAC), and matches
+them against a U-shaped berth template, publishing boat-relative
+`njord_msgs/DockTarget` on `/perception/dock_target`.
+`description/worlds/dockingWorld.sdf` provides a `dock_task_3_1` berth
+model for sim testing (`world:=dockingWorld.sdf`). This superseded the
+vision/AprilTag dock-pose idea below — LiDAR gives short-range geometry
+directly without needing a fiducial marker on the dock. What's still
+missing is everything downstream of detection:
+
+- [ ] **Temporal filtering/tracking for `dock_detector_node`**
+  Detection currently runs per-scan only — no smoothing or persistence of
+  `detected` across frames. Reuse the `Tracker` class already implemented in
+  `src/fusion/fusion/geo_fusion_node.py` (~line 368: constant-velocity Kalman
+  filter per track, gating, hit-confirmation, miss-count-based death) — the
+  dock node's own docstring points at this as the intended next step.
+
+- [ ] **Wire docking into the behavior tree**
+  `boat_bt/bt_xml/simple_boat.xml` currently says "Docking is intentionally
+  not included yet." Add `DockDetected`/similar condition + action leaf
+  nodes to `boat_bt/src/boat_bt_node.cpp` (subscribing to
+  `/perception/dock_target`, mirroring the existing
+  `CardinalMarkerDetected`/`updateCardinalMarkerState` pattern), and a
+  `Sequence`/`Fallback` branch in `simple_boat.xml` analogous to
+  `OptionalCardinalMarkerHandling`.
+
+- [ ] **Docking-approach path planning / maneuver**
+  Design and implement the actual final-approach maneuver once `DockTarget`
+  is confirmed+stable: a controller/action server that consumes
+  `opening_center`/`heading` (`base_link` frame) and drives the boat through
+  the U opening. This is a new capability, not a Nav2 param tweak — decide
+  whether it's a custom `control` package node or a BT-orchestrated sequence
+  of small Nav2 goals.
+
+- [ ] **Mission-manager / lifecycle hookup**
+  Decide how/when the mission transitions into "docking mode" (e.g. after
+  waypoints exhausted, or on operator command) and how it exits on
+  success/failure.
+
+- [ ] **Sim verification against `dockingWorld.sdf`**
+  Launch with `world:=dockingWorld.sdf`, confirm
+  `/perception/dock_target.detected` flips true when approaching
+  `dock_task_3_1`, and that `opening_center`/`heading`/`width`/`depth` are
+  sane against the world's known geometry (arms at local x=6.0, back wall
+  at x≈7.05, ~2.1 m apart, model yawed +90° per the SDF's inline comments
+  about the sim `gpu_lidar`'s FOV).
+
+- [ ] **Tune detection parameters against real hardware LiDAR noise**
+  Current defaults (`cluster_eps=0.4`, `ransac_dist_threshold_m=0.05`,
+  angle/width tolerances) are untested outside sim. Also verify
+  `lidar_yaw_offset_deg` (currently 90°, sim-derived) against the real mount.
+
+- [ ] **Resolve the orphaned `opennav_docking` wiring**
+  `src/bringup/launch/navigation_no_collision.launch.py` already
+  instantiates Nav2's stock `opennav_docking` `DockingServer` (lifecycle
+  node + component), but this launch file isn't included by
+  `njord.launch.py` and isn't referenced anywhere else in the repo. Decide:
+  consolidate it into the new LiDAR-geometric approach, repurpose it for a
+  different dock type (e.g. a charging dock vs. the Task 3.1 competition
+  berth), or delete it — leaving it as dead code next to the new,
+  actually-wired `dock_detector_node` invites confusion about which is the
+  real docking path.
 
 ## Sensor Data Processing Tests
 

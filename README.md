@@ -57,14 +57,15 @@ source install/setup.bash
 | `lidar_device` | `/dev/ttyUSB0` | LiDAR serial device path |
 | `camera_info_url` | `package://bringup/config/front_camera.yaml` | `camera_info_manager` URL for camera intrinsics YAML |
 | `lidar_camera_extrinsic` | `""` | Path to `lidar_camera_extrinsic.yaml`; empty = use URDF nominal `lidar→front_camera` TF |
+| `world` | `basicWorld.sdf` | World file name under `description/worlds/` to load in Gazebo (e.g. `dockingWorld.sdf` for the U-shaped Task 3.1 berth) |
 
 ## Workspace Layout
 
 ```
 src/
-├── description/    # URDF (asket.urdf.xacro), meshes, Gazebo world
+├── description/    # URDF (asket.urdf.xacro), meshes, Gazebo worlds (basicWorld.sdf, dockingWorld.sdf)
 ├── sensors/        # camera_driver, lidar_driver, imu_gps_driver
-├── perception/     # lidar_obstacle_node, fusion_node
+├── perception/     # lidar_obstacle_node, fusion_node, dock_detector_node
 ├── control/        # nav_to_pid, pid_controller, actuator_driver
 ├── mission/        # mission_manager (GPS waypoint sequencer)
 ├── vision/         # vision_node (YOLO26n-seg ONNX inference)
@@ -103,6 +104,7 @@ flowchart TD
         Y --> Mask[/yolo/seg_mask/]
         LO[lidar_obstacle_node] --> LidarPts[/obstacles/lidar/]
         FN[fusion_node<br/>LiDAR+YOLO] --> Fused[/obstacles/fused/]
+        DD[dock_detector_node<br/>DBSCAN+RANSAC U-match] --> DockT[/perception/dock_target/]
     end
 
     subgraph Localization
@@ -133,6 +135,7 @@ flowchart TD
     Det --> FN
     Mask --> FN
     LidarPts --> FN
+    LidarPts --> DD
     Fused --> GCM
     Fused --> LCM
     OdomF --> EKF
@@ -201,6 +204,7 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 | `/yolo/seg_mask` | `sensor_msgs/Image` | out | Instance segmentation mask |
 | `/obstacles/lidar` | `sensor_msgs/PointCloud2` | out | Raw LiDAR obstacles (frame: `lidar`) |
 | `/obstacles/fused` | `sensor_msgs/PointCloud2` | out | LiDAR+YOLO fused obstacles (frame: `base_link`) |
+| `/perception/dock_target` | `njord_msgs/DockTarget` | out | Boat-relative U-shaped docking berth detection (Task 3.1), `base_link` frame — see `DockTarget.msg` for fields |
 | `/odometry/filtered` | `nav_msgs/Odometry` | out | EKF-fused odometry |
 | `/odometry/gps` | `nav_msgs/Odometry` | out | GPS converted to map frame (navsat_transform_node) |
 | `/cmd_vel` | `geometry_msgs/Twist` | Nav2→control | Nav2 velocity command (obstacle-checked output of collision_monitor) |
@@ -213,6 +217,7 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 ### `description`
 - **`asket.urdf.xacro`** — Full robot URDF with root link `base_link` (hull body), propellers, LiDAR, cameras, GPS, IMU, and PX4 mount. Includes Gazebo sensor plugins (camera, GPU LiDAR, NavSat, IMU). `robot_state_publisher` reads this file and broadcasts the complete static TF tree on startup.
 - **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
+- **`worlds/dockingWorld.sdf`** — Same base plugins plus a static `dock_task_3_1` model: a U-shaped berth (two parallel arms + a back wall, ~2.1 m opening) for testing `dock_detector_node`. Load it with `world:=dockingWorld.sdf`.
 
 ### `sensors`
 - **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw` + `/front_camera_driver/image_raw/camera_info`. Starts in degraded mode if no camera connected. Loads camera intrinsics via `camera_info_manager` from the URL given by the `camera_info_url` parameter (default `package://bringup/config/front_camera.yaml`). Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
@@ -222,6 +227,7 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 ### `perception`
 - **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
 - **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `lidar → camera_frame` in TF to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Camera intrinsics update live from `/front_camera_driver/image_raw/camera_info`. Parameters: `lidar_frame` (default `lidar`), `camera_frame` (default `front_camera`, switches to `front_camera_cal` when `lidar_camera_extrinsic` launch arg is set), `camera_info_topic`.
+- **`dock_detector_node`** — Recognizes the U-shaped docking berth (Task 3.1, "normal docking") from `/obstacles/lidar`: DBSCAN separates the cloud into candidate objects, iterative RANSAC extracts straight wall segments from each, and the segments are matched against a U template (two parallel arms + a perpendicular back wall, opening toward the boat). Publishes `/perception/dock_target` (`njord_msgs/DockTarget`, `base_link` frame) every scan — `detected=false` when no match is found, rather than staying silent. Key parameters: `berth_width_m` (default 2.0), `width_tolerance_m`, `arm_length_min_m`/`arm_length_max_m`, `parallel_angle_tol_deg`, `perp_angle_tol_deg`, `lidar_yaw_offset_deg` (mount-yaw correction into `base_link`, default 90°). Perception-only — no temporal filtering across scans yet, and not yet consumed by the behavior tree or mission layer (see `TODOS.md`).
 
 ### `vision`
 - **`vision_node`** — YOLO26n-seg ONNX Runtime inference (CPU). Publishes `Detection2DArray` and an instance mask image. Confidence threshold configurable via `vision_confidence` launch arg.

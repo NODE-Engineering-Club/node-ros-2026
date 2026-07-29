@@ -1,0 +1,171 @@
+<?xml version="1.0" ?>
+<sdf version="1.10">
+    <world name="default">
+        <spherical_coordinates>
+            <surface_model>EARTH_WGS84</surface_model>
+            <world_frame_orientation>ENU</world_frame_orientation>
+            <latitude_deg>63.4305</latitude_deg>
+            <longitude_deg>10.3951</longitude_deg>
+            <elevation>0</elevation>
+            <heading_deg>0</heading_deg>
+        </spherical_coordinates>
+        <physics name="1ms" type="ignored">
+            <max_step_size>0.001</max_step_size>
+            <real_time_factor>1.0</real_time_factor>
+        </physics>
+        <plugin
+            filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics">
+        </plugin>
+        <plugin
+            filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands">
+        </plugin>
+        <plugin
+            filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster">
+        </plugin>
+        <plugin
+            filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin>
+        <plugin
+            filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu">
+        </plugin>
+        <plugin
+            filename="gz-sim-navsat-system"
+            name="gz::sim::systems::NavSat">
+        </plugin>
+
+        <light type="directional" name="sun">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+
+        <model name="ground_plane">
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                        </plane>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <ambient>0.8 0.8 0.8 1</ambient>
+                        <diffuse>0.8 0.8 0.8 1</diffuse>
+                        <specular>0.8 0.8 0.8 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!--
+            Task 3.1 "normal docking" berth — a 2m x 2m (interior) U-shaped
+            grey structure: two 2m arms plus a connecting back wall.
+
+            Links below are authored in a local frame with the opening at
+            local x~=5.0, back wall at local x~=7.05, arms at local
+            y=+-1.05 (interior width 2.0 m) — i.e. "dead ahead" of the boat's
+            spawn (origin, facing world +x). Kept within ~7.1m so the whole
+            structure, including the back wall, clears lidar_obstacle_node's
+            hardcoded OBSTACLE_RANGE=10.0m filter (a dock placed near that
+            cutoff loses its back wall to the range filter first, well
+            before running out of physical LiDAR range).
+
+            The model <pose> yaw (+90deg) then rotates that whole local
+            layout so the dock sits along world +y (the boat's port/left
+            side) instead: this sim's gpu_lidar has only a +-90deg FOV and,
+            per asket.urdf.xacro's lidar_mount_joint comment, that FOV is
+            itself offset -90deg from true base_link forward (empirically:
+            "dead ahead reads as lidar-local x~=0, y~=-range"). Net effect,
+            true base_link bearing dead-ahead (0deg) sits right at the edge
+            of the sensor's raw cone, while true bearing ~90deg (world +y,
+            boat's left) sits at its center — so placing the dock there
+            (rather than dead ahead) is what actually gets a clean,
+            well-populated scan of it in *this simulator*. This is a sim
+            gpu_lidar FOV/mount quirk, not a docking-algorithm requirement —
+            the real RPLidar (lidar_driver.py) sweeps the full 360 deg.
+        -->
+        <model name="dock_task_3_1">
+            <static>true</static>
+            <pose>0 0 0 0 0 1.570796</pose>
+
+            <link name="left_arm">
+                <pose>6.0 1.05 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+
+            <link name="right_arm">
+                <pose>6.0 -1.05 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>2.0 0.1 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+
+            <link name="back_wall">
+                <pose>7.05 0 0.25 0 0 0</pose>
+                <collision name="collision">
+                    <geometry>
+                        <box><size>0.1 2.2 0.5</size></box>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <box><size>0.1 2.2 0.5</size></box>
+                    </geometry>
+                    <material>
+                        <ambient>0.5 0.5 0.5 1</ambient>
+                        <diffuse>0.5 0.5 0.5 1</diffuse>
+                        <specular>0.4 0.4 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+    </world>
+</sdf>

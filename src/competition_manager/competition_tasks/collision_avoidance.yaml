@@ -1,0 +1,9 @@
+version: 1
+
+task:
+  id: collision_avoidance
+  name: Collision Avoidance
+  description: Autonomous collision-avoidance competition task.
+
+mission:
+  waypoints: []

@@ -14,8 +14,13 @@
 
   <license>MIT</license>
 
-  <depend>rclpy</depend>
+  <depend>ament_index_python</depend>
+  <depend>geographic_msgs</depend>
   <depend>njord_msgs</depend>
+  <depend>rclpy</depend>
+  <depend>std_srvs</depend>
+
+  <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

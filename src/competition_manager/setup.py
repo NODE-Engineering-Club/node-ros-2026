@@ -1,3 +1,6 @@
+from glob import glob
+from os.path import join
+
 from setuptools import find_packages, setup
 
 
@@ -17,8 +20,15 @@ setup(
             "share/" + package_name,
             ["package.xml"],
         ),
+        (
+            join("share", package_name, "competition_tasks"),
+            glob("competition_tasks/*.yaml"),
+        ),
     ],
-    install_requires=["setuptools"],
+    install_requires=[
+        "setuptools",
+        "PyYAML",
+    ],
     zip_safe=True,
     maintainer="Heleri Koltsin",
     maintainer_email="heleri.koltsin@students.iaac.net",

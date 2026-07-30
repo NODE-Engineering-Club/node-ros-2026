@@ -1,0 +1,12 @@
+version: 1
+
+task:
+  id: maneuvering
+  name: Maneuvering
+  description: Autonomous maneuvering competition task.
+
+mission:
+  waypoints:
+    - latitude: 41.3917758
+      longitude: 2.1541227
+      altitude: 0.0

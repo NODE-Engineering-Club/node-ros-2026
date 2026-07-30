@@ -3,38 +3,51 @@
   <!--
     Njord 2026 autonomous mission Behavior Tree
 
-    Implemented task-level behaviors:
-      - Maneuvering / Path Finding
+    Current task-aware behaviors:
+      - Maneuvering
+      - Path Finding
       - Cardinal marker handling
       - Collision Avoidance
 
-    Docking is intentionally not included yet.
+    Docking and Surprise Task are intentionally not implemented yet.
 
     Priority:
       1. Localization must be available.
-      2. Collision risks are handled first.
-      3. Cardinal-marker path-finding decisions are handled next.
+      2. Collision risks are handled first as a global safety behavior.
+      3. Task-specific cardinal-marker handling is performed during
+         Maneuvering and Path Finding.
       4. Mission lifecycle is monitored continuously.
 
-    Navigation changes are requested through Mission Manager.
-    The Behavior Tree does not send NavigateToPose goals directly.
+    Competition Manager publishes the active competition task.
+
+    Mission Manager executes waypoint missions and navigation bypass
+    requests.
+
+    The Behavior Tree coordinates task behavior but does not send
+    NavigateToPose goals directly.
   -->
 
   <BehaviorTree ID="MainTree">
 
     <ReactiveSequence name="NjordMission">
 
+      <!--
+        Navigation behavior must not begin before odometry is available.
+      -->
       <WaitForOdom/>
 
       <!--
-        Highest-priority task behavior.
+        Global safety behavior.
+
+        Collision avoidance remains active independently of the current
+        competition task.
 
         When a dangerous obstacle is detected:
           CollisionRiskDetected
             -> DetermineAvoidanceTarget
             -> RequestAvoidance
 
-        If no collision risk exists, normal mission execution continues.
+        If no collision risk exists, normal task execution continues.
       -->
       <Fallback name="OptionalCollisionAvoidance">
 
@@ -53,7 +66,12 @@
       </Fallback>
 
       <!--
-        Maneuvering / Path Finding.
+        Task-aware Maneuvering / Path Finding behavior.
+
+        Cardinal-marker handling is enabled only when Competition Manager
+        reports either:
+          - TASK_MANEUVERING
+          - TASK_PATH_FINDING
 
         When a configured cardinal marker is detected:
           CardinalMarkerDetected
@@ -61,11 +79,28 @@
             -> DetermineCardinalBypassTarget
             -> RequestCardinalBypass
 
-        If no relevant marker exists, normal GPS/Nav2 navigation continues.
+        If the active task does not use cardinal markers, or no relevant
+        marker is detected, normal GPS/Nav2 mission execution continues.
       -->
-      <Fallback name="OptionalCardinalMarkerHandling">
+      <Fallback name="OptionalTaskCardinalMarkerHandling">
 
-        <Sequence name="CardinalMarkerHandling">
+        <Sequence name="ManeuveringCardinalMarkerHandling">
+
+          <IsTask task="maneuvering"/>
+
+          <CardinalMarkerDetected/>
+
+          <DeterminePassingSide/>
+
+          <DetermineCardinalBypassTarget/>
+
+          <RequestCardinalBypass/>
+
+        </Sequence>
+
+        <Sequence name="PathFindingCardinalMarkerHandling">
+
+          <IsTask task="path_finding"/>
 
           <CardinalMarkerDetected/>
 

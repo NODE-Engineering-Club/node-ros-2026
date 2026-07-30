@@ -11,6 +11,7 @@
 #include "behaviortree_cpp/loggers/bt_cout_logger.h"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "njord_msgs/msg/competition_state.hpp"
 #include "njord_msgs/msg/mission_status.hpp"
 #include "njord_msgs/msg/obstacle.hpp"
 #include "njord_msgs/msg/obstacle_array.hpp"
@@ -100,6 +101,9 @@ public:
     odom_received_(false),
     mission_status_received_(false),
     mission_state_(njord_msgs::msg::MissionStatus::IDLE),
+    competition_status_received_(false),
+    competition_task_(njord_msgs::msg::CompetitionState::TASK_NONE),
+    competition_state_(njord_msgs::msg::CompetitionState::STATE_IDLE),
     tree_finished_(false),
     cardinal_marker_detected_(false),
     cardinal_target_ready_(false),
@@ -235,6 +239,18 @@ public:
         this,
         std::placeholders::_1));
 
+    rclcpp::QoS competition_status_qos(1);
+    competition_status_qos.transient_local();
+
+    competition_status_sub_ =
+      create_subscription<njord_msgs::msg::CompetitionState>(
+      "/competition/status",
+      competition_status_qos,
+      std::bind(
+        &BoatBTNode::competition_status_callback,
+        this,
+        std::placeholders::_1));
+
     obstacles_sub_ =
       create_subscription<njord_msgs::msg::ObstacleArray>(
       "/obstacles/global",
@@ -302,6 +318,72 @@ private:
         return odom_received_
           ? BT::NodeStatus::SUCCESS
           : BT::NodeStatus::FAILURE;
+      });
+
+    // -----------------------------------------------------------------------
+    // Competition task selection
+    // -----------------------------------------------------------------------
+
+    factory_.registerSimpleCondition(
+      "IsTask",
+      [this](BT::TreeNode & node) {
+        const auto task_input =
+          node.getInput<std::string>("task");
+
+        if (!task_input) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "IsTask requires a 'task' input");
+
+          return BT::NodeStatus::FAILURE;
+        }
+
+        if (!competition_status_received_) {
+          return BT::NodeStatus::FAILURE;
+        }
+
+        const std::string task =
+          task_input.value();
+
+        uint8_t expected_task =
+          njord_msgs::msg::CompetitionState::TASK_NONE;
+
+        if (task == "maneuvering") {
+          expected_task =
+            njord_msgs::msg::CompetitionState::TASK_MANEUVERING;
+        }
+        else if (task == "path_finding") {
+          expected_task =
+            njord_msgs::msg::CompetitionState::TASK_PATH_FINDING;
+        }
+        else if (task == "collision_avoidance") {
+          expected_task =
+            njord_msgs::msg::CompetitionState::
+            TASK_COLLISION_AVOIDANCE;
+        }
+        else if (task == "docking") {
+          expected_task =
+            njord_msgs::msg::CompetitionState::TASK_DOCKING;
+        }
+        else if (task == "surprise") {
+          expected_task =
+            njord_msgs::msg::CompetitionState::TASK_SURPRISE;
+        }
+        else if (task != "none") {
+          RCLCPP_ERROR(
+            get_logger(),
+            "IsTask received unknown task: %s",
+            task.c_str());
+
+          return BT::NodeStatus::FAILURE;
+        }
+
+        return competition_task_ == expected_task
+          ? BT::NodeStatus::SUCCESS
+          : BT::NodeStatus::FAILURE;
+      },
+      {
+        BT::InputPort<std::string>("task")
       });
 
     // -----------------------------------------------------------------------
@@ -585,6 +667,22 @@ private:
       msg->message.c_str(),
       msg->current_waypoint,
       msg->total_waypoints);
+  }
+
+  void competition_status_callback(
+    const njord_msgs::msg::CompetitionState::SharedPtr msg)
+  {
+    competition_status_received_ = true;
+    competition_task_ = msg->task;
+    competition_state_ = msg->state;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Competition status received: "
+      "task=%u, state=%u, message='%s'",
+      static_cast<unsigned int>(msg->task),
+      static_cast<unsigned int>(msg->state),
+      msg->message.c_str());
   }
 
   void obstacles_callback(
@@ -1086,6 +1184,10 @@ private:
     mission_status_sub_;
 
   rclcpp::Subscription<
+    njord_msgs::msg::CompetitionState>::SharedPtr
+    competition_status_sub_;
+
+  rclcpp::Subscription<
     njord_msgs::msg::ObstacleArray>::SharedPtr
     obstacles_sub_;
 
@@ -1104,6 +1206,11 @@ private:
   bool mission_status_received_;
 
   uint8_t mission_state_;
+
+  bool competition_status_received_;
+
+  uint8_t competition_task_;
+  uint8_t competition_state_;
 
   bool tree_finished_;
 

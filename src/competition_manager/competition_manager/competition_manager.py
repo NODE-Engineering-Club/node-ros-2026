@@ -21,6 +21,15 @@ class CompetitionManager(Node):
         CompetitionState.TASK_SURPRISE: "TASK_SURPRISE",
     }
 
+    STATE_NAMES = {
+        CompetitionState.STATE_IDLE: "STATE_IDLE",
+        CompetitionState.STATE_READY: "STATE_READY",
+        CompetitionState.STATE_RUNNING: "STATE_RUNNING",
+        CompetitionState.STATE_SUCCEEDED: "STATE_SUCCEEDED",
+        CompetitionState.STATE_FAILED: "STATE_FAILED",
+        CompetitionState.STATE_ABORTED: "STATE_ABORTED",
+    }
+
     def __init__(self) -> None:
         super().__init__("competition_manager")
 
@@ -78,17 +87,21 @@ class CompetitionManager(Node):
         else:
             self._current_state = CompetitionState.STATE_READY
             task_name = self.TASK_NAMES[request.task]
-            self._current_message = f"Competition task selected: {task_name}"
+            self._current_message = (
+                f"Competition task selected: {task_name}"
+            )
 
         self.publish_status()
 
         response.success = True
         response.message = self._current_message
 
+        task_name = self.TASK_NAMES[self._current_task]
+        state_name = self.state_name(self._current_state)
+
         self.get_logger().info(
-            "Competition task updated: task=%s, state=%s",
-            self.TASK_NAMES[self._current_task],
-            self.state_name(self._current_state),
+            f"Competition task updated: "
+            f"task={task_name}, state={state_name}"
         )
 
         return response
@@ -103,20 +116,14 @@ class CompetitionManager(Node):
 
         self._status_publisher.publish(message)
 
-    @staticmethod
-    def state_name(state: int) -> str:
+    @classmethod
+    def state_name(cls, state: int) -> str:
         """Return a readable CompetitionState lifecycle name."""
 
-        state_names = {
-            CompetitionState.STATE_IDLE: "STATE_IDLE",
-            CompetitionState.STATE_READY: "STATE_READY",
-            CompetitionState.STATE_RUNNING: "STATE_RUNNING",
-            CompetitionState.STATE_SUCCEEDED: "STATE_SUCCEEDED",
-            CompetitionState.STATE_FAILED: "STATE_FAILED",
-            CompetitionState.STATE_ABORTED: "STATE_ABORTED",
-        }
-
-        return state_names.get(state, f"UNKNOWN_STATE_{state}")
+        return cls.STATE_NAMES.get(
+            state,
+            f"UNKNOWN_STATE_{state}",
+        )
 
 
 def main(args=None) -> None:

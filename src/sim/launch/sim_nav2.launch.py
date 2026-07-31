@@ -39,6 +39,10 @@ def generate_launch_description():
             default_value="true",
         ),
         DeclareLaunchArgument(
+            "enable_competition",
+            default_value="true",
+        ),
+        DeclareLaunchArgument(
             "enable_rviz",
             default_value="false",
         ),
@@ -153,6 +157,21 @@ def generate_launch_description():
                     output="screen",
                     condition=IfCondition(
                         LaunchConfiguration("enable_mission")
+                    ),
+                    parameters=[sim_time],
+                ),
+            ],
+        ),
+        TimerAction(
+            period=6.0,
+            actions=[
+                Node(
+                    package="competition_manager",
+                    executable="competition_manager",
+                    name="competition_manager",
+                    output="screen",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_competition")
                     ),
                     parameters=[sim_time],
                 ),

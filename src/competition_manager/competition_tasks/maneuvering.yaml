@@ -7,6 +7,6 @@ task:
 
 mission:
   waypoints:
-    - latitude: 41.3917758
-      longitude: 2.1541227
+    - latitude: 41.3900000
+      longitude: 2.1540600
       altitude: 0.0

@@ -57,14 +57,15 @@ source install/setup.bash
 | `lidar_device` | `/dev/ttyUSB0` | LiDAR serial device path |
 | `camera_info_url` | `package://bringup/config/front_camera.yaml` | `camera_info_manager` URL for camera intrinsics YAML |
 | `lidar_camera_extrinsic` | `""` | Path to `lidar_camera_extrinsic.yaml`; empty = use URDF nominal `lidar→front_camera` TF |
+| `world` | `basicWorld.sdf` | World file name under `description/worlds/` to load in Gazebo (e.g. `dockingWorld.sdf` for the U-shaped Task 3.1 berth) |
 
 ## Workspace Layout
 
 ```
 src/
-├── description/    # URDF (asket.urdf.xacro), meshes, Gazebo world
+├── description/    # URDF (asket.urdf.xacro), meshes, Gazebo worlds (basicWorld.sdf, dockingWorld.sdf)
 ├── sensors/        # camera_driver, lidar_driver, imu_gps_driver
-├── perception/     # lidar_obstacle_node, fusion_node
+├── perception/     # lidar_obstacle_node, fusion_node, dock_detector_node
 ├── control/        # nav_to_pid, pid_controller, actuator_driver
 ├── mission/        # mission_manager (GPS waypoint sequencer)
 ├── vision/         # vision_node (YOLO26n-seg ONNX inference)
@@ -103,6 +104,7 @@ flowchart TD
         Y --> Mask[/yolo/seg_mask/]
         LO[lidar_obstacle_node] --> LidarPts[/obstacles/lidar/]
         FN[fusion_node<br/>LiDAR+YOLO] --> Fused[/obstacles/fused/]
+        DD[dock_detector_node<br/>DBSCAN+RANSAC U-match] --> DockT[/perception/dock_target/]
     end
 
     subgraph Localization
@@ -133,6 +135,7 @@ flowchart TD
     Det --> FN
     Mask --> FN
     LidarPts --> FN
+    LidarPts --> DD
     Fused --> GCM
     Fused --> LCM
     OdomF --> EKF
@@ -201,6 +204,8 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 | `/yolo/seg_mask` | `sensor_msgs/Image` | out | Instance segmentation mask |
 | `/obstacles/lidar` | `sensor_msgs/PointCloud2` | out | Raw LiDAR obstacles (frame: `lidar`) |
 | `/obstacles/fused` | `sensor_msgs/PointCloud2` | out | LiDAR+YOLO fused obstacles (frame: `base_link`) |
+| `/perception/dock_target` | `njord_msgs/DockTarget` | out | Backward-compatible singular topic: highest-confidence FREE berth (`occupied=false`), or `detected=false` if none — `base_link` frame |
+| `/perception/dock_targets` | `njord_msgs/DockTargetArray` | out | Every U-shaped berth recognized this scan, occupied and free (Task 3.1), `base_link` frame — see `DockTarget.msg` for fields |
 | `/odometry/filtered` | `nav_msgs/Odometry` | out | EKF-fused odometry |
 | `/odometry/gps` | `nav_msgs/Odometry` | out | GPS converted to map frame (navsat_transform_node) |
 | `/cmd_vel` | `geometry_msgs/Twist` | Nav2→control | Nav2 velocity command (obstacle-checked output of collision_monitor) |
@@ -213,6 +218,8 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 ### `description`
 - **`asket.urdf.xacro`** — Full robot URDF with root link `base_link` (hull body), propellers, LiDAR, cameras, GPS, IMU, and PX4 mount. Includes Gazebo sensor plugins (camera, GPU LiDAR, NavSat, IMU). `robot_state_publisher` reads this file and broadcasts the complete static TF tree on startup.
 - **`worlds/basicWorld.sdf`** — Minimal Gazebo Harmonic world with Physics, UserCommands, SceneBroadcaster, Sensors (camera+lidar), IMU, and NavSat system plugins.
+- **`worlds/dockingWorld.sdf`** — Same base plugins plus a static `dock_task_3_1` model: a U-shaped berth (two parallel arms + a back wall, ~2.1 m opening) for testing `dock_detector_node`. Load it with `world:=dockingWorld.sdf`.
+- **`worlds/dockingWorldOccupied.sdf`** — Two adjoining 2m×2m berths sharing a middle wall, plus a static `decoy_boat` model (reusing Asket's own hull mesh, plugin-free) parked in one berth — for testing occupied-berth handling. Load it with `world:=dockingWorldOccupied.sdf`.
 
 ### `sensors`
 - **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw` + `/front_camera_driver/image_raw/camera_info`. Starts in degraded mode if no camera connected. Loads camera intrinsics via `camera_info_manager` from the URL given by the `camera_info_url` parameter (default `package://bringup/config/front_camera.yaml`). Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
@@ -222,6 +229,7 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 ### `perception`
 - **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
 - **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `lidar → camera_frame` in TF to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Camera intrinsics update live from `/front_camera_driver/image_raw/camera_info`. Parameters: `lidar_frame` (default `lidar`), `camera_frame` (default `front_camera`, switches to `front_camera_cal` when `lidar_camera_extrinsic` launch arg is set), `camera_info_topic`.
+- **`dock_detector_node`** — Recognizes U-shaped docking berths (Task 3.1, "normal docking") from `/obstacles/lidar`, including multiple adjoining berths sharing a wall: DBSCAN separates the cloud into candidate objects, iterative RANSAC extracts straight wall segments from each, and the segments are matched against a U template (two parallel arms + a perpendicular back wall, opening toward the boat) — every valid match within a cluster is kept, not just the best, so a wall shared between two berths can yield a separate detection per berth. Each match is classified occupied/free by checking whether scan points fall inside its interior beyond what its own matched walls explain. Publishes every recognized berth on `/perception/dock_targets` (`njord_msgs/DockTargetArray`), plus a backward-compatible `/perception/dock_target` (`njord_msgs/DockTarget`): the highest-confidence FREE berth, or `detected=false` if none. Key parameters: `berth_width_m` (default 2.0), `width_tolerance_m`, `arm_length_min_m`/`arm_length_max_m`, `parallel_angle_tol_deg`, `perp_angle_tol_deg`, `lidar_yaw_offset_deg` (mount-yaw correction into `base_link`, default 90°), `occupancy_margin_m`/`occupancy_min_points` (occupancy classification). Perception-only — no temporal filtering across scans yet, and not yet consumed by the behavior tree or mission layer (see `TODOS.md`).
 
 ### `vision`
 - **`vision_node`** — YOLO26n-seg ONNX Runtime inference (CPU). Publishes `Detection2DArray` and an instance mask image. Confidence threshold configurable via `vision_confidence` launch arg.
@@ -454,6 +462,52 @@ ros2 topic hz /obstacles/lidar           # expect ~15 Hz (passthrough from lidar
 ros2 topic hz /obstacles/fused           # expect ~10 Hz (fusion timer, lidar-only mode)
 ros2 topic echo /obstacles/lidar --once  # verify width > 0 (points detected)
 ```
+
+## Docking Detection Testing
+
+`dock_detector_node` has two levels of test coverage — run both after touching its parameters or algorithm.
+
+**1. Synthetic test suite (fast, no Gazebo needed):**
+
+```bash
+python3 src/perception/test/test_dock_detector.py
+```
+
+Spins up `DockDetectorNode` in-process and feeds it synthetic `/obstacles/lidar` scenes (see `src/perception/test/dock_scene_publisher.py`) built directly from `dockingWorldOccupied.sdf`'s geometry — two berths, one occupied by a decoy, swept across a 3×3×3 matrix of distances (3/5/8 m), angles (±30°/0°), and which berth is occupied (A/B/neither). Exits non-zero if the **hard invariant** ever fails: the occupied berth must never be reported as an available (`detected=true, occupied=false`) target. Prints a PASS/FAIL line per case, plus soft/informational checks on whether the free berth was actually found.
+
+**2. Real-Gazebo verification (required after any change — the synthetic suite alone can't catch sim/sensor-fidelity issues like clustering fragmentation or mesh-loading errors):**
+
+```bash
+# Launch the two-berth occupied-dock world with perception only
+ros2 launch bringup njord.launch.py use_sim:=true world:=dockingWorldOccupied.sdf \
+  enable_mavros:=false enable_localization:=false enable_nav2:=false \
+  enable_control:=false enable_mission:=false enable_vision:=false
+```
+
+The boat spawns at the world origin facing world +x — by design (see `dockingWorldOccupied.sdf`'s comments) the dock sits at true bearing ~90° (the boat's left) so it falls within the sim `gpu_lidar`'s usable FOV cone. **Keep the boat's yaw at 0** when repositioning for tests — rotating it to "face" the dock breaks that FOV alignment.
+
+Reposition the boat with Gazebo's teleport service instead of driving it (faster, deterministic):
+
+```bash
+# name/position/z are required; keep orientation identity (w:1) per the note above
+gz service -s /world/default/set_pose --reqtype gz.msgs.Pose --reptype gz.msgs.Boolean --timeout 3000 \
+  --req 'name: "asket", position: {x: -1.05, y: 2.0, z: 0.1}, orientation: {x: 0, y: 0, z: 0.0, w: 1.0}'
+```
+
+Then inspect detections:
+
+```bash
+ros2 topic echo /perception/dock_targets --once   # every berth this scan, occupied and free
+ros2 topic echo /perception/dock_target --once    # best FREE berth only, or detected:false if none
+```
+
+Known-good reference poses (world x/y, yaw=0) against `dockingWorldOccupied.sdf`'s berth layout — Berth A (free) is at world x≈-1.05, Berth B (occupied by the decoy) is at world x≈+1.05, both at world y≈5:
+
+| Pose (world x, y) | Expected result |
+|---|---|
+| `-1.05, 2.0` | Berth A resolves, `occupied: false` |
+| `1.05, 2.0` | Berth B resolves, `occupied: true`; singular topic shows `detected: false` (no free berth in view) |
+| `0.0, 0.0` (default spawn) | `detected: false` on both topics — known viewing-angle limitation, see `TODOS.md` |
 
 ## Production Deploy
 

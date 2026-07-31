@@ -22,27 +22,102 @@
 
 ## Navigation (Docking)
 
-- [ ] **Restore `opennav_docking` for the docking challenge**
-  The Nav2 docking server (`opennav_docking`) was intentionally omitted from
-  `bringup/launch/njord.launch.py` and `Containerfile` because the package
-  isn't installed and including it would crash the lifecycle manager. We need
-  it back for the docking challenge. Required:
-  1. Add `ros-jazzy-opennav-docking` to `Containerfile` (verify exact package
-     name; may be split into `opennav-docking` + `opennav-docking-bt`).
-  2. Add a `docking_server` Node to the Nav2 group in `njord.launch.py` and
-     include `"docking_server"` in the `lifecycle_manager` `node_names`.
-  3. Add a `docking_server:` block to `bringup/config/nav2_params.yaml` with:
-     - `controller:` (graceful_controller params — works for forward-only USV)
-     - `dock_plugins:` list of supported dock types
-     - `docks:` static instances OR `dock_database` YAML path
-  4. Decide on dock-pose source — options:
-     - **Hardcoded GPS**: cheapest, fragile, fine for static known docks
-     - **Vision-based**: AprilTag/ArUco detector publishing dock pose, or a
-       YOLO class for the dock target with PnP for pose
-  5. Custom BT XML that sequences `NavigateToPose` → `DockRobot` → mission
-     continuation (default Nav2 trees don't include docking nodes).
-  6. Sim verification before water: add a dock model to `basicWorld.sdf` and
-     run a full nav-to-dock sequence end-to-end.
+Dock **detection** now exists: `perception/dock_detector_node` clusters
+`/obstacles/lidar` (DBSCAN), extracts wall segments (RANSAC), and matches
+them against a U-shaped berth template — including multiple adjoining
+berths sharing a wall, each independently classified occupied/free.
+Publishes every recognized berth on `/perception/dock_targets`
+(`njord_msgs/DockTargetArray`), plus a backward-compatible
+`/perception/dock_target` (highest-confidence FREE berth only).
+`description/worlds/dockingWorld.sdf` (single berth) and
+`dockingWorldOccupied.sdf` (two berths, one occupied by a static decoy
+boat) provide sim testing worlds. This superseded the vision/AprilTag
+dock-pose idea below — LiDAR gives short-range geometry directly without
+needing a fiducial marker on the dock. What's still missing is everything
+downstream of detection:
+
+- [x] **Multi-berth + occupancy detection** — done. Verified both via a
+  synthetic test suite (`src/perception/test/test_dock_detector.py`, no
+  Gazebo needed — 27-case distance/angle/occupied-berth matrix, 0 failures)
+  and against real simulated LiDAR data in `dockingWorldOccupied.sdf`
+  (confirmed: the occupied berth is flagged `occupied=true` and excluded
+  from `/perception/dock_target`; the free berth reports `occupied=false`).
+  The real-Gazebo pass caught 3 bugs the synthetic-only test couldn't:
+  (1) a shared back wall's per-berth corner can fall mid-segment, not at
+  an endpoint — `_find_u_shapes`' corner-gap check now measures distance
+  to the back-wall *segment*, not just its two endpoints; (2) real
+  (non-uniform) LiDAR sampling can fragment one physical wall into
+  multiple DBSCAN clusters — `cluster_eps` raised 0.4→0.6; (3) a border-line
+  weak RANSAC fit (exactly at the old `ransac_min_inliers=6` floor) could
+  absorb a few of an occupying boat's hull points as if they were "wall,"
+  silently defeating the occupancy check — raised to 10, and a real
+  index-mapping bug (`wall_inlier_idx` was cluster-local but compared
+  against the full-scan point array) was also fixed. `ransac_dist_threshold_m`
+  was tightened 0.05→0.03 so RANSAC cleanly separates a shared wall's two
+  faces (~0.1 m apart) instead of fitting one straddling "compromise" line.
+
+- [ ] **Temporal filtering/tracking for `dock_detector_node`**
+  Detection currently runs per-scan only — no smoothing or persistence of
+  `detected` across frames. Reuse the `Tracker` class already implemented in
+  `src/fusion/fusion/geo_fusion_node.py` (~line 368: constant-velocity Kalman
+  filter per track, gating, hit-confirmation, miss-count-based death) — the
+  dock node's own docstring points at this as the intended next step.
+
+- [ ] **Wire docking into the behavior tree**
+  `boat_bt/bt_xml/simple_boat.xml` currently says "Docking is intentionally
+  not included yet." Add `DockDetected`/similar condition + action leaf
+  nodes to `boat_bt/src/boat_bt_node.cpp` (subscribing to
+  `/perception/dock_target`, mirroring the existing
+  `CardinalMarkerDetected`/`updateCardinalMarkerState` pattern), and a
+  `Sequence`/`Fallback` branch in `simple_boat.xml` analogous to
+  `OptionalCardinalMarkerHandling`. The singular `/perception/dock_target`
+  topic already filters to the best FREE berth, so a naive consumer gets
+  occupancy-safety for free — but if a future consumer switches to
+  `/perception/dock_targets` (e.g. to choose among several free berths, or
+  to reason about *which* berth is occupied), it must explicitly filter on
+  `occupied == false` itself; `detected` alone does not mean available.
+
+- [ ] **Docking-approach path planning / maneuver**
+  Design and implement the actual final-approach maneuver once `DockTarget`
+  is confirmed+stable: a controller/action server that consumes
+  `opening_center`/`heading` (`base_link` frame) and drives the boat through
+  the U opening. This is a new capability, not a Nav2 param tweak — decide
+  whether it's a custom `control` package node or a BT-orchestrated sequence
+  of small Nav2 goals.
+
+- [ ] **Mission-manager / lifecycle hookup**
+  Decide how/when the mission transitions into "docking mode" (e.g. after
+  waypoints exhausted, or on operator command) and how it exits on
+  success/failure.
+
+- [ ] **Improve detection robustness/range against `dockingWorldOccupied.sdf`**
+  Occupancy classification itself is verified (see above), but detection is
+  still viewing-angle-sensitive: from the default spawn pose (dead-center,
+  ~5 m out, symmetric between both berths) the two-berth structure isn't
+  cleanly resolved at all (`detected=false` — a safe fallback, not a
+  false positive, but not useful either); off-center vantage points closer
+  to one berth resolve cleanly. Worth tuning further (segment budget,
+  clustering, or a wider approach-angle sweep in the BT/mission layer) so a
+  boat navigating straight in on the GPS waypoint doesn't need to be
+  laterally offset to get a clean read.
+
+- [ ] **Tune detection parameters against real hardware LiDAR noise**
+  Current defaults (`cluster_eps=0.6`, `ransac_dist_threshold_m=0.03`,
+  `ransac_min_inliers=10`, angle/width tolerances) were tuned against sim
+  data (including the multi-berth/occupancy fixes above) and are untested
+  on hardware. Also verify `lidar_yaw_offset_deg` (currently 90°,
+  sim-derived) against the real mount.
+
+- [ ] **Resolve the orphaned `opennav_docking` wiring**
+  `src/bringup/launch/navigation_no_collision.launch.py` already
+  instantiates Nav2's stock `opennav_docking` `DockingServer` (lifecycle
+  node + component), but this launch file isn't included by
+  `njord.launch.py` and isn't referenced anywhere else in the repo. Decide:
+  consolidate it into the new LiDAR-geometric approach, repurpose it for a
+  different dock type (e.g. a charging dock vs. the Task 3.1 competition
+  berth), or delete it — leaving it as dead code next to the new,
+  actually-wired `dock_detector_node` invites confusion about which is the
+  real docking path.
 
 ## Sensor Data Processing Tests
 

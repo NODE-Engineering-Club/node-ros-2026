@@ -15,6 +15,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ObstacleArray.msg"
   "msg/MissionStatus.msg"
   "msg/CompetitionState.msg"
+  "msg/DockTarget.msg"
+  "msg/DockTargetArray.msg"
   DEPENDENCIES geographic_msgs geometry_msgs std_msgs
 )
 

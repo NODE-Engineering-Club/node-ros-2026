@@ -258,6 +258,41 @@ void BoatBTNode::register_bt_nodes()
       return BT::NodeStatus::SUCCESS;
     });
 
+
+  // -----------------------------------------------------------------------
+  // Docking
+  // -----------------------------------------------------------------------
+
+  factory_.registerSimpleCondition(
+    "DockTargetAvailable",
+    [this](BT::TreeNode &) {
+      return dock_target_available_
+        ? BT::NodeStatus::SUCCESS
+        : BT::NodeStatus::FAILURE;
+    });
+
+  factory_.registerSimpleAction(
+    "ReportDockTarget",
+    [this](BT::TreeNode &) {
+      if (!dock_target_available_) {
+        return BT::NodeStatus::FAILURE;
+      }
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Docking target selected: center=(%.2f, %.2f), "
+        "heading=%.2f rad, width=%.2f m, depth=%.2f m, "
+        "confidence=%.2f",
+        dock_opening_center_.x,
+        dock_opening_center_.y,
+        dock_heading_,
+        dock_width_,
+        dock_depth_,
+        dock_confidence_);
+
+      return BT::NodeStatus::SUCCESS;
+    });
+
   // -----------------------------------------------------------------------
   // Mission lifecycle
   // -----------------------------------------------------------------------

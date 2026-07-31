@@ -15,6 +15,8 @@ BoatBTNode::BoatBTNode()
   cardinal_marker_detected_(false),
   cardinal_target_ready_(false),
   last_cardinal_request_id_(0),
+  dock_target_received_(false),
+  dock_target_available_(false),
   collision_risk_detected_(false),
   avoidance_target_ready_(false),
   last_avoidance_request_id_(0)
@@ -80,6 +82,14 @@ BoatBTNode::BoatBTNode()
     "request_cooldown_sec",
     5.0);
 
+  // -----------------------------------------------------------------------
+  // Docking configuration
+  // -----------------------------------------------------------------------
+
+  declare_parameter<double>(
+    "docking_min_confidence",
+    0.6);
+
   cardinal_north_class_id_ =
     get_parameter("cardinal_north_class_id").as_string();
 
@@ -115,6 +125,9 @@ BoatBTNode::BoatBTNode()
 
   request_cooldown_sec_ =
     get_parameter("request_cooldown_sec").as_double();
+
+  docking_min_confidence_ =
+    get_parameter("docking_min_confidence").as_double();
 
   // -----------------------------------------------------------------------
   // ROS interfaces
@@ -167,6 +180,15 @@ BoatBTNode::BoatBTNode()
       this,
       std::placeholders::_1));
 
+  dock_target_sub_ =
+    create_subscription<njord_msgs::msg::DockTarget>(
+    "/perception/dock_target",
+    10,
+    std::bind(
+      &BoatBTNode::dock_target_callback,
+      this,
+      std::placeholders::_1));
+
   bypass_client_ =
     create_client<njord_msgs::srv::SetBypassTarget>(
     "/mission/set_bypass_target");
@@ -210,6 +232,11 @@ BoatBTNode::BoatBTNode()
     "range=%.1f m, forward sector=+/-%.1f deg",
     collision_risk_range_m_,
     collision_forward_sector_deg_);
+
+  RCLCPP_INFO(
+    get_logger(),
+    "Dock target integration enabled: minimum confidence=%.2f",
+    docking_min_confidence_);
 }
 
 

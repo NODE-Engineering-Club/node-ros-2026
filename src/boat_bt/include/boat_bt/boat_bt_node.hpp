@@ -16,6 +16,7 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "njord_msgs/msg/competition_state.hpp"
+#include "njord_msgs/msg/dock_target.hpp"
 #include "njord_msgs/msg/mission_status.hpp"
 #include "njord_msgs/msg/obstacle.hpp"
 #include "njord_msgs/msg/obstacle_array.hpp"
@@ -49,6 +50,9 @@ private:
 
   void obstacles_callback(
     const njord_msgs::msg::ObstacleArray::SharedPtr msg);
+
+  void dock_target_callback(
+    const njord_msgs::msg::DockTarget::SharedPtr msg);
 
   // =========================================================================
   // Task 1: cardinal-marker handling
@@ -126,6 +130,10 @@ private:
     njord_msgs::msg::ObstacleArray>::SharedPtr
     obstacles_sub_;
 
+  rclcpp::Subscription<
+    njord_msgs::msg::DockTarget>::SharedPtr
+    dock_target_sub_;
+
   rclcpp::Client<
     njord_msgs::srv::SetBypassTarget>::SharedPtr
     bypass_client_;
@@ -191,6 +199,22 @@ private:
   double cardinal_min_confidence_;
   double cardinal_max_range_m_;
   double cardinal_bypass_offset_m_;
+
+  // =========================================================================
+  // Docking state
+  // =========================================================================
+
+  bool dock_target_received_;
+  bool dock_target_available_;
+
+  geometry_msgs::msg::Point dock_opening_center_;
+
+  double dock_heading_{0.0};
+  double dock_width_{0.0};
+  double dock_depth_{0.0};
+  double dock_confidence_{0.0};
+
+  double docking_min_confidence_;
 
   // =========================================================================
   // Collision Avoidance state

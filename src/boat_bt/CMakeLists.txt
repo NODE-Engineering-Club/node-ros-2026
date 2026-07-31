@@ -16,6 +16,18 @@ find_package(njord_msgs REQUIRED)
 add_executable(
   boat_bt_node
   src/boat_bt_node.cpp
+  src/bt_registration.cpp
+  src/cardinal_nodes.cpp
+  src/collision_nodes.cpp
+  src/docking_nodes.cpp
+  src/geo_helpers.cpp
+  src/mission_monitor.cpp
+)
+
+target_include_directories(
+  boat_bt_node
+  PRIVATE
+  include
 )
 
 ament_target_dependencies(
@@ -31,6 +43,11 @@ ament_target_dependencies(
 install(
   TARGETS boat_bt_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY include/
+  DESTINATION include
 )
 
 install(

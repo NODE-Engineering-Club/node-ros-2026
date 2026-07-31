@@ -1,132 +1,92 @@
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
 
-  <!--
-    Njord 2026 autonomous mission Behavior Tree
-
-    Current task-aware behaviors:
-      - Maneuvering
-      - Path Finding
-      - Cardinal marker handling
-      - Collision Avoidance
-
-    Docking and Surprise Task are intentionally not implemented yet.
-
-    Priority:
-      1. Localization must be available.
-      2. Collision risks are handled first as a global safety behavior.
-      3. Task-specific cardinal-marker handling is performed during
-         Maneuvering and Path Finding.
-      4. Mission lifecycle is monitored continuously.
-
-    Competition Manager publishes the active competition task.
-
-    Mission Manager executes waypoint missions and navigation bypass
-    requests.
-
-    The Behavior Tree coordinates task behavior but does not send
-    NavigateToPose goals directly.
-  -->
-
   <BehaviorTree ID="MainTree">
-
     <ReactiveSequence name="NjordMission">
-
-      <!--
-        Navigation behavior must not begin before odometry is available.
-      -->
       <WaitForOdom/>
-
-      <!--
-        Global safety behavior.
-
-        Collision avoidance remains active independently of the current
-        competition task.
-
-        When a dangerous obstacle is detected:
-          CollisionRiskDetected
-            -> DetermineAvoidanceTarget
-            -> RequestAvoidance
-
-        If no collision risk exists, normal task execution continues.
-      -->
-      <Fallback name="OptionalCollisionAvoidance">
-
-        <Sequence name="CollisionAvoidance">
-
-          <CollisionRiskDetected/>
-
-          <DetermineAvoidanceTarget/>
-
-          <RequestAvoidance/>
-
-        </Sequence>
-
-        <AlwaysSuccess/>
-
-      </Fallback>
-
-      <!--
-        Task-aware Maneuvering / Path Finding behavior.
-
-        Cardinal-marker handling is enabled only when Competition Manager
-        reports either:
-          - TASK_MANEUVERING
-          - TASK_PATH_FINDING
-
-        When a configured cardinal marker is detected:
-          CardinalMarkerDetected
-            -> DeterminePassingSide
-            -> DetermineCardinalBypassTarget
-            -> RequestCardinalBypass
-
-        If the active task does not use cardinal markers, or no relevant
-        marker is detected, normal GPS/Nav2 mission execution continues.
-      -->
-      <Fallback name="OptionalTaskCardinalMarkerHandling">
-
-        <Sequence name="ManeuveringCardinalMarkerHandling">
-
-          <IsTask task="maneuvering"/>
-
-          <CardinalMarkerDetected/>
-
-          <DeterminePassingSide/>
-
-          <DetermineCardinalBypassTarget/>
-
-          <RequestCardinalBypass/>
-
-        </Sequence>
-
-        <Sequence name="PathFindingCardinalMarkerHandling">
-
-          <IsTask task="path_finding"/>
-
-          <CardinalMarkerDetected/>
-
-          <DeterminePassingSide/>
-
-          <DetermineCardinalBypassTarget/>
-
-          <RequestCardinalBypass/>
-
-        </Sequence>
-
-        <AlwaysSuccess/>
-
-      </Fallback>
-
-      <!--
-        Mission lifecycle:
-          IDLE / RUNNING -> RUNNING
-          SUCCEEDED      -> SUCCESS
-          FAILED         -> FAILURE
-          ABORTED        -> FAILURE
-      -->
+      <SubTree ID="GlobalSafety"/>
+      <SubTree ID="CompetitionTaskSelector"/>
       <MissionMonitor/>
-
     </ReactiveSequence>
+  </BehaviorTree>
 
+  <BehaviorTree ID="GlobalSafety">
+    <Fallback name="OptionalGlobalCollisionAvoidance">
+      <Sequence name="GlobalCollisionAvoidance">
+        <CollisionRiskDetected/>
+        <DetermineAvoidanceTarget/>
+        <RequestAvoidance/>
+      </Sequence>
+      <AlwaysSuccess/>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="CompetitionTaskSelector">
+    <Fallback name="TaskSelector">
+
+      <Sequence name="SelectManeuveringTask">
+        <IsTask task="maneuvering"/>
+        <SubTree ID="ManeuveringTask"/>
+      </Sequence>
+
+      <Sequence name="SelectPathFindingTask">
+        <IsTask task="path_finding"/>
+        <SubTree ID="PathFindingTask"/>
+      </Sequence>
+
+      <Sequence name="SelectCollisionAvoidanceTask">
+        <IsTask task="collision_avoidance"/>
+        <SubTree ID="CollisionAvoidanceTask"/>
+      </Sequence>
+
+      <Sequence name="SelectDockingTask">
+        <IsTask task="docking"/>
+        <SubTree ID="DockingTask"/>
+      </Sequence>
+
+      <Sequence name="SelectSurpriseTask">
+        <IsTask task="surprise"/>
+        <SubTree ID="SurpriseTask"/>
+      </Sequence>
+
+      <AlwaysSuccess/>
+
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="ManeuveringTask">
+    <Fallback name="OptionalManeuveringCardinalHandling">
+      <Sequence name="ManeuveringCardinalMarkerHandling">
+        <CardinalMarkerDetected/>
+        <DeterminePassingSide/>
+        <DetermineCardinalBypassTarget/>
+        <RequestCardinalBypass/>
+      </Sequence>
+      <AlwaysSuccess/>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PathFindingTask">
+    <Fallback name="OptionalPathFindingCardinalHandling">
+      <Sequence name="PathFindingCardinalMarkerHandling">
+        <CardinalMarkerDetected/>
+        <DeterminePassingSide/>
+        <DetermineCardinalBypassTarget/>
+        <RequestCardinalBypass/>
+      </Sequence>
+      <AlwaysSuccess/>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="CollisionAvoidanceTask">
+    <AlwaysSuccess/>
+  </BehaviorTree>
+
+  <BehaviorTree ID="DockingTask">
+    <AlwaysSuccess/>
+  </BehaviorTree>
+
+  <BehaviorTree ID="SurpriseTask">
+    <AlwaysSuccess/>
   </BehaviorTree>
 
 </root>

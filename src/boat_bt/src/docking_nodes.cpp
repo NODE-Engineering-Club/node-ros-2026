@@ -128,7 +128,11 @@ BT::NodeStatus BoatBTNode::executeDockingController()
 {
   if (docking_complete_) {
     publishDockingCommand(0.0, 0.0);
-    return BT::NodeStatus::SUCCESS;
+    requestCompetitionCompletion();
+
+    return competition_completion_confirmed_
+      ? BT::NodeStatus::SUCCESS
+      : BT::NodeStatus::RUNNING;
   }
 
   /*
@@ -310,9 +314,14 @@ BT::NodeStatus BoatBTNode::executeDockingController()
 
       RCLCPP_INFO(
         get_logger(),
-        "Docking completed. Boat stopped inside the dock.");
+        "Docking manoeuvre completed. "
+        "Waiting for Competition Manager acknowledgement.");
 
-      return BT::NodeStatus::SUCCESS;
+      requestCompetitionCompletion();
+
+      return competition_completion_confirmed_
+        ? BT::NodeStatus::SUCCESS
+        : BT::NodeStatus::RUNNING;
     }
 
     const double yaw_command =
@@ -348,8 +357,11 @@ BT::NodeStatus BoatBTNode::executeDockingController()
   if (docking_state_ == DockingState::DOCKED) {
     docking_complete_ = true;
     publishDockingCommand(0.0, 0.0);
+    requestCompetitionCompletion();
 
-    return BT::NodeStatus::SUCCESS;
+    return competition_completion_confirmed_
+      ? BT::NodeStatus::SUCCESS
+      : BT::NodeStatus::RUNNING;
   }
 
   publishDockingCommand(0.0, 0.0);
@@ -415,6 +427,72 @@ void BoatBTNode::publishDockingCommand(
     docking_max_yaw_rate_radps_);
 
   cmd_pub_->publish(command);
+}
+
+
+void BoatBTNode::requestCompetitionCompletion()
+{
+  if (
+    competition_completion_confirmed_ ||
+    competition_completion_request_sent_)
+  {
+    return;
+  }
+
+  if (!competition_complete_client_->service_is_ready()) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Waiting for /competition/complete service");
+
+    return;
+  }
+
+  competition_completion_request_sent_ = true;
+
+  auto request =
+    std::make_shared<std_srvs::srv::Trigger::Request>();
+
+  competition_complete_client_->async_send_request(
+    request,
+    [this](
+      rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future)
+    {
+      try {
+        const auto response = future.get();
+
+        if (response->success) {
+          competition_completion_confirmed_ = true;
+
+          RCLCPP_INFO(
+            get_logger(),
+            "Competition Manager confirmed docking completion: %s",
+            response->message.c_str());
+
+          return;
+        }
+
+        competition_completion_request_sent_ = false;
+
+        RCLCPP_ERROR(
+          get_logger(),
+          "Competition Manager rejected docking completion: %s",
+          response->message.c_str());
+      }
+      catch (const std::exception & error) {
+        competition_completion_request_sent_ = false;
+
+        RCLCPP_ERROR(
+          get_logger(),
+          "Calling /competition/complete failed: %s",
+          error.what());
+      }
+    });
+
+  RCLCPP_INFO(
+    get_logger(),
+    "Docking completion request sent to Competition Manager");
 }
 
 

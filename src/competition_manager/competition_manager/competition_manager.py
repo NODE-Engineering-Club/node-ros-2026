@@ -75,6 +75,12 @@ class CompetitionManager(Node):
             self.start_callback,
         )
 
+        self._complete_service = self.create_service(
+            Trigger,
+            "/competition/complete",
+            self.complete_callback,
+        )
+
         self._mission_start_client = self.create_client(
             StartMission,
             "/mission/start",
@@ -203,7 +209,7 @@ class CompetitionManager(Node):
         request: Trigger.Request,
         response: Trigger.Response,
     ) -> Trigger.Response:
-        """Request mission execution for the selected task."""
+        """Start the selected competition task."""
 
         del request
 
@@ -241,13 +247,25 @@ class CompetitionManager(Node):
             self.get_logger().warning(response.message)
             return response
 
+        # Tasks without geographic waypoints are executed directly by the
+        # Behavior Tree instead of MissionManager.
         if not self._current_task_definition.waypoints:
-            response.success = False
-            response.message = (
-                f"Cannot start {self._current_task_definition.name}: "
-                "task contains no waypoints"
+            self.set_competition_state(
+                CompetitionState.STATE_RUNNING,
+                (
+                    "Competition task started: "
+                    f"{self._current_task_definition.name}"
+                ),
             )
-            self.get_logger().warning(response.message)
+
+            response.success = True
+            response.message = self._current_message
+
+            self.get_logger().info(
+                "Direct Behavior Tree task started without "
+                "MissionManager waypoints: "
+                f"task={self._current_task_definition.task_id}"
+            )
             return response
 
         if not self._mission_start_client.wait_for_service(
@@ -286,6 +304,73 @@ class CompetitionManager(Node):
             "Mission start request sent: "
             f"task={self._current_task_definition.task_id}, "
             f"waypoints={len(mission_request.waypoints)}"
+        )
+
+        return response
+
+    def complete_callback(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        """Mark a directly executed competition task as successful."""
+
+        del request
+
+        if self._current_task == CompetitionState.TASK_NONE:
+            response.success = False
+            response.message = (
+                "Cannot complete competition task: no task is selected"
+            )
+            self.get_logger().warning(response.message)
+            return response
+
+        if self._current_task_definition is None:
+            response.success = False
+            response.message = (
+                "Cannot complete competition task: "
+                "task definition is unavailable"
+            )
+            self.get_logger().error(response.message)
+            return response
+
+        if self._current_state == CompetitionState.STATE_SUCCEEDED:
+            response.success = True
+            response.message = self._current_message
+            return response
+
+        if self._current_state != CompetitionState.STATE_RUNNING:
+            response.success = False
+            response.message = (
+                "Cannot complete competition task while state is "
+                f"{self.state_name(self._current_state)}"
+            )
+            self.get_logger().warning(response.message)
+            return response
+
+        if self._current_task_definition.waypoints:
+            response.success = False
+            response.message = (
+                "Waypoint-based tasks must complete through "
+                "/mission/status"
+            )
+            self.get_logger().warning(response.message)
+            return response
+
+        self.set_competition_state(
+            CompetitionState.STATE_SUCCEEDED,
+            (
+                "Competition task succeeded: "
+                f"{self._current_task_definition.name}"
+            ),
+        )
+
+        response.success = True
+        response.message = self._current_message
+
+        self.get_logger().info(
+            "Direct Behavior Tree task reported completion: "
+            f"task={self._current_task_definition.task_id}"
         )
 
         return response

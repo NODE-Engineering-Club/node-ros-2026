@@ -12,6 +12,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(njord_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_executable(
   boat_bt_node
@@ -38,6 +39,7 @@ ament_target_dependencies(
   behaviortree_cpp
   ament_index_cpp
   njord_msgs
+  std_srvs
 )
 
 install(

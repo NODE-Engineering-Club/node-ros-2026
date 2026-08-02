@@ -22,6 +22,7 @@
 #include "njord_msgs/msg/obstacle_array.hpp"
 #include "njord_msgs/srv/set_bypass_target.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 class BoatBTNode : public rclcpp::Node
 {
@@ -96,6 +97,8 @@ private:
   void publishDockingCommand(
     double forward_speed,
     double yaw_rate);
+
+  void requestCompetitionCompletion();
 
   bool dockTargetFresh() const;
 
@@ -174,6 +177,10 @@ private:
     njord_msgs::srv::SetBypassTarget>::SharedPtr
     bypass_client_;
 
+  rclcpp::Client<
+    std_srvs::srv::Trigger>::SharedPtr
+    competition_complete_client_;
+
   rclcpp::TimerBase::SharedPtr
     timer_;
 
@@ -243,6 +250,13 @@ private:
   bool dock_target_received_;
   bool dock_target_available_;
   bool docking_complete_;
+
+  /*
+   * The controller remains RUNNING after the physical docking manoeuvre
+   * until Competition Manager acknowledges /competition/complete.
+   */
+  bool competition_completion_request_sent_;
+  bool competition_completion_confirmed_;
 
   DockingState docking_state_;
 

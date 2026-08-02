@@ -18,6 +18,8 @@ BoatBTNode::BoatBTNode()
   dock_target_received_(false),
   dock_target_available_(false),
   docking_complete_(false),
+  competition_completion_request_sent_(false),
+  competition_completion_confirmed_(false),
   docking_state_(DockingState::WAITING_FOR_TARGET),
   collision_risk_detected_(false),
   avoidance_target_ready_(false),
@@ -311,6 +313,10 @@ BoatBTNode::BoatBTNode()
     create_client<njord_msgs::srv::SetBypassTarget>(
     "/mission/set_bypass_target");
 
+  competition_complete_client_ =
+    create_client<std_srvs::srv::Trigger>(
+    "/competition/complete");
+
   // -----------------------------------------------------------------------
   // Behavior Tree
   // -----------------------------------------------------------------------
@@ -447,11 +453,28 @@ void BoatBTNode::competition_status_callback(
 
   if (docking_task_started) {
     tree_finished_ = false;
+    competition_completion_request_sent_ = false;
+    competition_completion_confirmed_ = false;
     resetDockingController();
 
     RCLCPP_INFO(
       get_logger(),
       "New docking competition run started");
+  }
+
+  const bool docking_task_succeeded =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_DOCKING &&
+    competition_state_ ==
+    njord_msgs::msg::CompetitionState::STATE_SUCCEEDED;
+
+  if (docking_task_succeeded) {
+    competition_completion_confirmed_ = true;
+    publishDockingCommand(0.0, 0.0);
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Docking completion confirmed through /competition/status");
   }
 
   /*

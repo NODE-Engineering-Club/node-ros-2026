@@ -82,13 +82,7 @@
   </BehaviorTree>
 
   <BehaviorTree ID="DockingTask">
-    <Fallback name="WaitForValidDockTarget">
-      <Sequence name="UseDetectedFreeDock">
-        <DockTargetAvailable/>
-        <ReportDockTarget/>
-      </Sequence>
-      <AlwaysSuccess/>
-    </Fallback>
+    <ExecuteDocking/>
   </BehaviorTree>
 
   <BehaviorTree ID="SurpriseTask">

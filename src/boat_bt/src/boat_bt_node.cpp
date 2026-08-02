@@ -17,6 +17,8 @@ BoatBTNode::BoatBTNode()
   last_cardinal_request_id_(0),
   dock_target_received_(false),
   dock_target_available_(false),
+  docking_complete_(false),
+  docking_state_(DockingState::WAITING_FOR_TARGET),
   collision_risk_detected_(false),
   avoidance_target_ready_(false),
   last_avoidance_request_id_(0)
@@ -84,50 +86,166 @@ BoatBTNode::BoatBTNode()
 
   // -----------------------------------------------------------------------
   // Docking configuration
+  //
+  // All important values are ROS parameters so the competition team can
+  // tune the controller without editing or rebuilding the C++ source.
   // -----------------------------------------------------------------------
 
   declare_parameter<double>(
     "docking_min_confidence",
     0.6);
 
+  declare_parameter<double>(
+    "docking_target_timeout_sec",
+    1.0);
+
+  declare_parameter<double>(
+    "docking_alignment_tolerance_rad",
+    0.20);
+
+  declare_parameter<double>(
+    "docking_entry_trigger_distance_m",
+    1.5);
+
+  declare_parameter<double>(
+    "docking_lateral_tolerance_m",
+    0.45);
+
+  declare_parameter<double>(
+    "docking_final_entry_duration_sec",
+    2.5);
+
+  declare_parameter<double>(
+    "docking_alignment_speed_mps",
+    0.20);
+
+  declare_parameter<double>(
+    "docking_approach_speed_mps",
+    0.45);
+
+  declare_parameter<double>(
+    "docking_final_speed_mps",
+    0.20);
+
+  declare_parameter<double>(
+    "docking_max_yaw_rate_radps",
+    0.70);
+
+  declare_parameter<double>(
+    "docking_bearing_gain",
+    1.20);
+
+  declare_parameter<double>(
+    "docking_heading_gain",
+    0.40);
+
+  // -----------------------------------------------------------------------
+  // Read cardinal-marker parameters
+  // -----------------------------------------------------------------------
+
   cardinal_north_class_id_ =
-    get_parameter("cardinal_north_class_id").as_string();
+    get_parameter(
+    "cardinal_north_class_id").as_string();
 
   cardinal_east_class_id_ =
-    get_parameter("cardinal_east_class_id").as_string();
+    get_parameter(
+    "cardinal_east_class_id").as_string();
 
   cardinal_south_class_id_ =
-    get_parameter("cardinal_south_class_id").as_string();
+    get_parameter(
+    "cardinal_south_class_id").as_string();
 
   cardinal_west_class_id_ =
-    get_parameter("cardinal_west_class_id").as_string();
+    get_parameter(
+    "cardinal_west_class_id").as_string();
 
   cardinal_min_confidence_ =
-    get_parameter("cardinal_min_confidence").as_double();
+    get_parameter(
+    "cardinal_min_confidence").as_double();
 
   cardinal_max_range_m_ =
-    get_parameter("cardinal_max_range_m").as_double();
+    get_parameter(
+    "cardinal_max_range_m").as_double();
 
   cardinal_bypass_offset_m_ =
-    get_parameter("cardinal_bypass_offset_m").as_double();
+    get_parameter(
+    "cardinal_bypass_offset_m").as_double();
+
+  // -----------------------------------------------------------------------
+  // Read collision-avoidance parameters
+  // -----------------------------------------------------------------------
 
   collision_risk_range_m_ =
-    get_parameter("collision_risk_range_m").as_double();
+    get_parameter(
+    "collision_risk_range_m").as_double();
 
   collision_forward_sector_deg_ =
-    get_parameter("collision_forward_sector_deg").as_double();
+    get_parameter(
+    "collision_forward_sector_deg").as_double();
 
   collision_min_relative_speed_mps_ =
-    get_parameter("collision_min_relative_speed_mps").as_double();
+    get_parameter(
+    "collision_min_relative_speed_mps").as_double();
 
   collision_avoidance_offset_m_ =
-    get_parameter("collision_avoidance_offset_m").as_double();
+    get_parameter(
+    "collision_avoidance_offset_m").as_double();
 
   request_cooldown_sec_ =
-    get_parameter("request_cooldown_sec").as_double();
+    get_parameter(
+    "request_cooldown_sec").as_double();
+
+  // -----------------------------------------------------------------------
+  // Read docking parameters
+  // -----------------------------------------------------------------------
 
   docking_min_confidence_ =
-    get_parameter("docking_min_confidence").as_double();
+    get_parameter(
+    "docking_min_confidence").as_double();
+
+  docking_target_timeout_sec_ =
+    get_parameter(
+    "docking_target_timeout_sec").as_double();
+
+  docking_alignment_tolerance_rad_ =
+    get_parameter(
+    "docking_alignment_tolerance_rad").as_double();
+
+  docking_entry_trigger_distance_m_ =
+    get_parameter(
+    "docking_entry_trigger_distance_m").as_double();
+
+  docking_lateral_tolerance_m_ =
+    get_parameter(
+    "docking_lateral_tolerance_m").as_double();
+
+  docking_final_entry_duration_sec_ =
+    get_parameter(
+    "docking_final_entry_duration_sec").as_double();
+
+  docking_alignment_speed_mps_ =
+    get_parameter(
+    "docking_alignment_speed_mps").as_double();
+
+  docking_approach_speed_mps_ =
+    get_parameter(
+    "docking_approach_speed_mps").as_double();
+
+  docking_final_speed_mps_ =
+    get_parameter(
+    "docking_final_speed_mps").as_double();
+
+  docking_max_yaw_rate_radps_ =
+    get_parameter(
+    "docking_max_yaw_rate_radps").as_double();
+
+  docking_bearing_gain_ =
+    get_parameter(
+    "docking_bearing_gain").as_double();
+
+  docking_heading_gain_ =
+    get_parameter(
+    "docking_heading_gain").as_double();
 
   // -----------------------------------------------------------------------
   // ROS interfaces
@@ -193,17 +311,23 @@ BoatBTNode::BoatBTNode()
     create_client<njord_msgs::srv::SetBypassTarget>(
     "/mission/set_bypass_target");
 
+  // -----------------------------------------------------------------------
+  // Behavior Tree
+  // -----------------------------------------------------------------------
+
   register_bt_nodes();
 
   const std::string xml_path =
-    ament_index_cpp::get_package_share_directory("boat_bt") +
+    ament_index_cpp::get_package_share_directory(
+    "boat_bt") +
     "/bt_xml/simple_boat.xml";
 
   tree_ =
     factory_.createTreeFromFile(xml_path);
 
   logger_ =
-    std::make_unique<BT::StdCoutLogger>(tree_);
+    std::make_unique<BT::StdCoutLogger>(
+    tree_);
 
   timer_ =
     create_wall_timer(
@@ -211,6 +335,10 @@ BoatBTNode::BoatBTNode()
     std::bind(
       &BoatBTNode::tick_tree,
       this));
+
+  // -----------------------------------------------------------------------
+  // Startup information
+  // -----------------------------------------------------------------------
 
   RCLCPP_INFO(
     get_logger(),
@@ -235,8 +363,14 @@ BoatBTNode::BoatBTNode()
 
   RCLCPP_INFO(
     get_logger(),
-    "Dock target integration enabled: minimum confidence=%.2f",
-    docking_min_confidence_);
+    "Docking controller enabled: confidence>=%.2f, "
+    "target timeout=%.2f s, approach speed=%.2f m/s, "
+    "final speed=%.2f m/s, max yaw=%.2f rad/s",
+    docking_min_confidence_,
+    docking_target_timeout_sec_,
+    docking_approach_speed_mps_,
+    docking_final_speed_mps_,
+    docking_max_yaw_rate_radps_);
 }
 
 
@@ -275,6 +409,12 @@ void BoatBTNode::mission_status_callback(
 void BoatBTNode::competition_status_callback(
   const njord_msgs::msg::CompetitionState::SharedPtr msg)
 {
+  const uint8_t previous_task =
+    competition_task_;
+
+  const uint8_t previous_state =
+    competition_state_;
+
   competition_status_received_ = true;
   competition_task_ = msg->task;
   competition_state_ = msg->state;
@@ -286,6 +426,54 @@ void BoatBTNode::competition_status_callback(
     static_cast<unsigned int>(msg->task),
     static_cast<unsigned int>(msg->state),
     msg->message.c_str());
+
+  /*
+   * Reset docking only when a new docking run begins.
+   *
+   * This allows the same node process to be reused for multiple competition
+   * attempts without retaining the previous DOCKED state.
+   */
+  const bool docking_task_started =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_DOCKING &&
+    competition_state_ ==
+    njord_msgs::msg::CompetitionState::STATE_RUNNING &&
+    (
+      previous_task !=
+      njord_msgs::msg::CompetitionState::TASK_DOCKING ||
+      previous_state !=
+      njord_msgs::msg::CompetitionState::STATE_RUNNING
+    );
+
+  if (docking_task_started) {
+    tree_finished_ = false;
+    resetDockingController();
+
+    RCLCPP_INFO(
+      get_logger(),
+      "New docking competition run started");
+  }
+
+  /*
+   * Stop the boat when docking is externally aborted or failed.
+   */
+  const bool docking_stopped =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_DOCKING &&
+    (
+      competition_state_ ==
+      njord_msgs::msg::CompetitionState::STATE_FAILED ||
+      competition_state_ ==
+      njord_msgs::msg::CompetitionState::STATE_ABORTED
+    );
+
+  if (docking_stopped) {
+    publishDockingCommand(0.0, 0.0);
+
+    RCLCPP_WARN(
+      get_logger(),
+      "Docking task stopped externally");
+  }
 }
 
 
@@ -322,6 +510,8 @@ void BoatBTNode::tick_tree()
   {
     tree_finished_ = true;
 
+    publishDockingCommand(0.0, 0.0);
+
     RCLCPP_INFO(
       get_logger(),
       "Behavior Tree completed successfully");
@@ -334,6 +524,8 @@ void BoatBTNode::tick_tree()
     BT::NodeStatus::FAILURE)
   {
     tree_finished_ = true;
+
+    publishDockingCommand(0.0, 0.0);
 
     RCLCPP_ERROR(
       get_logger(),

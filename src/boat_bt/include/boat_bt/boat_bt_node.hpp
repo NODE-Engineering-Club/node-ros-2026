@@ -30,6 +30,22 @@ public:
 
 private:
   // =========================================================================
+  // Docking controller states
+  //
+  // The states are deliberately explicit so the competition team can
+  // understand the current phase from ROS logs.
+  // =========================================================================
+
+  enum class DockingState
+  {
+    WAITING_FOR_TARGET,
+    ALIGNING,
+    APPROACHING,
+    FINAL_ENTRY,
+    DOCKED
+  };
+
+  // =========================================================================
   // Behavior Tree registration
   // =========================================================================
 
@@ -65,6 +81,26 @@ private:
     const std::string & class_id) const;
 
   bool cardinalMappingConfigured() const;
+
+  // =========================================================================
+  // Docking controller
+  // =========================================================================
+
+  BT::NodeStatus executeDockingController();
+
+  void setDockingState(
+    DockingState new_state);
+
+  void resetDockingController();
+
+  void publishDockingCommand(
+    double forward_speed,
+    double yaw_rate);
+
+  bool dockTargetFresh() const;
+
+  const char * dockingStateName(
+    DockingState state) const;
 
   // =========================================================================
   // Collision Avoidance
@@ -201,20 +237,48 @@ private:
   double cardinal_bypass_offset_m_;
 
   // =========================================================================
-  // Docking state
+  // Docking target and controller state
   // =========================================================================
 
   bool dock_target_received_;
   bool dock_target_available_;
+  bool docking_complete_;
 
-  geometry_msgs::msg::Point dock_opening_center_;
+  DockingState docking_state_;
+
+  geometry_msgs::msg::Point
+    dock_opening_center_;
 
   double dock_heading_{0.0};
   double dock_width_{0.0};
   double dock_depth_{0.0};
   double dock_confidence_{0.0};
 
+  rclcpp::Time
+    last_dock_target_time_{0, 0, RCL_ROS_TIME};
+
+  rclcpp::Time
+    final_entry_start_time_{0, 0, RCL_ROS_TIME};
+
+  // Perception filtering
   double docking_min_confidence_;
+  double docking_target_timeout_sec_;
+
+  // State transition thresholds
+  double docking_alignment_tolerance_rad_;
+  double docking_entry_trigger_distance_m_;
+  double docking_lateral_tolerance_m_;
+  double docking_final_entry_duration_sec_;
+
+  // Motion parameters
+  double docking_alignment_speed_mps_;
+  double docking_approach_speed_mps_;
+  double docking_final_speed_mps_;
+  double docking_max_yaw_rate_radps_;
+
+  // Steering gains
+  double docking_bearing_gain_;
+  double docking_heading_gain_;
 
   // =========================================================================
   // Collision Avoidance state

@@ -1,4 +1,5 @@
 #include "boat_bt/boat_bt_node.hpp"
+#include "boat_bt/docking_nodes.hpp"
 
 
 void BoatBTNode::register_bt_nodes()
@@ -258,7 +259,6 @@ void BoatBTNode::register_bt_nodes()
       return BT::NodeStatus::SUCCESS;
     });
 
-
   // -----------------------------------------------------------------------
   // Docking
   // -----------------------------------------------------------------------
@@ -266,7 +266,7 @@ void BoatBTNode::register_bt_nodes()
   factory_.registerSimpleCondition(
     "DockTargetAvailable",
     [this](BT::TreeNode &) {
-      return dock_target_available_
+      return dockTargetFresh()
         ? BT::NodeStatus::SUCCESS
         : BT::NodeStatus::FAILURE;
     });
@@ -274,7 +274,7 @@ void BoatBTNode::register_bt_nodes()
   factory_.registerSimpleAction(
     "ReportDockTarget",
     [this](BT::TreeNode &) {
-      if (!dock_target_available_) {
+      if (!dockTargetFresh()) {
         return BT::NodeStatus::FAILURE;
       }
 
@@ -292,6 +292,37 @@ void BoatBTNode::register_bt_nodes()
 
       return BT::NodeStatus::SUCCESS;
     });
+
+  /*
+   * Long-running docking action.
+   *
+   * A StatefulActionNode is required because docking remains RUNNING across
+   * many Behavior Tree ticks. A synchronous action is not allowed to return
+   * RUNNING in BehaviorTree.CPP.
+   */
+  BT::NodeBuilder execute_docking_builder =
+    [this](
+    const std::string & name,
+    const BT::NodeConfig & config)
+    {
+      return std::make_unique<boat_bt::ExecuteDockingNode>(
+        name,
+        config,
+        [this]() {
+          return executeDockingController();
+        },
+        [this]() {
+          publishDockingCommand(0.0, 0.0);
+
+          RCLCPP_WARN(
+            get_logger(),
+            "ExecuteDocking halted. Boat stop command published.");
+        });
+    };
+
+  factory_.registerBuilder<boat_bt::ExecuteDockingNode>(
+    "ExecuteDocking",
+    execute_docking_builder);
 
   // -----------------------------------------------------------------------
   // Mission lifecycle

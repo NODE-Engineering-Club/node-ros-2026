@@ -38,11 +38,21 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_geo_fusion",    default_value="true"),
         DeclareLaunchArgument("enable_control",       default_value="true"),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
+        DeclareLaunchArgument("enable_competition",   default_value="true"),
+        DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
         DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
         DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("use_sim",         default_value="false"),
+        DeclareLaunchArgument(
+            "headless",
+            default_value="true",
+            description=(
+                "Run Gazebo server-only. Set false only when graphical "
+                "rendering is known to work."
+            ),
+        ),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
         DeclareLaunchArgument("lidar_camera_extrinsic", default_value="",
                               description="Path to lidar_camera_extrinsic.yaml; "
@@ -264,7 +274,43 @@ def generate_launch_description():
             name="mission_manager",
             condition=IfCondition(LaunchConfiguration("enable_mission")),
             parameters=[sim_time],
+            output="screen",
         ),
+
+        # Competition lifecycle coordination.
+        TimerAction(
+            period=2.0,
+            actions=[
+                Node(
+                    package="competition_manager",
+                    executable="competition_manager",
+                    name="competition_manager",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_competition")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Competition Behavior Tree.
+        TimerAction(
+            period=3.0,
+            actions=[
+                Node(
+                    package="boat_bt",
+                    executable="boat_bt_node",
+                    name="boat_bt",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_boat_bt")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
         # Vision
         Node(
             package="vision",
@@ -324,15 +370,49 @@ def generate_launch_description():
             parameters=[{"config_file": cfg + "/gz_bridge.yaml"}],
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
-        # Gazebo simulation
+        # Gazebo simulation — server-only by default.
+        #
+        # Do not infer GUI availability from DISPLAY alone. Dev containers
+        # may expose DISPLAY through Xvfb or VS Code while having no usable
+        # GPU/rendering device, causing graphical Gazebo to exit immediately.
         ExecuteProcess(
-            cmd=(
-                ["gz", "sim", "-r", PathJoinSubstitution([worlds_dir, LaunchConfiguration("world")])]
-                if "DISPLAY" in os.environ else
-                ["gz", "sim", "-s", "-r", PathJoinSubstitution([worlds_dir, LaunchConfiguration("world")])]
-            ),
+            cmd=[
+                "gz",
+                "sim",
+                "-s",
+                "-r",
+                PathJoinSubstitution(
+                    [worlds_dir, LaunchConfiguration("world")]
+                ),
+            ],
             output="screen",
-            condition=IfCondition(LaunchConfiguration("use_sim")),
+            condition=IfCondition(
+                PythonExpression([
+                    "'", LaunchConfiguration("use_sim"),
+                    "' == 'true' and '",
+                    LaunchConfiguration("headless"),
+                    "' == 'true'",
+                ])
+            ),
+        ),
+        ExecuteProcess(
+            cmd=[
+                "gz",
+                "sim",
+                "-r",
+                PathJoinSubstitution(
+                    [worlds_dir, LaunchConfiguration("world")]
+                ),
+            ],
+            output="screen",
+            condition=IfCondition(
+                PythonExpression([
+                    "'", LaunchConfiguration("use_sim"),
+                    "' == 'true' and '",
+                    LaunchConfiguration("headless"),
+                    "' != 'true'",
+                ])
+            ),
         ),
         # Spawn robot — delayed to allow Gazebo to finish loading the world
         TimerAction(

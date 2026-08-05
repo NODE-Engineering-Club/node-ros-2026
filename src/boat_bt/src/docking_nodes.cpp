@@ -136,10 +136,14 @@ BT::NodeStatus BoatBTNode::executeDockingController()
   }
 
   /*
-   * Never continue moving using an invalid or outdated target.
-   * The task stays RUNNING while waiting for perception to recover.
+   * Perception is required while finding and entering the dock.
+   * Once inside, the detector may lose the opening, so HOLD and REVERSE
+   * must continue without requiring a fresh target.
    */
-  if (!dockTargetFresh()) {
+  const bool dock_target_required =
+    docking_state_ != DockingState::DOCKED;
+
+  if (dock_target_required && !dockTargetFresh()) {
     if (docking_state_ != DockingState::WAITING_FOR_TARGET) {
       RCLCPP_WARN(
         get_logger(),
@@ -305,7 +309,8 @@ BT::NodeStatus BoatBTNode::executeDockingController()
       final_entry_elapsed >=
       docking_final_entry_duration_sec_)
     {
-      docking_complete_ = true;
+      docking_hold_start_time_ = now();
+      docking_reverse_started_ = false;
 
       setDockingState(
         DockingState::DOCKED);
@@ -314,14 +319,10 @@ BT::NodeStatus BoatBTNode::executeDockingController()
 
       RCLCPP_INFO(
         get_logger(),
-        "Docking manoeuvre completed. "
-        "Waiting for Competition Manager acknowledgement.");
+        "Dock entry completed. Holding position for %.1f seconds.",
+        docking_hold_duration_sec_);
 
-      requestCompetitionCompletion();
-
-      return competition_completion_confirmed_
-        ? BT::NodeStatus::SUCCESS
-        : BT::NodeStatus::RUNNING;
+      return BT::NodeStatus::RUNNING;
     }
 
     const double yaw_command =
@@ -355,8 +356,60 @@ BT::NodeStatus BoatBTNode::executeDockingController()
   }
 
   if (docking_state_ == DockingState::DOCKED) {
-    docking_complete_ = true;
+    if (!docking_reverse_started_) {
+      const double hold_elapsed =
+        (now() - docking_hold_start_time_).seconds();
+
+      publishDockingCommand(0.0, 0.0);
+
+      if (hold_elapsed < docking_hold_duration_sec_) {
+        RCLCPP_INFO_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          1000,
+          "Docking HOLDING: elapsed=%.2f / %.2f s",
+          hold_elapsed,
+          docking_hold_duration_sec_);
+
+        return BT::NodeStatus::RUNNING;
+      }
+
+      docking_reverse_started_ = true;
+      docking_reverse_start_time_ = now();
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Docking hold completed. Reversing out for %.1f seconds.",
+        docking_reverse_duration_sec_);
+    }
+
+    const double reverse_elapsed =
+      (now() - docking_reverse_start_time_).seconds();
+
+    if (reverse_elapsed < docking_reverse_duration_sec_) {
+      publishDockingCommand(
+        docking_reverse_speed_mps_,
+        0.0);
+
+      RCLCPP_INFO_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Docking REVERSING: elapsed=%.2f / %.2f s, speed=%.2f",
+        reverse_elapsed,
+        docking_reverse_duration_sec_,
+        docking_reverse_speed_mps_);
+
+      return BT::NodeStatus::RUNNING;
+    }
+
     publishDockingCommand(0.0, 0.0);
+    docking_complete_ = true;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Docking local sequence completed: hold, reverse and final stop.");
+
     requestCompetitionCompletion();
 
     return competition_completion_confirmed_
@@ -400,6 +453,20 @@ void BoatBTNode::resetDockingController()
     0,
     get_clock()->get_clock_type());
 
+  docking_hold_start_time_ =
+    rclcpp::Time(
+    0,
+    0,
+    get_clock()->get_clock_type());
+
+  docking_reverse_start_time_ =
+    rclcpp::Time(
+    0,
+    0,
+    get_clock()->get_clock_type());
+
+  docking_reverse_started_ = false;
+
   publishDockingCommand(0.0, 0.0);
 
   RCLCPP_INFO(
@@ -415,10 +482,10 @@ void BoatBTNode::publishDockingCommand(
   geometry_msgs::msg::Twist command;
 
   /*
-   * The first competition implementation is forward-only.
+   * Docking requires both forward entry and controlled reverse exit.
    */
   command.linear.x =
-    std::max(0.0, forward_speed);
+    forward_speed;
 
   command.angular.z =
     std::clamp(

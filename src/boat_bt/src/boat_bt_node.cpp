@@ -95,7 +95,7 @@ BoatBTNode::BoatBTNode()
 
   declare_parameter<double>(
     "docking_min_confidence",
-    0.6);
+    0.45);
 
   declare_parameter<double>(
     "docking_target_timeout_sec",
@@ -118,6 +118,14 @@ BoatBTNode::BoatBTNode()
     2.5);
 
   declare_parameter<double>(
+    "docking_hold_duration_sec",
+    10.0);
+
+  declare_parameter<double>(
+    "docking_reverse_duration_sec",
+    4.0);
+
+  declare_parameter<double>(
     "docking_alignment_speed_mps",
     0.20);
 
@@ -128,6 +136,10 @@ BoatBTNode::BoatBTNode()
   declare_parameter<double>(
     "docking_final_speed_mps",
     0.20);
+
+  declare_parameter<double>(
+    "docking_reverse_speed_mps",
+    -0.25);
 
   declare_parameter<double>(
     "docking_max_yaw_rate_radps",
@@ -225,6 +237,14 @@ BoatBTNode::BoatBTNode()
     get_parameter(
     "docking_final_entry_duration_sec").as_double();
 
+  docking_hold_duration_sec_ =
+    get_parameter(
+    "docking_hold_duration_sec").as_double();
+
+  docking_reverse_duration_sec_ =
+    get_parameter(
+    "docking_reverse_duration_sec").as_double();
+
   docking_alignment_speed_mps_ =
     get_parameter(
     "docking_alignment_speed_mps").as_double();
@@ -236,6 +256,10 @@ BoatBTNode::BoatBTNode()
   docking_final_speed_mps_ =
     get_parameter(
     "docking_final_speed_mps").as_double();
+
+  docking_reverse_speed_mps_ =
+    get_parameter(
+    "docking_reverse_speed_mps").as_double();
 
   docking_max_yaw_rate_radps_ =
     get_parameter(

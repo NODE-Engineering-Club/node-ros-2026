@@ -1,37 +1,29 @@
-"""Dock detector node — recognizes U-shaped docking berths (Task 3.1,
-"normal docking") from the LiDAR obstacle cloud, including multiple
-adjoining berths sharing a wall and whether each berth is occupied.
+"""LiDAR-based detector for U-shaped docking berths.
 
-Pipeline, per scan:
-  1. DBSCAN separates the raw /obstacles/lidar cloud into candidate objects
-     (so an unrelated buoy/obstacle elsewhere in the scan doesn't get mixed
-     into the dock structure's points).
-  2. For each candidate object, iterative RANSAC extracts straight wall
-     segments from its (possibly noisy) points — robust to the outlier
-     returns a real LiDAR produces off a flat painted panel.
-  3. The extracted segments are matched against a U template: two roughly
-     parallel arm segments, each roughly perpendicular to a connecting back
-     wall segment, spaced apart by the expected berth width, with the
-     opening facing the boat (LiDAR origin). ALL valid matches within a
-     cluster are kept (not just the single best) — a wall shared between
-     two adjoining berths (e.g. one middle arm) can and should produce a
-     separate match per berth sharing that wall.
-  4. Each match is classified occupied/free: a berth is occupied if points
-     from the full scan fall inside its interior beyond what its own
-     matched walls explain (see _classify_occupied).
+Input:
+    /obstacles/lidar
+        sensor_msgs/msg/PointCloud2
 
-Output:
-  /perception/dock_targets (njord_msgs/DockTargetArray) — every berth
-    recognized this scan, occupied and free, boat-relative (base_link
-    frame).
-  /perception/dock_target (njord_msgs/DockTarget) — backward-compatible
-    singular topic: the highest-confidence FREE (occupied=false) berth, or
-    detected=false if none qualify.
+Outputs:
+    /perception/dock_targets
+        njord_msgs/msg/DockTargetArray
 
-Not yet done: temporal filtering/tracking across scans (mirrors the natural
-next step taken by fusion/geo_fusion_node.py's Tracker), and consuming this
-from the mission/behavior-tree layer (boat_bt/bt_xml/simple_boat.xml
-deliberately leaves docking out for now).
+    /perception/dock_target
+        njord_msgs/msg/DockTarget
+
+Pipeline:
+    1. Decode the PointCloud2 scan.
+    2. Rotate LiDAR-local coordinates into base_link coordinates.
+    3. Separate point groups with DBSCAN.
+    4. Extract straight wall segments from every DBSCAN cluster using RANSAC.
+    5. Combine the wall segments from all clusters into one global list.
+    6. Search the global segment list for U-shaped berths.
+    7. Classify each detected berth as occupied or free.
+    8. Publish all matches and the highest-confidence free match.
+
+The global segment matching is important because one physical berth can be
+split into several DBSCAN clusters when point spacing at the wall corners is
+larger than cluster_eps.
 """
 
 import itertools
@@ -46,467 +38,1299 @@ from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sklearn.cluster import DBSCAN
 
-ORIGIN = np.array([0.0, 0.0])
+
+ORIGIN = np.array([0.0, 0.0], dtype=np.float32)
 
 
 class DockDetectorNode(Node):
+    """Detect U-shaped docking berths from a 2D LiDAR point cloud."""
+
     def __init__(self):
         super().__init__("dock_detector_node")
 
-        # Mount calibration — /obstacles/lidar carries raw lidar-local x,y
-        # (lidar_obstacle_node applies no TF), and the physical mount has a
-        # known, verified yaw offset from base_link forward (see
-        # asket.urdf.xacro's lidar_mount_joint comment: dead-ahead reads as
-        # local x~=0, y~=-range, i.e. the raw cloud is rotated -90deg from
-        # true base_link). Same knob/convention as fusion/geo_fusion_node.py's
-        # lidar_yaw_offset_deg. Defaults to the URDF's documented +90deg so
-        # this node's "base_link" frame_id claim on DockTarget is actually
-        # true; override if the mount is recalibrated.
+        # LiDAR mounting calibration.
         self.declare_parameter("lidar_yaw_offset_deg", 90.0)
 
-        # Object-level clustering (DBSCAN). 0.6 rather than a tighter 0.4:
-        # real (non-uniformly-sampled) LiDAR returns off a single physical
-        # wall can have larger point-to-point gaps at oblique angles/longer
-        # range than a densely-sampled synthetic test suggests, which can
-        # fragment one wall into multiple disconnected clusters at 0.4 and
-        # break U-matching entirely (confirmed empirically against
-        # dockingWorldOccupied.sdf in real Gazebo). Still tight enough to
-        # avoid merging genuinely separate obstacles in a real course.
+        # DBSCAN point clustering.
         self.declare_parameter("cluster_eps", 0.6)
         self.declare_parameter("cluster_min_samples", 3)
 
-        # Wall extraction (RANSAC). dist_threshold is tighter than a
-        # standalone single-wall fit would need: two berths adjoining a
-        # shared wall (e.g. a 0.1m-thick middle arm) present two wall
-        # FACES only ~0.1m apart, and too loose a threshold lets RANSAC fit
-        # one "compromise" line straddling both instead of cleanly
-        # separating them.
+        # RANSAC line extraction.
         self.declare_parameter("ransac_dist_threshold_m", 0.03)
         self.declare_parameter("ransac_iterations", 200)
-        # Raised from a bare-minimum default of 6: at that threshold, a
-        # handful of coincidentally-aligned points from an occupying boat's
-        # hull can pass as a "wall" segment in their own right (confirmed
-        # empirically in real Gazebo -- a weak 6-inlier fit absorbed decoy
-        # points, which then let the occupancy check wrongly treat them as
-        # "explained by a wall" instead of flagging them as an obstruction).
         self.declare_parameter("ransac_min_inliers", 10)
-        # Raised from a single-berth-only default of 3: a row of N berths
-        # needs N+1 real wall segments (a shared wall counted once), plus
-        # headroom for RANSAC fragmenting a partially-occluded wall.
         self.declare_parameter("max_lines_per_cluster", 8)
 
-        # U-shape template matching
+        # U-shape geometry.
         self.declare_parameter("berth_width_m", 2.0)
         self.declare_parameter("width_tolerance_m", 0.4)
         self.declare_parameter("arm_length_min_m", 0.6)
         self.declare_parameter("arm_length_max_m", 3.0)
+
+        # A back wall can span several adjoining berths.
+        self.declare_parameter("back_wall_length_min_m", 0.8)
+        self.declare_parameter("back_wall_length_max_m", 8.0)
+
         self.declare_parameter("parallel_angle_tol_deg", 12.0)
         self.declare_parameter("perp_angle_tol_deg", 12.0)
         self.declare_parameter("corner_gap_tol_m", 0.35)
 
-        # Occupancy classification — see _classify_occupied.
+        # Occupancy classification.
         self.declare_parameter("occupancy_margin_m", 0.15)
         self.declare_parameter("occupancy_min_points", 3)
 
-        p = self.get_parameter
-        theta = math.radians(p("lidar_yaw_offset_deg").value)
-        self._cos_t, self._sin_t = math.cos(theta), math.sin(theta)
+        # Diagnostics.
+        self.declare_parameter("debug", True)
+        self.declare_parameter("debug_period_sec", 1.0)
 
-        self._cluster_eps = p("cluster_eps").value
-        self._cluster_min_samples = p("cluster_min_samples").value
+        get_parameter = self.get_parameter
 
-        self._ransac_dist_threshold = p("ransac_dist_threshold_m").value
-        self._ransac_iterations = p("ransac_iterations").value
-        self._ransac_min_inliers = p("ransac_min_inliers").value
-        self._max_lines_per_cluster = p("max_lines_per_cluster").value
+        lidar_yaw = math.radians(
+            float(get_parameter("lidar_yaw_offset_deg").value)
+        )
+        self._cos_yaw = math.cos(lidar_yaw)
+        self._sin_yaw = math.sin(lidar_yaw)
 
-        self._berth_width = p("berth_width_m").value
-        self._width_tol = p("width_tolerance_m").value
-        self._arm_len_min = p("arm_length_min_m").value
-        self._arm_len_max = p("arm_length_max_m").value
-        self._parallel_tol = math.radians(p("parallel_angle_tol_deg").value)
-        self._perp_tol = math.radians(p("perp_angle_tol_deg").value)
-        self._corner_gap_tol = p("corner_gap_tol_m").value
+        self._cluster_eps = float(
+            get_parameter("cluster_eps").value
+        )
+        self._cluster_min_samples = int(
+            get_parameter("cluster_min_samples").value
+        )
 
-        self._occupancy_margin = p("occupancy_margin_m").value
-        self._occupancy_min_points = p("occupancy_min_points").value
+        self._ransac_dist_threshold = float(
+            get_parameter("ransac_dist_threshold_m").value
+        )
+        self._ransac_iterations = int(
+            get_parameter("ransac_iterations").value
+        )
+        self._ransac_min_inliers = int(
+            get_parameter("ransac_min_inliers").value
+        )
+        self._max_lines_per_cluster = int(
+            get_parameter("max_lines_per_cluster").value
+        )
+
+        self._berth_width = float(
+            get_parameter("berth_width_m").value
+        )
+        self._width_tolerance = float(
+            get_parameter("width_tolerance_m").value
+        )
+
+        self._arm_length_min = float(
+            get_parameter("arm_length_min_m").value
+        )
+        self._arm_length_max = float(
+            get_parameter("arm_length_max_m").value
+        )
+
+        self._back_wall_length_min = float(
+            get_parameter("back_wall_length_min_m").value
+        )
+        self._back_wall_length_max = float(
+            get_parameter("back_wall_length_max_m").value
+        )
+
+        self._parallel_tolerance = math.radians(
+            float(
+                get_parameter(
+                    "parallel_angle_tol_deg"
+                ).value
+            )
+        )
+        self._perpendicular_tolerance = math.radians(
+            float(
+                get_parameter(
+                    "perp_angle_tol_deg"
+                ).value
+            )
+        )
+        self._corner_gap_tolerance = float(
+            get_parameter("corner_gap_tol_m").value
+        )
+
+        self._occupancy_margin = float(
+            get_parameter("occupancy_margin_m").value
+        )
+        self._occupancy_min_points = int(
+            get_parameter("occupancy_min_points").value
+        )
+
+        self._debug = bool(
+            get_parameter("debug").value
+        )
+        self._debug_period_ns = int(
+            float(
+                get_parameter(
+                    "debug_period_sec"
+                ).value
+            )
+            * 1e9
+        )
+        self._last_debug_ns = 0
 
         self._rng = np.random.default_rng()
 
-        self.pub = self.create_publisher(DockTarget, "/perception/dock_target", 10)
-        self.pub_array = self.create_publisher(DockTargetArray, "/perception/dock_targets", 10)
-        self.create_subscription(PointCloud2, "/obstacles/lidar", self._cb, 10)
+        self._target_publisher = self.create_publisher(
+            DockTarget,
+            "/perception/dock_target",
+            10,
+        )
+        self._targets_publisher = self.create_publisher(
+            DockTargetArray,
+            "/perception/dock_targets",
+            10,
+        )
+
+        self._lidar_subscription = self.create_subscription(
+            PointCloud2,
+            "/obstacles/lidar",
+            self._point_cloud_callback,
+            10,
+        )
 
         self.get_logger().info(
-            "dock_detector_node ready — publishing /perception/dock_target, /perception/dock_targets")
+            "dock_detector_node ready — global cross-cluster "
+            "segment matching enabled"
+        )
 
-    # ── Callback ─────────────────────────────────────────────────────────────
+    def _debug_due(self):
+        """Return True at most once per configured debug interval."""
+        if not self._debug:
+            return False
 
-    def _cb(self, msg):
-        points = _read_xy(msg)
-        if len(points) > 0 and (self._cos_t != 1.0 or self._sin_t != 0.0):
-            x, y = points[:, 0].copy(), points[:, 1].copy()
-            points[:, 0] = self._cos_t * x - self._sin_t * y
-            points[:, 1] = self._sin_t * x + self._cos_t * y
+        now_ns = self.get_clock().now().nanoseconds
 
-        header = msg.header
+        if (
+            now_ns - self._last_debug_ns
+            < self._debug_period_ns
+        ):
+            return False
+
+        self._last_debug_ns = now_ns
+        return True
+
+    def _point_cloud_callback(self, message):
+        """Process one PointCloud2 scan."""
+        points = _read_xy(message)
+        debug_this_scan = self._debug_due()
+
+        points = self._rotate_into_base_link(points)
+
+        header = message.header
         header.frame_id = "base_link"
 
-        all_matches = []
+        cluster_debug = []
+        cluster_count = 0
+        noise_count = 0
+
+        # Important:
+        # Segments from every DBSCAN cluster are added to this shared list.
+        global_segments = []
+
         if len(points) >= self._cluster_min_samples:
             labels = DBSCAN(
                 eps=self._cluster_eps,
                 min_samples=self._cluster_min_samples,
             ).fit_predict(points)
 
-            for label in set(labels):
-                if label == -1:
-                    continue
-                cluster_global_idx = np.nonzero(labels == label)[0]
-                cluster_pts = points[cluster_global_idx]
-                if len(cluster_pts) < self._ransac_min_inliers:
+            valid_labels = sorted(
+                int(label)
+                for label in set(labels)
+                if label != -1
+            )
+
+            cluster_count = len(valid_labels)
+            noise_count = int(
+                np.count_nonzero(labels == -1)
+            )
+
+            for label in valid_labels:
+                cluster_global_indices = np.nonzero(
+                    labels == label
+                )[0]
+
+                cluster_points = points[
+                    cluster_global_indices
+                ]
+
+                cluster_info = {
+                    "label": label,
+                    "points": int(len(cluster_points)),
+                    "segments": 0,
+                    "segment_details": [],
+                    "stopped": "",
+                }
+
+                if (
+                    len(cluster_points)
+                    < self._ransac_min_inliers
+                ):
+                    cluster_info["stopped"] = (
+                        "fewer than "
+                        f"{self._ransac_min_inliers} "
+                        "RANSAC points"
+                    )
+                    cluster_debug.append(cluster_info)
                     continue
 
                 segments = _ransac_lines(
-                    cluster_pts,
-                    dist_threshold=self._ransac_dist_threshold,
-                    iterations=self._ransac_iterations,
-                    min_inliers=self._ransac_min_inliers,
-                    max_lines=self._max_lines_per_cluster,
+                    cluster_points,
+                    dist_threshold=(
+                        self._ransac_dist_threshold
+                    ),
+                    iterations=(
+                        self._ransac_iterations
+                    ),
+                    min_inliers=(
+                        self._ransac_min_inliers
+                    ),
+                    max_lines=(
+                        self._max_lines_per_cluster
+                    ),
                     rng=self._rng,
                 )
-                # A single U needs 3 segments; a row of adjoining berths
-                # needs more (see max_lines_per_cluster comment above).
-                if len(segments) < 3:
-                    continue
 
-                # _ransac_lines returns inlier_idx local to cluster_pts;
-                # remap to indices into the full scan (`points`), since
-                # occupancy classification checks the full scan, not just
-                # this cluster (see _classify_occupied).
-                for seg in segments:
-                    seg["inlier_idx"] = cluster_global_idx[seg["inlier_idx"]]
-
-                matches = _find_u_shapes(
-                    segments,
-                    berth_width=self._berth_width,
-                    width_tol=self._width_tol,
-                    arm_len_min=self._arm_len_min,
-                    arm_len_max=self._arm_len_max,
-                    parallel_tol=self._parallel_tol,
-                    perp_tol=self._perp_tol,
-                    corner_gap_tol=self._corner_gap_tol,
+                cluster_info["segments"] = int(
+                    len(segments)
                 )
-                for m in matches:
-                    m["occupied"] = _classify_occupied(
-                        m, points,
-                        margin=self._occupancy_margin,
-                        min_points=self._occupancy_min_points,
+
+                for segment in segments:
+                    # Convert cluster-local point indices back to indices
+                    # in the complete scan.
+                    segment["inlier_idx"] = (
+                        cluster_global_indices[
+                            segment["inlier_idx"]
+                        ]
                     )
-                all_matches.extend(matches)
 
-        array_msg = DockTargetArray()
-        array_msg.header = header
-        array_msg.targets = [_to_msg(header, m) for m in all_matches]
-        self.pub_array.publish(array_msg)
+                    segment["cluster_label"] = label
 
-        free_matches = [m for m in all_matches if not m["occupied"]]
-        best_free = max(free_matches, key=lambda m: m["confidence"], default=None)
-        self.pub.publish(_to_msg(header, best_free))
+                    global_segments.append(segment)
 
+                    cluster_info[
+                        "segment_details"
+                    ].append(
+                        {
+                            "length": _segment_length(
+                                segment
+                            ),
+                            "inliers": int(
+                                segment["inliers"]
+                            ),
+                            "p1": segment["p1"],
+                            "p2": segment["p2"],
+                        }
+                    )
 
-# ── PointCloud2 decoding ─────────────────────────────────────────────────────
+                if not segments:
+                    cluster_info["stopped"] = (
+                        "no RANSAC wall segments"
+                    )
+
+                cluster_debug.append(cluster_info)
+
+        # U-shape matching now happens once, after all DBSCAN clusters
+        # have contributed their wall segments.
+        all_matches = _find_u_shapes(
+            segments=global_segments,
+            berth_width=self._berth_width,
+            width_tolerance=self._width_tolerance,
+            arm_length_min=self._arm_length_min,
+            arm_length_max=self._arm_length_max,
+            back_wall_length_min=(
+                self._back_wall_length_min
+            ),
+            back_wall_length_max=(
+                self._back_wall_length_max
+            ),
+            parallel_tolerance=(
+                self._parallel_tolerance
+            ),
+            perpendicular_tolerance=(
+                self._perpendicular_tolerance
+            ),
+            corner_gap_tolerance=(
+                self._corner_gap_tolerance
+            ),
+            debug=debug_this_scan,
+            logger=self.get_logger(),
+        )
+
+        for match in all_matches:
+            match["occupied"] = _classify_occupied(
+                match=match,
+                all_points=points,
+                margin=self._occupancy_margin,
+                min_points=self._occupancy_min_points,
+            )
+
+        array_message = DockTargetArray()
+        array_message.header = header
+        array_message.targets = [
+            _to_message(header, match)
+            for match in all_matches
+        ]
+        self._targets_publisher.publish(array_message)
+
+        free_matches = [
+            match
+            for match in all_matches
+            if not match["occupied"]
+        ]
+
+        best_free_match = max(
+            free_matches,
+            key=lambda match: match["confidence"],
+            default=None,
+        )
+
+        self._target_publisher.publish(
+            _to_message(
+                header,
+                best_free_match,
+            )
+        )
+
+        if debug_this_scan:
+            self._log_pipeline_debug(
+                points=points,
+                cluster_count=cluster_count,
+                noise_count=noise_count,
+                cluster_debug=cluster_debug,
+                global_segments=global_segments,
+                all_matches=all_matches,
+                best_free_match=best_free_match,
+            )
+
+    def _rotate_into_base_link(self, points):
+        """Rotate raw LiDAR-local XY coordinates into base_link."""
+        if len(points) == 0:
+            return points
+
+        if (
+            self._cos_yaw == 1.0
+            and self._sin_yaw == 0.0
+        ):
+            return points
+
+        rotated = points.copy()
+
+        x_coordinates = points[:, 0]
+        y_coordinates = points[:, 1]
+
+        rotated[:, 0] = (
+            self._cos_yaw * x_coordinates
+            - self._sin_yaw * y_coordinates
+        )
+        rotated[:, 1] = (
+            self._sin_yaw * x_coordinates
+            + self._cos_yaw * y_coordinates
+        )
+
+        return rotated
+
+    def _log_pipeline_debug(
+        self,
+        points,
+        cluster_count,
+        noise_count,
+        cluster_debug,
+        global_segments,
+        all_matches,
+        best_free_match,
+    ):
+        """Publish compact diagnostics through the ROS logger."""
+        occupied_count = sum(
+            bool(match.get("occupied", False))
+            for match in all_matches
+        )
+
+        free_count = (
+            len(all_matches)
+            - occupied_count
+        )
+
+        self.get_logger().info(
+            "Dock debug summary: "
+            f"points={len(points)}, "
+            f"clusters={cluster_count}, "
+            f"noise={noise_count}, "
+            f"global_segments={len(global_segments)}, "
+            f"matches={len(all_matches)}, "
+            f"free={free_count}, "
+            f"occupied={occupied_count}"
+        )
+
+        for info in cluster_debug:
+            detail = (
+                f"cluster={info['label']}, "
+                f"points={info['points']}, "
+                f"segments={info['segments']}"
+            )
+
+            if info["stopped"]:
+                detail += (
+                    f", stopped={info['stopped']}"
+                )
+
+            self.get_logger().info(
+                f"Dock debug detail: {detail}"
+            )
+
+            for index, segment in enumerate(
+                info["segment_details"]
+            ):
+                self.get_logger().info(
+                    "Dock debug segment: "
+                    f"cluster={info['label']}, "
+                    f"index={index}, "
+                    f"length={segment['length']:.2f}, "
+                    f"inliers={segment['inliers']}, "
+                    f"p1=("
+                    f"{segment['p1'][0]:.2f}, "
+                    f"{segment['p1'][1]:.2f}), "
+                    f"p2=("
+                    f"{segment['p2'][0]:.2f}, "
+                    f"{segment['p2'][1]:.2f})"
+                )
+
+        if best_free_match is None:
+            self.get_logger().info(
+                "Dock debug result: "
+                "no free berth selected"
+            )
+            return
+
+        opening_center = best_free_match[
+            "opening_center"
+        ]
+
+        self.get_logger().info(
+            "Dock debug result: selected free berth "
+            f"center=("
+            f"{opening_center[0]:.2f}, "
+            f"{opening_center[1]:.2f}), "
+            f"width={best_free_match['width']:.2f}, "
+            f"depth={best_free_match['depth']:.2f}, "
+            f"confidence="
+            f"{best_free_match['confidence']:.3f}"
+        )
+
 
 def _read_xy(cloud):
-    """Extract an Nx2 numpy array of (x, y) from a PointCloud2 with float32 xyz fields."""
-    n = cloud.width * cloud.height
-    step = cloud.point_step
-    pts = np.empty((n, 2), dtype=np.float32)
-    for i in range(n):
-        x, y, _z = struct.unpack_from("fff", cloud.data, i * step)
-        pts[i] = (x, y)
-    return pts
+    """Extract an Nx2 float32 array from PointCloud2 XYZ fields."""
+    point_count = cloud.width * cloud.height
+
+    points = np.empty(
+        (point_count, 2),
+        dtype=np.float32,
+    )
+
+    for index in range(point_count):
+        offset = index * cloud.point_step
+
+        x_coordinate, y_coordinate, _ = (
+            struct.unpack_from(
+                "fff",
+                cloud.data,
+                offset,
+            )
+        )
+
+        points[index] = (
+            x_coordinate,
+            y_coordinate,
+        )
+
+    finite_mask = np.isfinite(points).all(
+        axis=1
+    )
+
+    return points[finite_mask]
 
 
-# ── RANSAC wall-segment extraction ──────────────────────────────────────────
+def _ransac_lines(
+    points,
+    dist_threshold,
+    iterations,
+    min_inliers,
+    max_lines,
+    rng,
+):
+    """Extract straight 2D wall segments using iterative RANSAC."""
+    remaining_indices = np.arange(
+        points.shape[0]
+    )
 
-def _ransac_lines(points, dist_threshold, iterations, min_inliers, max_lines, rng):
-    """Iteratively fit straight lines to `points` via RANSAC (2D).
-
-    Each iteration: sample 2 points, count inliers within dist_threshold of
-    the line through them, keep the best model over `iterations` trials, and
-    if it clears min_inliers, extract a segment (endpoints = the inliers'
-    extreme projections along the line) and remove those points from the
-    pool. Repeats until max_lines segments are found or too few points
-    remain. Returns a list of dicts: {p1, p2, inliers, total, inlier_idx}
-    (numpy points; inlier_idx indexes into the ORIGINAL `points` array, used
-    downstream to know which points a matched wall already explains).
-    """
-    remaining_idx = np.arange(points.shape[0])
     segments = []
 
     for _ in range(max_lines):
-        remaining = points[remaining_idx]
-        n = remaining.shape[0]
-        if n < min_inliers:
+        remaining_points = points[
+            remaining_indices
+        ]
+
+        point_count = len(
+            remaining_points
+        )
+
+        if point_count < min_inliers:
             break
 
         best_mask = None
         best_count = 0
-        best_p1 = best_dir = None
+        best_origin = None
+        best_direction = None
 
         for _ in range(iterations):
-            idx = rng.choice(n, size=2, replace=False)
-            p1, p2 = remaining[idx[0]], remaining[idx[1]]
-            d = p2 - p1
-            norm = math.hypot(float(d[0]), float(d[1]))
+            selected = rng.choice(
+                point_count,
+                size=2,
+                replace=False,
+            )
+
+            first_point = remaining_points[
+                selected[0]
+            ]
+            second_point = remaining_points[
+                selected[1]
+            ]
+
+            direction = (
+                second_point
+                - first_point
+            )
+
+            norm = math.hypot(
+                float(direction[0]),
+                float(direction[1]),
+            )
+
             if norm < 1e-6:
                 continue
-            dx, dy = d[0] / norm, d[1] / norm
-            nx, ny = -dy, dx  # unit normal
 
-            diffs = remaining - p1
-            dist = np.abs(diffs[:, 0] * nx + diffs[:, 1] * ny)
-            mask = dist <= dist_threshold
-            count = int(np.count_nonzero(mask))
+            direction_x = (
+                direction[0] / norm
+            )
+            direction_y = (
+                direction[1] / norm
+            )
 
-            if count > best_count:
-                best_count = count
+            normal_x = -direction_y
+            normal_y = direction_x
+
+            relative = (
+                remaining_points
+                - first_point
+            )
+
+            distances = np.abs(
+                relative[:, 0] * normal_x
+                + relative[:, 1] * normal_y
+            )
+
+            mask = (
+                distances
+                <= dist_threshold
+            )
+
+            inlier_count = int(
+                np.count_nonzero(mask)
+            )
+
+            if inlier_count > best_count:
+                best_count = inlier_count
                 best_mask = mask
-                best_p1 = p1
-                best_dir = (dx, dy)
+                best_origin = first_point
+                best_direction = np.array(
+                    [
+                        direction_x,
+                        direction_y,
+                    ],
+                    dtype=np.float32,
+                )
 
-        if best_mask is None or best_count < min_inliers:
+        if (
+            best_mask is None
+            or best_count < min_inliers
+        ):
             break
 
-        inliers = remaining[best_mask]
-        dx, dy = best_dir
-        proj = (inliers[:, 0] - best_p1[0]) * dx + (inliers[:, 1] - best_p1[1]) * dy
-        i_min, i_max = int(np.argmin(proj)), int(np.argmax(proj))
-        direction = np.array([dx, dy])
-        seg_p1 = best_p1 + proj[i_min] * direction
-        seg_p2 = best_p1 + proj[i_max] * direction
+        inlier_points = remaining_points[
+            best_mask
+        ]
 
-        segments.append({
-            "p1": seg_p1, "p2": seg_p2,
-            "inliers": best_count, "total": n,
-            "inlier_idx": remaining_idx[best_mask],
-        })
-        remaining_idx = remaining_idx[~best_mask]
+        projections = (
+            inlier_points - best_origin
+        ) @ best_direction
+
+        minimum_projection = float(
+            np.min(projections)
+        )
+        maximum_projection = float(
+            np.max(projections)
+        )
+
+        segment_start = (
+            best_origin
+            + minimum_projection
+            * best_direction
+        )
+        segment_end = (
+            best_origin
+            + maximum_projection
+            * best_direction
+        )
+
+        segments.append(
+            {
+                "p1": segment_start,
+                "p2": segment_end,
+                "inliers": best_count,
+                "total": point_count,
+                "inlier_idx": (
+                    remaining_indices[
+                        best_mask
+                    ]
+                ),
+            }
+        )
+
+        remaining_indices = (
+            remaining_indices[
+                ~best_mask
+            ]
+        )
 
     return segments
 
 
-# ── U-shape template matching ───────────────────────────────────────────────
-
-def _seg_vec(seg):
-    return seg["p2"] - seg["p1"]
-
-
-def _seg_angle(seg):
-    v = _seg_vec(seg)
-    return math.atan2(float(v[1]), float(v[0]))
+def _segment_vector(segment):
+    return (
+        segment["p2"]
+        - segment["p1"]
+    )
 
 
-def _seg_length(seg):
-    return float(np.hypot(*_seg_vec(seg)))
+def _segment_length(segment):
+    return float(
+        np.hypot(
+            *_segment_vector(segment)
+        )
+    )
 
 
-def _angle_diff_mod_pi(a, b):
-    """Undirected angle difference, folded into [0, pi/2]. 0 = parallel, pi/2 = perpendicular."""
-    d = (a - b) % math.pi
-    return min(d, math.pi - d)
+def _segment_angle(segment):
+    vector = _segment_vector(segment)
+
+    return math.atan2(
+        float(vector[1]),
+        float(vector[0]),
+    )
 
 
-def _near_far(seg, origin):
-    """Return (near, far) endpoints of seg relative to origin."""
-    d1 = float(np.hypot(*(seg["p1"] - origin)))
-    d2 = float(np.hypot(*(seg["p2"] - origin)))
-    return (seg["p1"], seg["p2"]) if d1 <= d2 else (seg["p2"], seg["p1"])
+def _angle_difference_mod_pi(
+    first_angle,
+    second_angle,
+):
+    """Return undirected line angle difference in [0, pi / 2]."""
+    difference = (
+        first_angle - second_angle
+    ) % math.pi
+
+    return min(
+        difference,
+        math.pi - difference,
+    )
 
 
-def _point_to_segment_dist(p, seg_p1, seg_p2):
-    """Perpendicular distance from `p` to the segment [seg_p1, seg_p2],
-    clamped to the segment's extent. Used (rather than distance to the
-    segment's two endpoints) so a back wall SHARED by multiple berths is
-    handled correctly: a berth's true corner may sit partway along that
-    wall, not necessarily at one of its two outer endpoints."""
-    seg = seg_p2 - seg_p1
-    seg_len2 = float(seg[0] ** 2 + seg[1] ** 2)
-    if seg_len2 < 1e-9:
-        return float(np.hypot(*(p - seg_p1)))
-    t = float(np.clip(np.dot(p - seg_p1, seg) / seg_len2, 0.0, 1.0))
-    proj = seg_p1 + t * seg
-    return float(np.hypot(*(p - proj)))
+def _near_far(segment, origin):
+    """Return segment endpoints ordered by distance from the origin."""
+    first_distance = float(
+        np.hypot(
+            *(
+                segment["p1"]
+                - origin
+            )
+        )
+    )
+    second_distance = float(
+        np.hypot(
+            *(
+                segment["p2"]
+                - origin
+            )
+        )
+    )
+
+    if first_distance <= second_distance:
+        return (
+            segment["p1"],
+            segment["p2"],
+        )
+
+    return (
+        segment["p2"],
+        segment["p1"],
+    )
 
 
-def _find_u_shapes(segments, berth_width, width_tol, arm_len_min, arm_len_max,
-                    parallel_tol, perp_tol, corner_gap_tol):
-    """Search `segments` for ALL valid U-shape matches (not just the single
-    best) — a wall shared between two adjoining berths (e.g. one middle
-    arm) legitimately produces a separate match per berth. Returns a list
-    of match dicts, each carrying its own confidence and the segment
-    indices used (for de-duplication)."""
+def _point_to_segment_distance(
+    point,
+    segment_start,
+    segment_end,
+):
+    """Return clamped Euclidean distance from point to line segment."""
+    segment_vector = (
+        segment_end
+        - segment_start
+    )
+
+    segment_length_squared = float(
+        np.dot(
+            segment_vector,
+            segment_vector,
+        )
+    )
+
+    if segment_length_squared < 1e-9:
+        return float(
+            np.hypot(
+                *(
+                    point
+                    - segment_start
+                )
+            )
+        )
+
+    projection_ratio = float(
+        np.clip(
+            np.dot(
+                point - segment_start,
+                segment_vector,
+            )
+            / segment_length_squared,
+            0.0,
+            1.0,
+        )
+    )
+
+    projected_point = (
+        segment_start
+        + projection_ratio
+        * segment_vector
+    )
+
+    return float(
+        np.hypot(
+            *(
+                point
+                - projected_point
+            )
+        )
+    )
+
+
+def _find_u_shapes(
+    segments,
+    berth_width,
+    width_tolerance,
+    arm_length_min,
+    arm_length_max,
+    back_wall_length_min,
+    back_wall_length_max,
+    parallel_tolerance,
+    perpendicular_tolerance,
+    corner_gap_tolerance,
+    debug=False,
+    logger=None,
+):
+    """Find all valid U-shaped berth candidates in a global segment list."""
     candidates = []
 
-    for back_idx, seg_back in enumerate(segments):
-        others = [i for i in range(len(segments)) if i != back_idx]
-        for arm_i_idx, arm_k_idx in itertools.combinations(others, 2):
-            seg_i, seg_k = segments[arm_i_idx], segments[arm_k_idx]
+    if len(segments) < 3:
+        return candidates
 
-            len_i, len_k = _seg_length(seg_i), _seg_length(seg_k)
-            if not (arm_len_min <= len_i <= arm_len_max):
+    for back_index, back_segment in enumerate(
+        segments
+    ):
+        back_length = _segment_length(
+            back_segment
+        )
+
+        if not (
+            back_wall_length_min
+            <= back_length
+            <= back_wall_length_max
+        ):
+            continue
+
+        other_indices = [
+            index
+            for index in range(len(segments))
+            if index != back_index
+        ]
+
+        for (
+            first_arm_index,
+            second_arm_index,
+        ) in itertools.combinations(
+            other_indices,
+            2,
+        ):
+            first_arm = segments[
+                first_arm_index
+            ]
+            second_arm = segments[
+                second_arm_index
+            ]
+
+            first_arm_length = (
+                _segment_length(first_arm)
+            )
+            second_arm_length = (
+                _segment_length(second_arm)
+            )
+
+            if not (
+                arm_length_min
+                <= first_arm_length
+                <= arm_length_max
+            ):
                 continue
-            if not (arm_len_min <= len_k <= arm_len_max):
+
+            if not (
+                arm_length_min
+                <= second_arm_length
+                <= arm_length_max
+            ):
                 continue
 
-            angle_i, angle_k, angle_back = _seg_angle(seg_i), _seg_angle(seg_k), _seg_angle(seg_back)
+            first_arm_angle = (
+                _segment_angle(first_arm)
+            )
+            second_arm_angle = (
+                _segment_angle(second_arm)
+            )
+            back_angle = (
+                _segment_angle(back_segment)
+            )
 
-            parallel_err = _angle_diff_mod_pi(angle_i, angle_k)
-            if parallel_err > parallel_tol:
+            parallel_error = (
+                _angle_difference_mod_pi(
+                    first_arm_angle,
+                    second_arm_angle,
+                )
+            )
+
+            if (
+                parallel_error
+                > parallel_tolerance
+            ):
                 continue
 
-            perp_err_i = abs(_angle_diff_mod_pi(angle_i, angle_back) - math.pi / 2)
-            perp_err_k = abs(_angle_diff_mod_pi(angle_k, angle_back) - math.pi / 2)
-            if perp_err_i > perp_tol or perp_err_k > perp_tol:
+            first_perpendicular_error = abs(
+                _angle_difference_mod_pi(
+                    first_arm_angle,
+                    back_angle,
+                )
+                - math.pi / 2.0
+            )
+            second_perpendicular_error = abs(
+                _angle_difference_mod_pi(
+                    second_arm_angle,
+                    back_angle,
+                )
+                - math.pi / 2.0
+            )
+
+            if (
+                first_perpendicular_error
+                > perpendicular_tolerance
+                or second_perpendicular_error
+                > perpendicular_tolerance
+            ):
                 continue
 
-            near_i, far_i = _near_far(seg_i, ORIGIN)
-            near_k, far_k = _near_far(seg_k, ORIGIN)
+            first_near, first_far = _near_far(
+                first_arm,
+                ORIGIN,
+            )
+            second_near, second_far = _near_far(
+                second_arm,
+                ORIGIN,
+            )
 
-            back_p1, back_p2 = seg_back["p1"], seg_back["p2"]
-            connect_err = (
-                _point_to_segment_dist(far_i, back_p1, back_p2)
-                + _point_to_segment_dist(far_k, back_p1, back_p2)
+            back_start = back_segment["p1"]
+            back_end = back_segment["p2"]
+
+            first_corner_gap = (
+                _point_to_segment_distance(
+                    first_far,
+                    back_start,
+                    back_end,
+                )
+            )
+            second_corner_gap = (
+                _point_to_segment_distance(
+                    second_far,
+                    back_start,
+                    back_end,
+                )
+            )
+
+            average_corner_gap = (
+                first_corner_gap
+                + second_corner_gap
             ) / 2.0
-            if connect_err > corner_gap_tol:
+
+            if (
+                average_corner_gap
+                > corner_gap_tolerance
+            ):
                 continue
 
-            width = float(np.hypot(*(near_i - near_k)))
-            width_err = abs(width - berth_width)
-            if width_err > width_tol:
+            measured_width = float(
+                np.hypot(
+                    *(
+                        first_near
+                        - second_near
+                    )
+                )
+            )
+
+            width_error = abs(
+                measured_width
+                - berth_width
+            )
+
+            if (
+                width_error
+                > width_tolerance
+            ):
                 continue
 
-            opening_center = (near_i + near_k) / 2.0
-            back_mid = (back_p1 + back_p2) / 2.0
+            opening_center = (
+                first_near
+                + second_near
+            ) / 2.0
 
-            bd = back_p2 - back_p1
-            bn = float(np.hypot(*bd))
-            if bn < 1e-6:
+            back_midpoint = (
+                back_start
+                + back_end
+            ) / 2.0
+
+            back_direction = (
+                back_end
+                - back_start
+            )
+
+            back_direction_length = float(
+                np.hypot(
+                    *back_direction
+                )
+            )
+
+            if (
+                back_direction_length
+                < 1e-6
+            ):
                 continue
-            nx, ny = -bd[1] / bn, bd[0] / bn
-            to_back = back_mid - ORIGIN
-            if nx * to_back[0] + ny * to_back[1] < 0:
-                nx, ny = -nx, -ny
-            heading = math.atan2(ny, nx)
 
-            depth = (len_i + len_k) / 2.0
+            normal_x = (
+                -back_direction[1]
+                / back_direction_length
+            )
+            normal_y = (
+                back_direction[0]
+                / back_direction_length
+            )
+
+            vector_to_back = (
+                back_midpoint
+                - opening_center
+            )
+
+            if (
+                normal_x * vector_to_back[0]
+                + normal_y * vector_to_back[1]
+                < 0.0
+            ):
+                normal_x = -normal_x
+                normal_y = -normal_y
+
+            heading = math.atan2(
+                normal_y,
+                normal_x,
+            )
+
+            depth = (
+                first_arm_length
+                + second_arm_length
+            ) / 2.0
 
             inlier_ratio = sum(
-                seg["inliers"] / seg["total"] for seg in (seg_i, seg_k, seg_back)
+                segment["inliers"]
+                / max(
+                    segment["total"],
+                    1,
+                )
+                for segment in (
+                    first_arm,
+                    second_arm,
+                    back_segment,
+                )
             ) / 3.0
 
             error_score = (
-                parallel_err / parallel_tol
-                + (perp_err_i + perp_err_k) / 2.0 / perp_tol
-                + width_err / width_tol
-                + connect_err / corner_gap_tol
+                parallel_error
+                / parallel_tolerance
+                + (
+                    first_perpendicular_error
+                    + second_perpendicular_error
+                )
+                / 2.0
+                / perpendicular_tolerance
+                + width_error
+                / width_tolerance
+                + average_corner_gap
+                / corner_gap_tolerance
             ) / 4.0
-            confidence = max(0.0, min(1.0, 1.0 - error_score)) * inlier_ratio
 
-            candidates.append({
+            confidence = (
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        1.0 - error_score,
+                    ),
+                )
+                * inlier_ratio
+            )
+
+            segment_indices = frozenset(
+                (
+                    back_index,
+                    first_arm_index,
+                    second_arm_index,
+                )
+            )
+
+            candidate = {
                 "opening_center": opening_center,
                 "heading": heading,
-                "width": width,
+                "width": measured_width,
                 "depth": depth,
                 "confidence": confidence,
-                "segment_idxs": frozenset((back_idx, arm_i_idx, arm_k_idx)),
-                "wall_inlier_idx": np.concatenate(
-                    (seg_i["inlier_idx"], seg_k["inlier_idx"], seg_back["inlier_idx"])
+                "segment_idxs": segment_indices,
+                "wall_inlier_idx": np.unique(
+                    np.concatenate(
+                        (
+                            first_arm[
+                                "inlier_idx"
+                            ],
+                            second_arm[
+                                "inlier_idx"
+                            ],
+                            back_segment[
+                                "inlier_idx"
+                            ],
+                        )
+                    )
                 ),
-            })
+            }
 
-    # De-duplicate: two legitimately adjacent berths share exactly one
-    # segment (the shared wall); a spurious re-detection of the SAME berth
-    # via a different segment triple typically shares two or more.
-    candidates.sort(key=lambda m: m["confidence"], reverse=True)
-    kept = []
-    for cand in candidates:
-        if any(len(cand["segment_idxs"] & k["segment_idxs"]) >= 2 for k in kept):
+            candidates.append(candidate)
+
+            if (
+                debug
+                and logger is not None
+            ):
+                logger.info(
+                    "Dock match accepted: "
+                    f"back={back_index}, "
+                    f"arms=("
+                    f"{first_arm_index},"
+                    f"{second_arm_index}), "
+                    f"clusters=("
+                    f"{back_segment.get('cluster_label', -1)},"
+                    f"{first_arm.get('cluster_label', -1)},"
+                    f"{second_arm.get('cluster_label', -1)}), "
+                    f"width={measured_width:.3f}, "
+                    f"depth={depth:.3f}, "
+                    f"confidence={confidence:.3f}"
+                )
+
+    candidates.sort(
+        key=lambda match: (
+            match["confidence"]
+        ),
+        reverse=True,
+    )
+
+    kept_candidates = []
+
+    for candidate in candidates:
+        duplicate = any(
+            len(
+                candidate["segment_idxs"]
+                & existing["segment_idxs"]
+            )
+            >= 2
+            for existing in kept_candidates
+        )
+
+        if duplicate:
             continue
-        kept.append(cand)
 
-    return kept
+        kept_candidates.append(candidate)
+
+    return kept_candidates
 
 
-# ── Occupancy classification ────────────────────────────────────────────────
-
-def _classify_occupied(match, all_points, margin, min_points):
-    """A berth is occupied if points from the FULL scan (not just its own
-    matching DBSCAN cluster — a decoy/real boat centered in a berth can sit
-    far enough from the walls to form its own separate cluster) fall inside
-    the berth's interior, inset by `margin` to avoid the walls' own
-    returns, and aren't already explained by the berth's own matched walls.
-
-    Known limitation: if an occupying boat fully occludes a berth's back
-    wall from the current vantage angle, RANSAC may never extract that
-    wall at all, so no match (occupied or free) is produced for that berth
-    — a safe failure mode (never reported free) but not a positive
-    "occupied" assertion. Not solvable from a single 2D scan alone.
-    """
+def _classify_occupied(
+    match,
+    all_points,
+    margin,
+    min_points,
+):
+    """Determine whether unexplained scan points occupy the berth interior."""
     if len(all_points) == 0:
         return False
 
     heading = match["heading"]
-    u = np.array([math.cos(heading), math.sin(heading)])  # opening -> back wall
-    v = np.array([-math.sin(heading), math.cos(heading)])  # lateral
 
-    rel = all_points - match["opening_center"]
-    s = rel @ u
-    t = rel @ v
-
-    half_width = match["width"] / 2.0
-    inside = (
-        (s >= margin) & (s <= match["depth"] - margin)
-        & (np.abs(t) <= half_width - margin)
+    longitudinal_axis = np.array(
+        [
+            math.cos(heading),
+            math.sin(heading),
+        ]
     )
-    inside_idx = set(np.nonzero(inside)[0].tolist())
-    explained_idx = set(match["wall_inlier_idx"].tolist())
-    unexplained = inside_idx - explained_idx
-    return len(unexplained) >= min_points
+    lateral_axis = np.array(
+        [
+            -math.sin(heading),
+            math.cos(heading),
+        ]
+    )
+
+    relative_points = (
+        all_points
+        - match["opening_center"]
+    )
+
+    longitudinal_distances = (
+        relative_points
+        @ longitudinal_axis
+    )
+    lateral_distances = (
+        relative_points
+        @ lateral_axis
+    )
+
+    half_width = (
+        match["width"] / 2.0
+    )
+
+    usable_half_width = max(
+        0.0,
+        half_width - margin,
+    )
+    usable_depth = max(
+        0.0,
+        match["depth"] - margin,
+    )
+
+    inside = (
+        (longitudinal_distances >= margin)
+        & (
+            longitudinal_distances
+            <= usable_depth
+        )
+        & (
+            np.abs(lateral_distances)
+            <= usable_half_width
+        )
+    )
+
+    inside_indices = set(
+        np.nonzero(inside)[0].tolist()
+    )
+    explained_indices = set(
+        match[
+            "wall_inlier_idx"
+        ].tolist()
+    )
+
+    unexplained_indices = (
+        inside_indices
+        - explained_indices
+    )
+
+    return (
+        len(unexplained_indices)
+        >= min_points
+    )
 
 
-# ── Publishing ───────────────────────────────────────────────────────────────
-
-def _to_msg(header, match):
-    msg = DockTarget()
-    msg.header = header
+def _to_message(header, match):
+    """Convert an internal match dictionary into DockTarget."""
+    message = DockTarget()
+    message.header = header
 
     if match is None:
-        msg.detected = False
-        return msg
+        message.detected = False
+        message.occupied = False
+        return message
 
-    msg.detected = True
-    msg.opening_center = Point(
-        x=float(match["opening_center"][0]),
-        y=float(match["opening_center"][1]),
+    message.detected = True
+    message.opening_center = Point(
+        x=float(
+            match["opening_center"][0]
+        ),
+        y=float(
+            match["opening_center"][1]
+        ),
         z=0.0,
     )
-    msg.heading = float(match["heading"])
-    msg.width = float(match["width"])
-    msg.depth = float(match["depth"])
-    msg.confidence = float(match["confidence"])
-    msg.occupied = bool(match.get("occupied", False))
-    return msg
+    message.heading = float(
+        match["heading"]
+    )
+    message.width = float(
+        match["width"]
+    )
+    message.depth = float(
+        match["depth"]
+    )
+    message.confidence = float(
+        match["confidence"]
+    )
+    message.occupied = bool(
+        match.get(
+            "occupied",
+            False,
+        )
+    )
+
+    return message
 
 
 def main(args=None):
+    """Run the ROS 2 node."""
     rclpy.init(args=args)
+
     node = DockDetectorNode()
+
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

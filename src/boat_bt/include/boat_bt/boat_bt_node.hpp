@@ -274,6 +274,14 @@ private:
   rclcpp::Time
     final_entry_start_time_{0, 0, RCL_ROS_TIME};
 
+  rclcpp::Time
+    docking_hold_start_time_{0, 0, RCL_ROS_TIME};
+
+  rclcpp::Time
+    docking_reverse_start_time_{0, 0, RCL_ROS_TIME};
+
+  bool docking_reverse_started_{false};
+
   // Perception filtering
   double docking_min_confidence_;
   double docking_target_timeout_sec_;
@@ -283,11 +291,14 @@ private:
   double docking_entry_trigger_distance_m_;
   double docking_lateral_tolerance_m_;
   double docking_final_entry_duration_sec_;
+  double docking_hold_duration_sec_;
+  double docking_reverse_duration_sec_;
 
   // Motion parameters
   double docking_alignment_speed_mps_;
   double docking_approach_speed_mps_;
   double docking_final_speed_mps_;
+  double docking_reverse_speed_mps_;
   double docking_max_yaw_rate_radps_;
 
   // Steering gains

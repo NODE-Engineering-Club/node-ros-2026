@@ -11,11 +11,20 @@
 
   <BehaviorTree ID="GlobalSafety">
     <Fallback name="OptionalGlobalCollisionAvoidance">
+
+      <!--
+        During docking, the dock geometry is intentionally approached at
+        close range. It must not be interpreted as a generic obstacle that
+        triggers a global bypass request before ExecuteDocking can run.
+      -->
+      <IsTask task="docking"/>
+
       <Sequence name="GlobalCollisionAvoidance">
         <CollisionRiskDetected/>
         <DetermineAvoidanceTarget/>
         <RequestAvoidance/>
       </Sequence>
+
       <AlwaysSuccess/>
     </Fallback>
   </BehaviorTree>
@@ -49,7 +58,6 @@
       </Sequence>
 
       <AlwaysSuccess/>
-
     </Fallback>
   </BehaviorTree>
 

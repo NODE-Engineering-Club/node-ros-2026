@@ -272,6 +272,11 @@ private:
     last_dock_target_time_{0, 0, RCL_ROS_TIME};
 
   rclcpp::Time
+    docking_target_loss_start_time_{0, 0, RCL_ROS_TIME};
+
+  bool docking_target_loss_active_{false};
+
+  rclcpp::Time
     final_entry_start_time_{0, 0, RCL_ROS_TIME};
 
   rclcpp::Time
@@ -285,6 +290,7 @@ private:
   // Perception filtering
   double docking_min_confidence_;
   double docking_target_timeout_sec_;
+  double docking_reacquire_timeout_sec_;
 
   // State transition thresholds
   double docking_alignment_tolerance_rad_;

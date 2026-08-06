@@ -102,6 +102,10 @@ BoatBTNode::BoatBTNode()
     1.0);
 
   declare_parameter<double>(
+    "docking_reacquire_timeout_sec",
+    3.0);
+
+  declare_parameter<double>(
     "docking_alignment_tolerance_rad",
     0.20);
 
@@ -220,6 +224,10 @@ BoatBTNode::BoatBTNode()
   docking_target_timeout_sec_ =
     get_parameter(
     "docking_target_timeout_sec").as_double();
+
+  docking_reacquire_timeout_sec_ =
+    get_parameter(
+    "docking_reacquire_timeout_sec").as_double();
 
   docking_alignment_tolerance_rad_ =
     get_parameter(
@@ -394,10 +402,12 @@ BoatBTNode::BoatBTNode()
   RCLCPP_INFO(
     get_logger(),
     "Docking controller enabled: confidence>=%.2f, "
-    "target timeout=%.2f s, approach speed=%.2f m/s, "
-    "final speed=%.2f m/s, max yaw=%.2f rad/s",
+    "target timeout=%.2f s, reacquire timeout=%.2f s, "
+    "approach speed=%.2f m/s, final speed=%.2f m/s, "
+    "max yaw=%.2f rad/s",
     docking_min_confidence_,
     docking_target_timeout_sec_,
+    docking_reacquire_timeout_sec_,
     docking_approach_speed_mps_,
     docking_final_speed_mps_,
     docking_max_yaw_rate_radps_);

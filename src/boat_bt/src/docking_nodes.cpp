@@ -144,19 +144,82 @@ BT::NodeStatus BoatBTNode::executeDockingController()
     docking_state_ != DockingState::DOCKED;
 
   if (dock_target_required && !dockTargetFresh()) {
-    if (docking_state_ != DockingState::WAITING_FOR_TARGET) {
+    publishDockingCommand(0.0, 0.0);
+
+    const bool approach_in_progress =
+      docking_state_ == DockingState::ALIGNING ||
+      docking_state_ == DockingState::APPROACHING;
+
+    if (!approach_in_progress) {
+      docking_target_loss_active_ = false;
+
+      setDockingState(
+        DockingState::WAITING_FOR_TARGET);
+
+      return BT::NodeStatus::RUNNING;
+    }
+
+    if (!docking_target_loss_active_) {
+      docking_target_loss_active_ = true;
+      docking_target_loss_start_time_ = now();
+
       RCLCPP_WARN(
         get_logger(),
-        "Dock target lost or stale. "
-        "Stopping and waiting for perception.");
+        "Dock target lost during %s. "
+        "Stopping for up to %.1f seconds while waiting for "
+        "target reacquisition.",
+        dockingStateName(docking_state_),
+        docking_reacquire_timeout_sec_);
+
+      return BT::NodeStatus::RUNNING;
     }
+
+    const double target_loss_elapsed =
+      (now() - docking_target_loss_start_time_).seconds();
+
+    if (
+      target_loss_elapsed <
+      docking_reacquire_timeout_sec_)
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Dock target still unavailable during %s: "
+        "elapsed=%.2f / %.2f s",
+        dockingStateName(docking_state_),
+        target_loss_elapsed,
+        docking_reacquire_timeout_sec_);
+
+      return BT::NodeStatus::RUNNING;
+    }
+
+    RCLCPP_ERROR(
+      get_logger(),
+      "Dock target was not reacquired within %.1f seconds. "
+      "Resetting docking approach and retrying target selection.",
+      docking_reacquire_timeout_sec_);
+
+    docking_target_loss_active_ = false;
 
     setDockingState(
       DockingState::WAITING_FOR_TARGET);
 
-    publishDockingCommand(0.0, 0.0);
-
     return BT::NodeStatus::RUNNING;
+  }
+
+  if (docking_target_loss_active_) {
+    const double target_loss_elapsed =
+      (now() - docking_target_loss_start_time_).seconds();
+
+    docking_target_loss_active_ = false;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Dock target reacquired after %.2f seconds. "
+      "Resuming %s.",
+      target_loss_elapsed,
+      dockingStateName(docking_state_));
   }
 
   const double target_x =
@@ -465,6 +528,13 @@ void BoatBTNode::resetDockingController()
     0,
     get_clock()->get_clock_type());
 
+  docking_target_loss_start_time_ =
+    rclcpp::Time(
+    0,
+    0,
+    get_clock()->get_clock_type());
+
+  docking_target_loss_active_ = false;
   docking_reverse_started_ = false;
 
   publishDockingCommand(0.0, 0.0);

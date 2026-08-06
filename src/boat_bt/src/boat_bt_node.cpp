@@ -285,9 +285,18 @@ BoatBTNode::BoatBTNode()
   // ROS interfaces
   // -----------------------------------------------------------------------
 
+  /*
+   * Published on a dedicated topic, not /cmd_vel directly: Nav2's own
+   * pipeline (controller_server, behavior_server's recovery behaviors,
+   * collision_monitor's safety-stop heartbeat) also targets /cmd_vel
+   * whenever it's alive, even with no active goal. Publishing there
+   * directly caused boat_bt's docking commands to race against Nav2's
+   * idle-but-live output. twist_mux arbitrates the two into the real
+   * /cmd_vel (see bringup/config/twist_mux.yaml).
+   */
   cmd_pub_ =
     create_publisher<geometry_msgs::msg::Twist>(
-    "/cmd_vel",
+    "/boat_bt/cmd_vel",
     10);
 
   odom_sub_ =

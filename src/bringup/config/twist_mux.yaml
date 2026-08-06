@@ -1,0 +1,18 @@
+twist_mux:
+  ros__parameters:
+    # This project's cmd_vel chain (boat_bt, collision_monitor, nav_to_pid,
+    # ros_gz_bridge/VelocityControl) is all plain geometry_msgs/Twist.
+    # twist_mux defaults to publishing/subscribing TwistStamped as part of
+    # the broader Nav2/REP-147 migration — force it back to unstamped so it
+    # actually connects to the rest of the stack instead of silently
+    # mismatching message types on every topic it touches.
+    use_stamped: false
+    topics:
+      docking:
+        topic: boat_bt/cmd_vel
+        timeout: 0.5
+        priority: 100
+      navigation:
+        topic: nav2/cmd_vel
+        timeout: 0.5
+        priority: 10

@@ -362,6 +362,23 @@ def generate_launch_description():
             arguments=["0", "0", "0", "0", "0", "0", "lidar", "asket/base_link/Lidar_sensor"],
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
+        # Sim-only: Gazebo publishes NavSatFix with the scoped sensor frame
+        # "asket/base_link/GPS_sensor", while robot_state_publisher exposes
+        # the URDF GPS link as "GPS". Publish the real URDF GPS offset under
+        # the scoped Gazebo sensor name so navsat_transform_node can transform
+        # GPS measurements into base_link and initialize /fromLL and /toLL.
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="static_gps_sensor_tf",
+            arguments=[
+                "-0.18827", "0", "0.174775",
+                "0", "0", "0",
+                "base_link",
+                "asket/base_link/GPS_sensor",
+            ],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
         Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",

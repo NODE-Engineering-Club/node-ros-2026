@@ -247,8 +247,29 @@ class CompetitionManager(Node):
             self.get_logger().warning(response.message)
             return response
 
+        waypoint_required_tasks = (
+            CompetitionState.TASK_MANEUVERING,
+            CompetitionState.TASK_PATH_FINDING,
+        )
+
+        if (
+            self._current_task in waypoint_required_tasks
+            and not self._current_task_definition.waypoints
+        ):
+            response.success = False
+            response.message = (
+                "Cannot start competition task: "
+                f"{self._current_task_definition.name} has no configured "
+                "waypoints"
+            )
+
+            self.get_logger().error(response.message)
+            return response
+
         # Tasks without geographic waypoints are executed directly by the
-        # Behavior Tree instead of MissionManager.
+        # Behavior Tree instead of MissionManager. This applies to behaviors
+        # such as collision avoidance and docking, whose completion is
+        # reported through /competition/complete.
         if not self._current_task_definition.waypoints:
             self.set_competition_state(
                 CompetitionState.STATE_RUNNING,

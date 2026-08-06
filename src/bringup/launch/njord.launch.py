@@ -114,17 +114,23 @@ def generate_launch_description():
                 SetParameter("use_sim_time", LaunchConfiguration("use_sim")),
             ] + [
                 Node(package=pkg, executable=exe, name=name, output="screen",
-                     parameters=[nav2_params], remappings=[("/tf", "tf"), ("/tf_static", "tf_static")])
-                for pkg, exe, name in [
-                    ("nav2_controller",      "controller_server",  "controller_server"),
-                    ("nav2_smoother",        "smoother_server",    "smoother_server"),
-                    ("nav2_planner",         "planner_server",     "planner_server"),
-                    ("nav2_route",           "route_server",       "route_server"),
-                    ("nav2_behaviors",       "behavior_server",    "behavior_server"),
-                    ("nav2_bt_navigator",    "bt_navigator",       "bt_navigator"),
-                    ("nav2_waypoint_follower","waypoint_follower",  "waypoint_follower"),
-                    ("nav2_velocity_smoother","velocity_smoother", "velocity_smoother"),
-                    ("nav2_collision_monitor","collision_monitor",  "collision_monitor"),
+                     parameters=[nav2_params],
+                     remappings=[("/tf", "tf"), ("/tf_static", "tf_static")] + extra_remaps)
+                for pkg, exe, name, extra_remaps in [
+                    # controller_server/behavior_server's raw output must not
+                    # land on the shared cmd_vel name: it's pre-smoothing,
+                    # pre-collision-check, and (once twist_mux is added below)
+                    # would otherwise also collide with the final arbitrated
+                    # /cmd_vel. Route it into velocity_smoother instead.
+                    ("nav2_controller",      "controller_server",  "controller_server", [("cmd_vel", "cmd_vel_nav")]),
+                    ("nav2_smoother",        "smoother_server",    "smoother_server",   []),
+                    ("nav2_planner",         "planner_server",     "planner_server",    []),
+                    ("nav2_route",           "route_server",       "route_server",      []),
+                    ("nav2_behaviors",       "behavior_server",    "behavior_server",   [("cmd_vel", "cmd_vel_nav")]),
+                    ("nav2_bt_navigator",    "bt_navigator",       "bt_navigator",       []),
+                    ("nav2_waypoint_follower","waypoint_follower",  "waypoint_follower", []),
+                    ("nav2_velocity_smoother","velocity_smoother", "velocity_smoother",  [("cmd_vel", "cmd_vel_nav")]),
+                    ("nav2_collision_monitor","collision_monitor",  "collision_monitor",  []),
                 ]
             ] + [
                 Node(
@@ -266,6 +272,23 @@ def generate_launch_description():
                 LaunchConfiguration("use_sim"), "' != 'true'"
             ])),
             parameters=[sim_time],
+        ),
+        # Arbitrates between Nav2's own /cmd_vel output (via collision_monitor,
+        # remapped to nav2/cmd_vel) and boat_bt's direct docking commands
+        # (boat_bt/cmd_vel) — both used to independently publish straight onto
+        # the shared /cmd_vel that nav_to_pid/ros_gz_bridge consume, racing
+        # each other whenever Nav2's pipeline stayed alive (e.g. its
+        # collision_monitor safety-stop heartbeat) during a BT-direct task
+        # like docking. See bringup/config/twist_mux.yaml for priorities.
+        Node(
+            package="twist_mux",
+            executable="twist_mux",
+            name="twist_mux",
+            remappings=[("/cmd_vel_out", "/cmd_vel")],
+            parameters=[
+                cfg + "/twist_mux.yaml",
+                sim_time,
+            ],
         ),
         # Mission
         Node(

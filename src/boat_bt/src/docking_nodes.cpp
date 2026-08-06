@@ -239,6 +239,18 @@ BT::NodeStatus BoatBTNode::executeDockingController()
     normalize_angle(dock_heading_);
 
   /*
+   * A steering correction computed from this reading is only trusted for
+   * docking_steering_hold_sec_ after it arrived. Past that, the boat holds
+   * (zero yaw/speed) rather than keep re-applying the same turn -- see the
+   * docking_steering_hold_sec_ comment in boat_bt_node.hpp for why.
+   */
+  const double target_age =
+    (now() - last_dock_target_time_).seconds();
+
+  const bool steering_command_stale =
+    target_age > docking_steering_hold_sec_;
+
+  /*
    * WAITING_FOR_TARGET
    *
    * A valid target is available. Decide whether alignment is needed before
@@ -271,6 +283,19 @@ BT::NodeStatus BoatBTNode::executeDockingController()
     {
       setDockingState(
         DockingState::APPROACHING);
+    }
+    else if (steering_command_stale) {
+      publishDockingCommand(0.0, 0.0);
+
+      RCLCPP_INFO_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Docking ALIGNING: holding, waiting on a fresh target "
+        "(last reading %.2f s old)",
+        target_age);
+
+      return BT::NodeStatus::RUNNING;
     }
     else {
       const double yaw_command =
@@ -323,6 +348,19 @@ BT::NodeStatus BoatBTNode::executeDockingController()
 
       setDockingState(
         DockingState::FINAL_ENTRY);
+    }
+    else if (steering_command_stale) {
+      publishDockingCommand(0.0, 0.0);
+
+      RCLCPP_INFO_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Docking APPROACHING: holding, waiting on a fresh target "
+        "(last reading %.2f s old)",
+        target_age);
+
+      return BT::NodeStatus::RUNNING;
     }
     else {
       const double yaw_command =
@@ -384,6 +422,20 @@ BT::NodeStatus BoatBTNode::executeDockingController()
         get_logger(),
         "Dock entry completed. Holding position for %.1f seconds.",
         docking_hold_duration_sec_);
+
+      return BT::NodeStatus::RUNNING;
+    }
+
+    if (steering_command_stale) {
+      publishDockingCommand(0.0, 0.0);
+
+      RCLCPP_INFO_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Docking FINAL_ENTRY: holding, waiting on a fresh target "
+        "(last reading %.2f s old)",
+        target_age);
 
       return BT::NodeStatus::RUNNING;
     }

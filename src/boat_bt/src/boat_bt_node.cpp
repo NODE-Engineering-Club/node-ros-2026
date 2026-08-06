@@ -106,6 +106,10 @@ BoatBTNode::BoatBTNode()
     3.0);
 
   declare_parameter<double>(
+    "docking_steering_hold_sec",
+    0.3);
+
+  declare_parameter<double>(
     "docking_alignment_tolerance_rad",
     0.20);
 
@@ -229,6 +233,10 @@ BoatBTNode::BoatBTNode()
     get_parameter(
     "docking_reacquire_timeout_sec").as_double();
 
+  docking_steering_hold_sec_ =
+    get_parameter(
+    "docking_steering_hold_sec").as_double();
+
   docking_alignment_tolerance_rad_ =
     get_parameter(
     "docking_alignment_tolerance_rad").as_double();
@@ -285,9 +293,18 @@ BoatBTNode::BoatBTNode()
   // ROS interfaces
   // -----------------------------------------------------------------------
 
+  /*
+   * Published on a dedicated topic, not /cmd_vel directly: Nav2's own
+   * pipeline (controller_server, behavior_server's recovery behaviors,
+   * collision_monitor's safety-stop heartbeat) also targets /cmd_vel
+   * whenever it's alive, even with no active goal. Publishing there
+   * directly caused boat_bt's docking commands to race against Nav2's
+   * idle-but-live output. twist_mux arbitrates the two into the real
+   * /cmd_vel (see bringup/config/twist_mux.yaml).
+   */
   cmd_pub_ =
     create_publisher<geometry_msgs::msg::Twist>(
-    "/cmd_vel",
+    "/boat_bt/cmd_vel",
     10);
 
   odom_sub_ =
@@ -403,11 +420,13 @@ BoatBTNode::BoatBTNode()
     get_logger(),
     "Docking controller enabled: confidence>=%.2f, "
     "target timeout=%.2f s, reacquire timeout=%.2f s, "
+    "steering hold=%.2f s, "
     "approach speed=%.2f m/s, final speed=%.2f m/s, "
     "max yaw=%.2f rad/s",
     docking_min_confidence_,
     docking_target_timeout_sec_,
     docking_reacquire_timeout_sec_,
+    docking_steering_hold_sec_,
     docking_approach_speed_mps_,
     docking_final_speed_mps_,
     docking_max_yaw_rate_radps_);

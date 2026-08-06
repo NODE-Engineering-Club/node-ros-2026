@@ -190,6 +190,48 @@ full evidence. Docking is covered above. Status of the rest:
   revisiting if a future task needs to choose among several free berths or
   reason about which one is occupied.
 
+## Simulation Performance (no-GPU / headless sandboxes)
+
+Found while getting a real-Gazebo docking run working in a GPU-less sandbox
+(see PR #16 review and the `fix/docking-fov-tracking-loss` branch):
+
+- [x] **Gazebo sensor rendering hangs in server-only (`-s`) mode** — root
+  cause identified: `-s` mode deadlocks `gz-sim`'s `Sensors` render thread
+  regardless of software-rendering setup (Xvfb, `LIBGL_ALWAYS_SOFTWARE`,
+  `--headless-rendering`, explicit `--render-engine-server` flags all
+  tried, all hung identically at `Sensors.cc: Waiting for init`). **GUI-
+  attached mode (`headless:=false`) works** — same software (llvmpipe)
+  rendering underneath, just not server-only. Real GPU rendering was never
+  tested here (no GPU in this sandbox); untried but promising: enabling
+  actual GPU passthrough (`--gpus=all`) in `.devcontainer/devcontainer.json`
+  for machines that have one — WSL2 + Docker Desktop should support this
+  natively for an NVIDIA GPU. `runArgs` currently requests none at all.
+
+- [ ] **Real-time factor is very low under software rendering** — measured
+  directly (sim `/clock` vs wall clock): RTF ≈ 0.08 (~12x slower than
+  real-time) with `headless:=false` + camera/gpu_lidar sensors active.
+  Since `docking_reacquire_timeout_sec` and friends are sim-time durations,
+  this makes a "3 second" timeout take ~35 real seconds — painful for
+  interactive testing, though the underlying control logic still behaves
+  correctly in sim-time terms (bearing convergence traced cleanly:
+  88°→18° over ~2.3 sim-seconds). Real hardware is entirely unaffected
+  (no simulated rendering involved at all). Worth revisiting if GPU
+  passthrough becomes available.
+
+- [ ] **`gpu_lidar` → CPU-raycast `lidar` sensor type: tried, reverted**
+  Attempted switching Asket's LiDAR sensor (`asket.urdf.xacro`) from
+  `type="gpu_lidar"` to `type="lidar"` to sidestep Ogre2 rendering
+  entirely for the one sensor docking actually consumes (cameras aren't
+  used by docking). Same `<ray>` schema, should be a drop-in swap per the
+  gz-sensors docs. In practice it produced zero scan data in this
+  gz-sensors8 build — confirmed at both the ROS topic and native `gz
+  topic` level, even 45+ seconds after spawn. Didn't dig further into
+  whether this is a genuine version gap or a missing config; reverted to
+  the confirmed-working `gpu_lidar`. Worth another look if someone wants
+  faster headless testing and has time to debug the CPU lidar plugin
+  directly (check for silent errors in `~/.gz/sim/log/*/server_console.log`
+  around sensor creation, or try a minimal single-sensor test world first).
+
 ## Sensor Data Processing Tests
 
 - [ ] **Verify `lidar_obstacle_node` output in sim**

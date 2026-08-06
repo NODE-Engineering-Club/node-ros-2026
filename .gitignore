@@ -25,5 +25,6 @@ frames_*.pdf
 .claude/
 
 # Generated reports and stray launch logs
-reports/
+reports/*
+!reports/status_report.typ
 *.log

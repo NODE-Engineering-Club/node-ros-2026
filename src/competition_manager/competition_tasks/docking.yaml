@@ -1,0 +1,9 @@
+version: 1
+
+task:
+  id: docking
+  name: Docking
+  description: Autonomous docking competition task.
+
+mission:
+  waypoints: []

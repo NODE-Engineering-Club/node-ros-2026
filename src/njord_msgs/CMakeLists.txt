@@ -10,9 +10,11 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/StartMission.srv"
   "srv/SetBypassTarget.srv"
+  "srv/SetCompetitionTask.srv"
   "msg/Obstacle.msg"
   "msg/ObstacleArray.msg"
   "msg/MissionStatus.msg"
+  "msg/CompetitionState.msg"
   "msg/DockTarget.msg"
   "msg/DockTargetArray.msg"
   DEPENDENCIES geographic_msgs geometry_msgs std_msgs

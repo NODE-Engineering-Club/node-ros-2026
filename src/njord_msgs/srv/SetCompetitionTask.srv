@@ -1,0 +1,13 @@
+# Select the active Njord competition task.
+#
+# The Competition Manager stores the selected task and publishes the
+# corresponding CompetitionState on /competition/status.
+#
+# Valid task values are the TASK_* constants defined in:
+# njord_msgs/msg/CompetitionState.msg
+
+uint8 task
+
+---
+bool success
+string message

@@ -1,0 +1,9 @@
+version: 1
+
+task:
+  id: path_finding
+  name: Path Finding
+  description: Autonomous path-finding competition task.
+
+mission:
+  waypoints: []

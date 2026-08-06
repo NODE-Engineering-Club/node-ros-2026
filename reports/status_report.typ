@@ -26,7 +26,6 @@
 #let done_tag = text(fill: rgb("#1a7f37"), weight: "bold")[DONE]
 #let open_tag = text(fill: rgb("#9a6700"), weight: "bold")[OPEN]
 #let stale_tag = text(fill: rgb("#cf222e"), weight: "bold")[STALE TODO]
-#let progress_tag = text(fill: rgb("#0969da"), weight: "bold")[IN PROGRESS (unmerged)]
 
 // ---------------------------------------------------------------------------
 // Title block
@@ -49,7 +48,7 @@
   #v(0.3em)
   #text(size: 10pt, fill: rgb("#555555"))[NODE Engineering Club]
   #v(0.3em)
-  August 3, 2026
+  August 6, 2026 (rev. 2 — updated post `feat/competition-bt` merge)
 ]
 
 #v(1em)
@@ -60,24 +59,27 @@
 
 #block(inset: (x: 1.2cm))[
   #text(weight: "bold")[Abstract.] Njord 2026 is a ROS 2 Jazzy autonomous surface
-  vessel stack developed for the competition robot Asket. Over roughly four
-  months of development (102 commits on `main` since April 2026, plus active
-  work on unmerged feature branches), the team has built a full
-  sensor-to-actuation pipeline — camera and LiDAR perception fused with GPS/IMU
-  localization, a Nav2-based planner/controller, and a MAVROS bridge to an
+  vessel stack developed for the competition robot Asket. Over four months of
+  development (121 commits on `main` since April 2026), the team has built a
+  full sensor-to-actuation pipeline — camera and LiDAR perception fused with
+  GPS/IMU localization, a Nav2-based planner/controller, a competition
+  Behavior Tree and task-orchestration layer, and a MAVROS bridge to an
   ArduPilot-driven Pixhawk flight controller — and validated it end-to-end in
   Gazebo simulation. Camera and LiDAR-camera calibration have been completed
-  and verified on physical hardware. The most recent development cycle added a
-  LiDAR-geometric dock detector capable of recognizing occupied and free
-  berths, including in multi-berth scenes. Two blocking items remain before a
-  water test can proceed: confirming the ArduPilot `FRAME_TYPE` steering
-  configuration, and completing a stand-test dry run. Several `TODOS.md`
-  entries describing outstanding work were found, on cross-reference against
-  the commit history, to already be resolved in code but not yet marked as
-  such — these are called out explicitly below. Substantial docking-autonomy
-  work (behavior-tree integration, an autonomous docking controller, and
-  competition task orchestration) is in progress on an unmerged branch,
-  `feat/competition-bt`, and is not yet reflected in `main` or `TODOS.md`.
+  and verified on physical hardware. As of this revision, `feat/competition-bt`
+  (PR #16) has just merged into `main`: docking is now fully wired end to end
+  — detection, behavior-tree state machine, and task lifecycle — and
+  live-tested in a synthetic-physics closed loop, though not yet on real
+  hardware. Two blocking items remain before a water test can proceed:
+  confirming the ArduPilot `FRAME_TYPE` steering configuration, and completing
+  a stand-test dry run. Several `TODOS.md` entries were found, on
+  cross-reference against the commit history, to already be resolved in code
+  but not yet marked as such at the time of the first revision of this report
+  — these are called out explicitly below. The PR #16 merge also surfaced new,
+  genuinely open gaps: the Maneuvering and Path Finding competition tasks have
+  no GPS course configured and cannot currently run, and roughly 1,500 new
+  lines of behavior-tree/task-orchestration C++ ship with no automated test
+  coverage.
 ]
 
 #v(0.5em)
@@ -138,8 +140,8 @@ physical boat.
 
 == Timeline
 
-The `main` branch contains 102 commits spanning April 7 -- July 29, 2026.
-Development proceeded in five broad phases:
+The `main` branch contains 121 commits spanning April 7 -- August 6, 2026.
+Development proceeded in six broad phases:
 
 #table(
   columns: (auto, 1fr),
@@ -165,7 +167,15 @@ Development proceeded in five broad phases:
   [Jul 18 -- Jul 29], [Behavior tree and docking: cardinal-marker handling
     and collision-avoidance bypass logic added to `boat_bt`; the new
     LiDAR-geometric dock detector added, then extended to multi-berth
-    occupancy classification (most recent commit on `main`).],
+    occupancy classification.],
+  [Jul 30 -- Aug 6], [Competition Behavior Tree and task orchestration
+    (PR #16, merged): a new `competition_manager` package for task
+    selection/lifecycle; `boat_bt` refactored into a modular,
+    task-oriented architecture with a full docking state machine
+    (`docking_nodes.cpp`) and adaptive-side collision avoidance; docking
+    wired end to end and live-tested in a synthetic-physics closed loop;
+    a missing GPS sensor TF fix for simulation (most recent commit on
+    `main`).],
   table.hline(stroke: 0.8pt),
 )
 
@@ -180,12 +190,14 @@ under more than one name/email):
   table.header([Commits], [Identity], [Primary area]),
   table.hline(stroke: 0.5pt),
   [31], [tompeace / Tom Peace], [Infrastructure, deployment, container build],
-  [14], [PaintDumpster], [URDF, camera/LiDAR calibration, dock detection],
+  [26], [Heleri Koltsin], [`boat_bt` behavior tree, `competition_manager`,
+    docking state machine, mission manager],
+  [15], [PaintDumpster], [URDF, camera/LiDAR calibration, dock detection],
   [14], [salvadorc], [Calibration tooling, fusion-node projection fixes],
   [12], [Jokar-man], [CI, Gazebo/MAVROS bridging, sim package],
-  [9],  [Heleri Koltsin], [`boat_bt` behavior tree, mission manager],
   [6],  [auxenceIAAC], [Camera driver robustness],
-  [5],  [Salvador Cantuarias Brañes], [Calibration PR merges],
+  [6],  [Salvador Cantuarias Brañes], [Calibration and competition-BT PR
+    merges],
   [3],  [Priyam Gulati], [PID controller closed-loop migration],
   [3],  [Sara], [Nav2 parameter fixes, waypoint flow],
   [2],  [Chakshu Chopra], [Foxglove bridge integration],
@@ -196,7 +208,9 @@ under more than one name/email):
 Note: `PaintDumpster` and `salvadorc` / `Salvador Cantuarias Brañes` share a
 commit email address and are almost certainly the same contributor under
 different git configurations, making this the single largest contributor by
-volume (33 commits) after `tompeace`.
+volume (35 commits) after `tompeace`. Heleri Koltsin's commit count nearly
+tripled between the two revisions of this report, almost entirely from the
+`feat/competition-bt` work merged in PR #16.
 
 == Branch landscape and unmerged work
 
@@ -206,22 +220,17 @@ Twelve branches exist on the remote beyond `main`. Most (`feat/calibration`,
 `foxglove`, `gazebo_debugg`, `piddebugg`, `Nav2-testing`) appear to be
 exploratory or superseded and were not further examined for this report.
 
-#callout("Active unmerged branch: feat/competition-bt")[
-  This branch is *not merged into `main`* and its contents are *not reflected
-  in `TODOS.md`*, but it directly addresses several items `TODOS.md` currently
-  lists as open, including behavior-tree docking integration and the
-  docking-approach maneuver (see @outstanding-work). Its seven commits — "Add
-  CompetitionManager framework and task-aware Behavior Tree," "Add competition
-  task orchestration and Nav2 integration," "Refactor behavior tree into
-  task-oriented architecture," "Integrate dock target perception into
-  behavior tree," "Add stateful autonomous docking controller," "Integrate
-  docking completion with competition lifecycle," and "Improve collision risk
-  selection" — indicate active, recent development (most recent activity
-  concurrent with this report) toward wiring dock detection into the
-  behavior tree, an autonomous docking approach maneuver, and a competition
-  task/mission lifecycle. Recommend confirming this branch's status and merge
-  timeline with the software lead directly, as it materially changes the
-  "Outstanding Work" picture below if merged before competition.
+#callout("feat/competition-bt merged (PR #16, 2026-08-06)")[
+  This branch was under active development at the time of the first revision
+  of this report and has since merged into `main`, along with a documentation
+  follow-up commit. It closes several items previously listed as open in
+  @outstanding-work — docking is now wired into the behavior tree end to end,
+  with an autonomous approach/hold/reverse state machine and a new
+  `competition_manager` task-lifecycle package — but its review also surfaced
+  new, genuinely open gaps (no GPS course for two of the five competition
+  tasks, no automated test coverage for the new C++). See the new
+  "Competition Behavior Tree / Task Orchestration" subsection below for the
+  full picture.
 ]
 
 // ---------------------------------------------------------------------------
@@ -256,22 +265,74 @@ in code but not updated in `TODOS.md` — and are flagged accordingly.
   table.hline(stroke: 0.5pt),
   [Multi-berth + occupancy detection], [#done_tag — verified via 27-case
     synthetic test suite and real-Gazebo run against `dockingWorldOccupied.sdf`],
-  [Temporal filtering / tracking for `dock_detector_node`], [#open_tag],
-  [Wire docking into the behavior tree], [#open_tag on `main`; #progress_tag
-    on `feat/competition-bt` ("Integrate dock target perception into
-    behavior tree")],
-  [Docking-approach path planning / maneuver], [#open_tag on `main`;
-    #progress_tag on `feat/competition-bt` ("Add stateful autonomous
-    docking controller")],
-  [Mission-manager / lifecycle hookup for docking], [#open_tag on `main`;
-    #progress_tag on `feat/competition-bt` ("Integrate docking completion
-    with competition lifecycle")],
+  [Temporal filtering / tracking for `dock_detector_node`], [#open_tag —
+    detection still runs per-scan only; the constant-velocity Kalman tracker
+    already implemented in `geo_fusion_node.py` remains unreused here],
+  [Wire docking into the behavior tree], [#done_tag (PR #16) —
+    `docking_nodes.cpp` implements
+    `WAITING_FOR_TARGET → ALIGNING → APPROACHING → FINAL_ENTRY → DOCKED`,
+    wired into `simple_boat.xml` as the `DockingTask` subtree, selected via
+    `competition_manager`],
+  [Docking-approach path planning / maneuver], [#done_tag (PR #16) — a
+    BT-internal proportional bearing/heading controller in
+    `docking_nodes.cpp`, not a Nav2 goal sequence],
+  [Mission-manager / lifecycle hookup for docking], [#done_tag (PR #16) —
+    via the new `competition_manager` package;
+    `/competition/set_task` + `/competition/start` select and launch a
+    task, reporting completion via `/competition/complete`],
+  [Add reacquisition robustness for near-symmetric multi-berth scenes],
+    [#open_tag — new gap found while live-testing PR #16: a berth pick that
+    flickers between two similarly-scored free berths can cause hard
+    oscillation while `APPROACHING`; `docking_reacquire_timeout_sec`
+    recovers from a lost target but not a flickering one],
   [Improve detection robustness/range (default spawn pose)], [#open_tag],
   [Tune detection parameters against real hardware LiDAR noise], [#open_tag —
     current defaults tuned against sim data only],
   [Resolve orphaned `opennav_docking` wiring in
     `navigation_no_collision.launch.py`], [#open_tag — dead code, not
     referenced by `njord.launch.py`],
+  table.hline(stroke: 0.8pt),
+)
+
+== Competition Behavior Tree / Task Orchestration
+
+`boat_bt` (BT.CPP 4 tree) plus the new `competition_manager` package
+(task selection and lifecycle) landed via PR #16, reviewed against the
+official Njord 2026 task specs (9.1 Maneuvering/Path Finding, 9.2 Collision
+Avoidance, 9.3 Docking). Docking itself is covered in the table above.
+
+#table(
+  columns: (30%, 1fr),
+  table.hline(stroke: 0.8pt),
+  table.header([Item], [Status]),
+  table.hline(stroke: 0.5pt),
+  [Collision avoidance task subtree + adaptive bypass side], [#done_tag —
+    `CollisionAvoidanceTask` now runs the real avoidance sequence (previously
+    an `<AlwaysSuccess/>` stub); bypass side follows the obstacle's bearing
+    instead of a hardcoded starboard default. Live-verified at three
+    bearings. Caveat: still a reactive rule, not a COLREG/CPA classifier —
+    no relative-velocity reasoning, no task-specific speed setpoint],
+  [Maneuvering / Path Finding — no GPS course configured], [#open_tag —
+    `competition_tasks/maneuvering.yaml` and `path_finding.yaml` both have
+    `mission: waypoints: []`; `competition_manager` now rejects
+    `/competition/start` for either with a clear error rather than silently
+    doing nothing, but neither task can run yet. Owner: Sara],
+  [Automated test coverage for `boat_bt` / `competition_manager`],
+    [#open_tag — roughly 1,500 new C++ lines across the docking, collision,
+    and cardinal-marker nodes plus the task/state machine ship with only
+    boilerplate lint tests; no regression coverage, unlike perception's
+    `test_dock_detector.py` precedent],
+  [AR-tag / ArUco detection for docking], [#open_tag — competition spec 9.3
+    frames AR-tags as the primary berth-identification method with
+    LiDAR-shape detection as fallback; only the fallback is implemented],
+  [Task 3.2 (parallel docking)], [#open_tag — only normal docking (3.1,
+    2 m × 2 m berth) exists; no `CompetitionState` value, BT subtree, or
+    task YAML for the 2 m × 4 m parallel variant],
+  [Surprise task], [Intentional placeholder — explicit `<AlwaysSuccess/>`
+    pending an official task definition],
+  [`/perception/dock_targets` (multi-berth array) consumer], [#open_tag —
+    the docking controller only subscribes to the singular
+    `/perception/dock_target`; the multi-berth-aware array has no consumer],
   table.hline(stroke: 0.8pt),
 )
 
@@ -420,6 +481,13 @@ hardware" is the dominant source of residual risk heading into competition.
     (2.51 px); visual RViz2 confirmation outstanding],
   [Dock detection (multi-berth + occupancy)], [Verified — synthetic suite
     + real-Gazebo run], [Not tested — sim-tuned parameters only],
+  [Docking approach/hold/reverse + task lifecycle (PR #16)], [Verified —
+    live-tested end to end in a synthetic-physics closed loop], [Not
+    tested — no automated regression coverage either],
+  [Maneuvering / Path Finding competition tasks], [Cannot run — no GPS
+    course configured in either task's YAML], [Cannot run],
+  [Collision avoidance task (adaptive bypass side)], [Verified at three
+    obstacle bearings], [Not tested],
   [Speed/yaw PID control loop], [Not separately reported], [Closed-loop
     feedback wired to `/mavros/local_position/velocity_body`; gains
     untuned against real vehicle dynamics],
@@ -441,14 +509,22 @@ Highest-priority risks, in order:
   channels are swapped or incorrectly scaled, first thruster arming could
   drive the boat in an unintended direction. This is precisely what the
   stand-test dry run is designed to catch and should not be skipped.
-+ *Docking is not competition-ready on `main`.* Detection is solid in
-  simulation, but the approach maneuver, behavior-tree wiring, and mission
-  hookup are either absent on `main` or present only on the unmerged
-  `feat/competition-bt` branch. Whether that branch merges before travel is
-  a material scheduling question.
++ *Docking is now wired end to end on `main` (PR #16), but only
+  simulation-verified.* Detection, approach, hold, and reverse all work in a
+  synthetic-physics closed loop; none of it has run on the physical boat, and
+  none of it has automated regression tests protecting it before travel.
++ *Two of five competition tasks (Maneuvering, Path Finding) cannot run at
+  all yet* — no GPS course is configured in either task's YAML. This is a
+  content gap, not a bug, but it means those tasks are not simply
+  "unverified," they are non-functional until someone (owner: Sara per
+  `TODOS.md`) adds real waypoints.
 + *No Nav2 parameter has been validated against real vehicle dynamics.*
   Turning radius, speed limits, and lookahead distance are all still
   simulation-derived placeholders.
 + *Perception parameters (dock detector, fusion) were tuned exclusively
   against simulated sensor data.* Expect on-site retuning against real
   LiDAR noise characteristics.
++ *~1,500 new lines of behavior-tree/task-orchestration C++ (PR #16) have no
+  automated test coverage.* Any regression in docking or collision-avoidance
+  logic between now and competition would likely only be caught by manual
+  re-testing.

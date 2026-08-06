@@ -292,6 +292,19 @@ private:
   double docking_target_timeout_sec_;
   double docking_reacquire_timeout_sec_;
 
+  /*
+   * How long a single dock_target reading is trusted to keep driving a
+   * steering correction before the boat holds (zero yaw) and waits for a
+   * fresh one. Without this, a low perception update rate (e.g. software-
+   * rendered sim, a dropped frame) lets the same stale bearing keep
+   * commanding a turn for many BT ticks in a row, overshooting well past
+   * where the boat should have stopped turning -- confirmed in practice:
+   * at ~1 Hz updates the boat overshot roughly 80 degrees chasing a single
+   * reading. At normal sensor rates a fresh reading arrives well within
+   * this window, so this has no effect there.
+   */
+  double docking_steering_hold_sec_;
+
   // State transition thresholds
   double docking_alignment_tolerance_rad_;
   double docking_entry_trigger_distance_m_;

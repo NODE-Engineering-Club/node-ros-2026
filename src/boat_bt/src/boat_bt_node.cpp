@@ -106,6 +106,10 @@ BoatBTNode::BoatBTNode()
     3.0);
 
   declare_parameter<double>(
+    "docking_steering_hold_sec",
+    0.3);
+
+  declare_parameter<double>(
     "docking_alignment_tolerance_rad",
     0.20);
 
@@ -228,6 +232,10 @@ BoatBTNode::BoatBTNode()
   docking_reacquire_timeout_sec_ =
     get_parameter(
     "docking_reacquire_timeout_sec").as_double();
+
+  docking_steering_hold_sec_ =
+    get_parameter(
+    "docking_steering_hold_sec").as_double();
 
   docking_alignment_tolerance_rad_ =
     get_parameter(
@@ -412,11 +420,13 @@ BoatBTNode::BoatBTNode()
     get_logger(),
     "Docking controller enabled: confidence>=%.2f, "
     "target timeout=%.2f s, reacquire timeout=%.2f s, "
+    "steering hold=%.2f s, "
     "approach speed=%.2f m/s, final speed=%.2f m/s, "
     "max yaw=%.2f rad/s",
     docking_min_confidence_,
     docking_target_timeout_sec_,
     docking_reacquire_timeout_sec_,
+    docking_steering_hold_sec_,
     docking_approach_speed_mps_,
     docking_final_speed_mps_,
     docking_max_yaw_rate_radps_);

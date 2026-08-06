@@ -63,32 +63,41 @@ downstream of detection:
   filter per track, gating, hit-confirmation, miss-count-based death) — the
   dock node's own docstring points at this as the intended next step.
 
-- [ ] **Wire docking into the behavior tree**
-  `boat_bt/bt_xml/simple_boat.xml` currently says "Docking is intentionally
-  not included yet." Add `DockDetected`/similar condition + action leaf
-  nodes to `boat_bt/src/boat_bt_node.cpp` (subscribing to
-  `/perception/dock_target`, mirroring the existing
-  `CardinalMarkerDetected`/`updateCardinalMarkerState` pattern), and a
-  `Sequence`/`Fallback` branch in `simple_boat.xml` analogous to
-  `OptionalCardinalMarkerHandling`. The singular `/perception/dock_target`
-  topic already filters to the best FREE berth, so a naive consumer gets
-  occupancy-safety for free — but if a future consumer switches to
-  `/perception/dock_targets` (e.g. to choose among several free berths, or
-  to reason about *which* berth is occupied), it must explicitly filter on
-  `occupied == false` itself; `detected` alone does not mean available.
+- [x] **Wire docking into the behavior tree** — done (PR #16 + follow-ups).
+  `boat_bt/src/docking_nodes.cpp` implements a state machine
+  (`WAITING_FOR_TARGET → ALIGNING → APPROACHING → FINAL_ENTRY → DOCKED` →
+  hold → reverse → complete) consuming the singular `/perception/dock_target`
+  topic, wired into `simple_boat.xml` as the `DockingTask` subtree
+  (`ExecuteDocking`), selected via `competition_manager`'s
+  `/competition/set_task`. Live-tested end to end (real `dock_detector_node`
+  + `boat_bt_node` + `competition_manager`, synthetic-physics closed loop —
+  see PR #16 review): reaches the berth, holds `docking_hold_duration_sec`
+  (10 s default), reverses out at `docking_reverse_speed_mps`
+  (−0.25 m/s default) for `docking_reverse_duration_sec` (4 s default), and
+  reports completion via `/competition/complete`. Still uses the singular
+  `/perception/dock_target` only — `/perception/dock_targets` (multi-berth
+  array) has no consumer yet.
 
-- [ ] **Docking-approach path planning / maneuver**
-  Design and implement the actual final-approach maneuver once `DockTarget`
-  is confirmed+stable: a controller/action server that consumes
-  `opening_center`/`heading` (`base_link` frame) and drives the boat through
-  the U opening. This is a new capability, not a Nav2 param tweak — decide
-  whether it's a custom `control` package node or a BT-orchestrated sequence
-  of small Nav2 goals.
+- [x] **Docking-approach path planning / maneuver** — done, as a BT-internal
+  proportional bearing/heading controller in `docking_nodes.cpp`
+  (`docking_bearing_gain`/`docking_heading_gain`, not a Nav2 goal sequence).
 
-- [ ] **Mission-manager / lifecycle hookup**
-  Decide how/when the mission transitions into "docking mode" (e.g. after
-  waypoints exhausted, or on operator command) and how it exits on
-  success/failure.
+- [x] **Mission-manager / lifecycle hookup** — done via `competition_manager`
+  (new package). `/competition/set_task` + `/competition/start` select and
+  launch a task; waypoint-less tasks (docking, collision avoidance) skip
+  `mission_manager` entirely and run the BT directly, reporting back via
+  `/competition/complete`. See "Competition Behavior Tree" section below for
+  what's still open (path finding/maneuvering, tests, AR-tags, Task 3.2).
+
+- [ ] **Add reacquisition robustness for near-symmetric multi-berth scenes**
+  Found while live-testing the fix above: if `dock_detector_node`'s berth
+  pick flickers between two similarly-scored free berths (e.g. a perfectly
+  symmetric two-berth layout — likely an edge case, not typical competition
+  geometry) while `boat_bt_node` is `APPROACHING`, the boat can oscillate
+  hard before losing lock. `docking_reacquire_timeout_sec` now recovers from
+  a *lost* target, but doesn't smooth out a *flickering* one. Consider berth
+  ID hysteresis/sticky-selection in the detector, or a jump-limiter on
+  boat_bt's steering command.
 
 - [ ] **Improve detection robustness/range against `dockingWorldOccupied.sdf`**
   Occupancy classification itself is verified (see above), but detection is
@@ -118,6 +127,68 @@ downstream of detection:
   berth), or delete it — leaving it as dead code next to the new,
   actually-wired `dock_detector_node` invites confusion about which is the
   real docking path.
+
+## Competition Behavior Tree / Task Orchestration
+
+`boat_bt` (BT.CPP 4 tree, `boat_bt_node`) + `competition_manager` (task
+selection/lifecycle, new package) landed via PR #16. Reviewed against the
+official Njord 2026 task specs (9.1 Maneuvering/Path Finding, 9.2 Collision
+Avoidance, 9.3 Docking) and live-tested; see the PR's review comments for
+full evidence. Docking is covered above. Status of the rest:
+
+- [x] **Collision avoidance — task subtree + adaptive bypass side** — done.
+  `CollisionAvoidanceTask` runs the real avoidance sequence (previously an
+  `<AlwaysSuccess/>` stub); `avoidance_side_` now follows the obstacle's
+  bearing (port-side obstacle → bypass starboard, starboard-side → bypass
+  port, ±2° centreline deadband defaults to starboard) instead of being
+  hardcoded to starboard always. Live-verified at three bearings. Still not
+  a full COLREG/CPA classifier — no relative-velocity-direction reasoning,
+  no 2-knot task speed setpoint, no vessel-detection signaling, no
+  gate-crossing start/end logic tied to the task specifically. `GlobalSafety`
+  runs the same reflex unconditionally regardless of selected task (except
+  during docking), so in practice this is one always-on avoidance behavior
+  rather than a collision-avoidance-task-specific one.
+
+- [ ] **Maneuvering / Path Finding — no course configured**
+  `competition_manager/competition_tasks/maneuvering.yaml` and
+  `path_finding.yaml` both have `mission: waypoints: []`.
+  `competition_manager` now rejects `/competition/start` for either task
+  with a clear error instead of silently reaching `STATE_RUNNING` and doing
+  nothing — but the task itself still can't run. Needs real GPS waypoints
+  per the spec (point 1 → waypoints 1.1–1.10 → point 4 for path finding; a
+  similar course for maneuvering) and, once `mission_manager` has a course
+  to run, verification that Nav2 actually drives it end to end. **Owner:
+  Sara (Nav2/path-finding).**
+
+- [ ] **No automated tests for `boat_bt` or `competition_manager`**
+  ~1,500 new C++ lines across `docking_nodes.cpp`, `collision_nodes.cpp`,
+  `cardinal_nodes.cpp`, `mission_monitor.cpp`, plus `competition_manager`'s
+  entire task/state machine, ship with only boilerplate lint tests
+  (`test_copyright.py`/`test_flake8.py`/`test_pep257.py`). No regression
+  coverage for the docking state machine, the bypass-side logic, or task
+  selection/rejection — unlike `perception`'s
+  `test_dock_detector.py` precedent (a real synthetic integration suite).
+
+- [ ] **No AR-tag/ArUco detection for docking**
+  Spec 9.3 frames 3 AR-tags as the primary berth-identification method
+  (LiDAR-shape detection as the documented fallback when tags aren't
+  available); the current pipeline only implements the fallback.
+
+- [ ] **No Task 3.2 (parallel docking)**
+  Only normal docking (3.1, 2m×2m berth) exists. Parallel docking (3.2,
+  2m×4m berth, 5 s hold instead of 10 s, separate GPS points 9/10) has no
+  `CompetitionState` task value, no BT subtree, and no task YAML.
+
+- [ ] **No Surprise task definition**
+  `SurpriseTask` is an explicit `<AlwaysSuccess/>` placeholder —
+  intentional, pending an official task definition.
+
+- [ ] **`/perception/dock_targets` (multi-berth array) has no consumer**
+  `boat_bt_node`'s docking controller only subscribes to the singular
+  `/perception/dock_target` (best free berth). Fine for a single-target
+  competition task, but the multi-berth-aware output has no use yet — worth
+  revisiting if a future task needs to choose among several free berths or
+  reason about which one is occupied.
 
 ## Sensor Data Processing Tests
 

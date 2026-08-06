@@ -86,7 +86,21 @@
   </BehaviorTree>
 
   <BehaviorTree ID="CollisionAvoidanceTask">
-    <AlwaysSuccess/>
+    <Fallback name="CollisionAvoidanceMission">
+
+      <Sequence name="ExecuteCollisionAvoidance">
+        <CollisionRiskDetected/>
+        <DetermineAvoidanceTarget/>
+        <RequestAvoidance/>
+      </Sequence>
+
+      <!--
+        No current collision risk is not task completion.
+        MissionMonitor remains responsible for deciding whether the
+        competition mission is still running, succeeded, failed or aborted.
+      -->
+      <AlwaysSuccess/>
+    </Fallback>
   </BehaviorTree>
 
   <BehaviorTree ID="DockingTask">

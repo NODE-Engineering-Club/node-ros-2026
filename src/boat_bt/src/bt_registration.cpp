@@ -196,12 +196,34 @@ void BoatBTNode::register_bt_nodes()
       }
 
       /*
-       * Conservative relative-risk behavior:
+       * Choose the bypass side from the obstacle bearing.
        *
-       * Until a validated COLREG/CPA layer exists, the default avoidance
-       * direction is starboard/right.
+       * Positive bearing means the obstacle is on the boat's port/left side,
+       * so the clearer bypass direction is starboard/right.
+       *
+       * Negative bearing means the obstacle is on the boat's
+       * starboard/right side, so the clearer bypass direction is port/left.
+       *
+       * For an obstacle approximately straight ahead, keep starboard as the
+       * conservative fallback until a full COLREG/CPA classifier is available.
        */
-      avoidance_side_ = "starboard";
+      constexpr double centreline_deadband_deg = 2.0;
+
+      if (
+        collision_obstacle_bearing_deg_ >
+        centreline_deadband_deg)
+      {
+        avoidance_side_ = "starboard";
+      }
+      else if (
+        collision_obstacle_bearing_deg_ <
+        -centreline_deadband_deg)
+      {
+        avoidance_side_ = "port";
+      }
+      else {
+        avoidance_side_ = "starboard";
+      }
 
       avoidance_target_ =
         offsetGeoPointRelativeToBoat(
@@ -215,11 +237,12 @@ void BoatBTNode::register_bt_nodes()
       RCLCPP_WARN(
         get_logger(),
         "Collision avoidance target generated: "
-        "obstacle_id=%u range=%.2f bearing=%.2f "
+        "obstacle_id=%u range=%.2f bearing=%.2f side=%s "
         "target=(%.8f, %.8f)",
         collision_obstacle_id_,
         collision_obstacle_range_m_,
         collision_obstacle_bearing_deg_,
+        avoidance_side_.c_str(),
         avoidance_target_.latitude,
         avoidance_target_.longitude);
 

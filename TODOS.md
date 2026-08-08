@@ -261,9 +261,12 @@ Found while getting a real-Gazebo docking run working in a GPU-less sandbox
   Confirm the costmap inflates around the obstacle position reported by `/obstacles/fused`.
 
 - [ ] **Verify sensor drivers start cleanly on hardware (no hardware attached)**
-  `lidar_driver` should log "RPLIDAR not available... retrying" without crashing.
+  `sllidar_node` (RPLIDAR S2, launched as `lidar_driver`) should report a clean connection failure without crashing the launch — verify actual behaviour on the S2 (untested since the A-series → S2 driver swap; the old custom driver's reconnect-loop behaviour does not carry over).
   `camera_driver` should log a degraded-mode warning without crashing.
   `imu_gps_driver` should wait for MAVROS without crashing.
+
+- [ ] **Retune LiDAR-dependent perception params for the RPLIDAR S2**
+  Swapped from the A-series (360 fixed rays, 0.2-12 m, custom driver) to the S2 (`sllidar_ros2`, DenseBoost mode, far denser point cloud, ~0.05-30 m). `lidar_obstacle_node`'s `maximum_obstacle_range_m` default was bumped 10→20 m and an `angular_decimation_deg` param was added to bound output point count (protects `geo_fusion_node`'s O(n²) Euclidean clustering from the S2's much higher native density) — needs validation on real water/buoy returns. `geo_fusion_node`'s clustering/tracking constants (`cluster_tolerance`, `min_cluster_points`, Kalman noise params) were validated against A-series density and are unchanged; they may need retuning once real S2 data is available.
 
 ## Perception / Fusion
 

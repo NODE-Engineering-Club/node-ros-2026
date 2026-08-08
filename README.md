@@ -11,9 +11,10 @@ ROS 2 Jazzy autonomous surface vessel (ASV) stack for the [NODE Engineering Club
 3. VSCode extension: [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 
 **To start developing:**
-1. Open this folder in VSCode
-2. Click **Reopen in Container** when prompted (or `Ctrl+Shift+P` → *Dev Containers: Reopen in Container*)
-3. First launch takes ~5 minutes to build. After that it's instant.
+1. Clone with submodules (the RPLIDAR S2 driver lives in `src/sllidar_ros2`): `git clone --recurse-submodules <repo-url>` (or run `git submodule update --init --recursive` in an existing clone)
+2. Open this folder in VSCode
+3. Click **Reopen in Container** when prompted (or `Ctrl+Shift+P` → *Dev Containers: Reopen in Container*)
+4. First launch takes ~5 minutes to build. After that it's instant.
 
 The `postCreateCommand` runs `colcon build --symlink-install` automatically and sources the workspace.
 
@@ -50,6 +51,7 @@ source install/setup.bash
 | `enable_perception` | `true` | LiDAR obstacle node + fusion |
 | `enable_control` | `true` | nav_to_pid, PID, actuator driver |
 | `enable_mission` | `true` | GPS waypoint sequencer |
+| `enable_maneuvering_pathfinding_mission` | `false` | Task 9.1 (Maneuvering + Path Finding) mission sequencer — off by default; set `true` to actually run the competition sequence on bringup |
 | `enable_vision` | `true` | YOLO inference node |
 | `enable_foxglove` | `true` | Foxglove WebSocket bridge (port 8765) |
 | `vision_confidence` | `0.5` | YOLO detection confidence threshold |
@@ -245,11 +247,11 @@ Static sensor transforms (published to `/tf_static` by `robot_state_publisher` f
 
 ### `sensors`
 - **`camera_driver`** — OpenCV camera capture → `/front_camera_driver/image_raw` + `/front_camera_driver/image_raw/camera_info`. Starts in degraded mode if no camera connected. Loads camera intrinsics via `camera_info_manager` from the URL given by the `camera_info_url` parameter (default `package://bringup/config/front_camera.yaml`). Accepts `device` (default `/dev/video0`) and `frame_id` (default `front_camera`) parameters.
-- **`lidar_driver`** — RPLidar serial → `/lidar_driver/scan_raw` (`sensor_msgs/LaserScan`, `frame_id: lidar`, 360 rays, 0.2–12 m). Reconnects automatically on disconnect.
+- **RPLIDAR S2M1-R2L** — driven by Slamtec's official `sllidar_ros2` (vendored as the `src/sllidar_ros2` submodule, node name `lidar_driver`), not a package in this workspace. Publishes `/lidar_driver/scan_raw` (`sensor_msgs/LaserScan`, `frame_id: lidar`, ~0.05–30 m, variable ray count set by the SDK's `DenseBoost` scan mode) — configured in `bringup/launch/njord.launch.py` (`serial_baudrate: 1000000`, topic remapped from the package's default `scan`).
 - **`imu_gps_driver`** — Relays MAVROS IMU (`/mavros/imu/data` → `/imu_driver/imu_raw`) and GPS (`/mavros/global_position/raw/fix` → `/gps_driver/gps_raw`) to the unified driver topic names. Hardware only (disabled in sim).
 
 ### `perception`
-- **`lidar_obstacle_node`** — Converts `/scan` → `/obstacles/lidar` (PointCloud2). Filters returns beyond 10 m.
+- **`lidar_obstacle_node`** — Converts `/lidar_driver/scan_raw` → `/obstacles/lidar` (PointCloud2). Filters returns outside `minimum_obstacle_range_m`/`maximum_obstacle_range_m` (defaults 0.5–20 m) and decimates to one nearest point per `angular_decimation_deg` bin (default 1°) to bound cloud size against the RPLIDAR S2's dense native scan resolution.
 - **`fusion_node`** — Fuses LiDAR point cloud with YOLO segmentation mask via TF projection. Looks up `lidar → camera_frame` in TF to project LiDAR points into the image plane; points confirmed by the segmentation mask are labeled as obstacles. Unmatched YOLO detections get a bearing estimate at 5 m. Publishes `/obstacles/fused` in `base_link` frame. Camera intrinsics update live from `/front_camera_driver/image_raw/camera_info`. Parameters: `lidar_frame` (default `lidar`), `camera_frame` (default `front_camera`, switches to `front_camera_cal` when `lidar_camera_extrinsic` launch arg is set), `camera_info_topic`.
 - **`dock_detector_node`** — Recognizes U-shaped docking berths (Task 3.1, "normal docking") from `/obstacles/lidar`, including multiple adjoining berths sharing a wall: DBSCAN separates the cloud into candidate objects, iterative RANSAC extracts straight wall segments from each, and the segments are matched against a U template (two parallel arms + a perpendicular back wall, opening toward the boat) — every valid match within a cluster is kept, not just the best, so a wall shared between two berths can yield a separate detection per berth. Each match is classified occupied/free by checking whether scan points fall inside its interior beyond what its own matched walls explain. Publishes every recognized berth on `/perception/dock_targets` (`njord_msgs/DockTargetArray`), plus a backward-compatible `/perception/dock_target` (`njord_msgs/DockTarget`): the highest-confidence FREE berth, or `detected=false` if none. Key parameters: `berth_width_m` (default 2.0), `width_tolerance_m`, `arm_length_min_m`/`arm_length_max_m`, `parallel_angle_tol_deg`, `perp_angle_tol_deg`, `lidar_yaw_offset_deg` (mount-yaw correction into `base_link`, default 90°), `occupancy_margin_m`/`occupancy_min_points` (occupancy classification). Perception-only — no temporal filtering across scans yet. Consumed by `boat_bt_node`'s docking controller via the singular `/perception/dock_target` topic (see `boat_bt` below); the richer `/perception/dock_targets` array is published but not yet consumed by anything.
 

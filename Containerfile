@@ -73,10 +73,12 @@ RUN pip install --break-system-packages --no-cache-dir \
      "numpy<2" \
      onnxruntime \
      opencv-python \
-     rplidar-roboticia \
      transforms3d \
      simple-pid
 
+# Requires the src/sllidar_ros2 submodule to be checked out on the host
+# (git submodule update --init --recursive) before building — COPY only
+# copies what's already on disk in the build context.
 COPY src/ /ros2_ws/src/
 
 RUN . /opt/ros/jazzy/setup.sh && \

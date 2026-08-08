@@ -10,9 +10,11 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>sensors</exec_depend>
+  <exec_depend>sllidar_ros2</exec_depend>
   <exec_depend>perception</exec_depend>
   <exec_depend>control</exec_depend>
   <exec_depend>mission</exec_depend>
+  <exec_depend>mission_maneuvering_pathfinding</exec_depend>
   <exec_depend>vision</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>mavros</exec_depend>

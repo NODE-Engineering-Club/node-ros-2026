@@ -81,19 +81,35 @@ def generate_launch_description():
         Node(
             package="mavros",
             executable="mavros_node",
-            name="mavros",
+            # No `name=` here — deliberately. Setting it makes launch_ros inject
+            # a global `-r __node:=mavros` remap, and mavros's own plugin.cpp
+            # creates each plugin's topics on a dynamically-constructed
+            # sub-node (`rclcpp::Node::make_shared(subnode, ...)`) that is
+            # supposed to be immune to that via `use_global_arguments(false)`
+            # (see plugin.cpp's own comment on exactly this hazard). In the
+            # mavros build bundled for Jazzy that protection doesn't hold: the
+            # global remap leaks into every plugin sub-node, renaming all of
+            # them to "mavros" and collapsing every plugin's topics onto the
+            # single namespace /mavros/mavros/<leaf> instead of
+            # /mavros/<plugin>/<leaf>. Most of the time that only causes
+            # cosmetic doubling + harmless QoS-mismatch warnings between
+            # plugins that happen to share a leaf name (e.g. local_position's
+            # and mocap_pose_estimate's "pose"), but rc_io's "in"/"out" (its
+            # actual topic names, not namespaced under "rc" at all once
+            # collapsed) collide fatally with a differently-typed entity and
+            # SIGABRT the whole node — 100% reproducible, not a startup race.
+            # mavros_node's own compiled-in default node name is already
+            # "mavros", so dropping the redundant name= keeps every topic
+            # this repo depends on (/mavros/state, /mavros/imu/data, ...)
+            # unchanged while leaving plugin sub-nodes unremapped and correctly
+            # namespaced. Confirmed against the real Pixhawk: connects and
+            # stays up indefinitely with no crash once this remap is gone.
             respawn=True,
             respawn_delay=2.0,
             condition=IfCondition(PythonExpression([
                 "'", LaunchConfiguration("enable_mavros"), "' == 'true' and '",
                 LaunchConfiguration("use_sim"), "' != 'true'"
             ])),
-            # fcu_url/gcs_url/tgt_*/local_position.* are passed as -p CLI overrides
-            # rather than through `parameters=[{...}]` (which launch_ros always
-            # materializes as a --params-file). Sourcing them from a params file
-            # opens the FCU connection before all plugins finish loading, racing
-            # rc_io's publisher creation against the MAVLink RX thread and
-            # crashing mavros_node with an RCLError on a colliding topic name.
             arguments=[
                 "--ros-args",
                 "-p", ["fcu_url:=", LaunchConfiguration("fcu_url")],
@@ -112,6 +128,34 @@ def generate_launch_description():
             # to reproduce the race described above.
             parameters=[
                 cfg + "/mavros_denylist.yaml",
+            ],
+        ),
+        # This particular FCU/link doesn't auto-stream position or extended-
+        # status message groups on connect (RAW_SENSORS group — IMU, raw GPS —
+        # comes through fine, but GLOBAL_POSITION_INT/BATTERY_STATUS never do
+        # without this) — confirmed against the real Pixhawk: /mavros/battery
+        # and /mavros/global_position/raw/fix stay completely silent (no
+        # publisher ever calls publish(), not a QoS mismatch) until
+        # /mavros/set_stream_rate is called explicitly. Requesting STREAM_ALL
+        # once, a few seconds after mavros_node starts (long enough to be past
+        # plugin loading and have an FCU connection), fixes it for the rest of
+        # the session. This is a workaround for FCU/link stream-rate config,
+        # not a bug in this repo's code.
+        TimerAction(
+            period=10.0,
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_mavros"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
+            actions=[
+                ExecuteProcess(
+                    cmd=[
+                        "ros2", "service", "call", "/mavros/set_stream_rate",
+                        "mavros_msgs/srv/StreamRate",
+                        "{stream_id: 0, message_rate: 10, on_off: true}",
+                    ],
+                    output="log",
+                ),
             ],
         ),
         # Localization — EKF + NavSat transform

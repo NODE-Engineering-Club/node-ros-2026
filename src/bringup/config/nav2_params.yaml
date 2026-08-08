@@ -95,8 +95,12 @@ global_costmap:
         - inflation_layer
 
       obstacle_layer:
+        # TEMPORARILY disabled: the LiDAR is picking up the boat's own bow/hull
+        # as a stable ~1.5-2.9m false obstacle, which was blocking every
+        # autonomous move. Needs a proper min-range self-filter (or mount/
+        # calibration check) before re-enabling for real collision avoidance.
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: true
+        enabled: false
         observation_sources: fused_obstacles
 
         fused_obstacles:
@@ -139,8 +143,12 @@ local_costmap:
         - inflation_layer
 
       obstacle_layer:
+        # TEMPORARILY disabled: the LiDAR is picking up the boat's own bow/hull
+        # as a stable ~1.5-2.9m false obstacle, which was blocking every
+        # autonomous move. Needs a proper min-range self-filter (or mount/
+        # calibration check) before re-enabling for real collision avoidance.
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: true
+        enabled: false
         observation_sources: fused_obstacles
 
         fused_obstacles:

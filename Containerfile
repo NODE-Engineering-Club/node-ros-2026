@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # LiDAR-camera extrinsic calibration
     ros-jazzy-laser-geometry \
     python3-scipy \
+    python3-scikit-learn \
     python3-pip \
     git \
     && apt-get clean \
@@ -73,7 +74,8 @@ RUN pip install --break-system-packages --no-cache-dir \
      onnxruntime \
      opencv-python \
      rplidar-roboticia \
-     transforms3d
+     transforms3d \
+     simple-pid
 
 COPY src/ /ros2_ws/src/
 

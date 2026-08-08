@@ -1,12 +1,13 @@
 import math
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from rplidar import RPLidar, RPLidarException
 
-BAUD_RATE = 115200
+BAUD_RATE = 1000000
 MOTOR_PWM = 660  # ~10 Hz rotation
 SCAN_HZ = 10
 RANGE_MIN = 0.2
@@ -21,6 +22,9 @@ class LidarDriver(Node):
 
         self.declare_parameter("device", "/dev/ttyUSB0")
         self._serial_port = self.get_parameter("device").get_parameter_value().string_value
+
+        self.declare_parameter("baud_rate", BAUD_RATE)
+        self._baud_rate = self.get_parameter("baud_rate").get_parameter_value().integer_value
 
         self.pub = self.create_publisher(LaserScan, "/lidar_driver/scan_raw", 10)
 
@@ -37,8 +41,9 @@ class LidarDriver(Node):
         if self._lidar is not None:
             return
         try:
-            lidar = RPLidar(self._serial_port)
+            lidar = RPLidar(self._serial_port, baudrate=self._baud_rate)
             info = lidar.get_info()
+            time.sleep(0.1)  # back-to-back commands race the descriptor read
             health = lidar.get_health()
             self.get_logger().info(f"RPLIDAR connected — info: {info}, health: {health}")
             self._lidar = lidar
@@ -52,7 +57,10 @@ class LidarDriver(Node):
 
     def _scan_loop(self):
         try:
-            for scan in self._lidar.iter_scans():
+            # Default max_buf_meas=3000 assumes 115200 baud; at 1Mbps this new
+            # LiDAR fills that buffer between reads, triggering constant
+            # resets and descriptor re-sync errors. Unlimited buffer instead.
+            for scan in self._lidar.iter_scans(max_buf_meas=False):
                 ranges = [float("inf")] * NUM_READINGS
                 for _, angle, distance in scan:
                     if distance == 0:

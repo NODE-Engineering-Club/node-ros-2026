@@ -78,21 +78,36 @@ def generate_launch_description():
             package="mavros",
             executable="mavros_node",
             name="mavros",
+            respawn=True,
+            respawn_delay=2.0,
             condition=IfCondition(PythonExpression([
                 "'", LaunchConfiguration("enable_mavros"), "' == 'true' and '",
                 LaunchConfiguration("use_sim"), "' != 'true'"
             ])),
+            # fcu_url/gcs_url/tgt_*/local_position.* are passed as -p CLI overrides
+            # rather than through `parameters=[{...}]` (which launch_ros always
+            # materializes as a --params-file). Sourcing them from a params file
+            # opens the FCU connection before all plugins finish loading, racing
+            # rc_io's publisher creation against the MAVLink RX thread and
+            # crashing mavros_node with an RCLError on a colliding topic name.
+            arguments=[
+                "--ros-args",
+                "-p", ["fcu_url:=", LaunchConfiguration("fcu_url")],
+                "-p", ["gcs_url:=", LaunchConfiguration("gcs_url")],
+                "-p", "tgt_system:=1",
+                "-p", "tgt_component:=1",
+                "-p", "local_position.frame_id:=odom",
+                "-p", "local_position.tf.child_frame_id:=base_link",
+                "-p", "local_position.rate:=30.0",
+                "--log-level", "mavros:=warn",
+                "--log-level", "rcl.logging_rosout:=error",
+            ],
+            # No sim_time param here: this node's condition already excludes
+            # use_sim, and adding it back (even as a single-key dict) forces
+            # launch_ros to emit a second --params-file, which alone is enough
+            # to reproduce the race described above.
             parameters=[
-                {
-                    "fcu_url": LaunchConfiguration("fcu_url"),
-                    "gcs_url": LaunchConfiguration("gcs_url"),
-                    "tgt_system": 1,
-                    "tgt_component": 1,
-                    "local_position.frame_id": "odom",
-                    "local_position.tf.child_frame_id": "base_link",
-                    "local_position.rate": 30.0,
-                },
-                sim_time,
+                cfg + "/mavros_denylist.yaml",
             ],
         ),
         # Localization — EKF + NavSat transform
@@ -110,6 +125,15 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("enable_localization")),
             remappings=[("gps/fix", "/gps_driver/gps_raw"), ("imu/data", "/imu_driver/imu_raw")],
             parameters=[cfg + "/navsat.yaml", sim_time],
+        ),
+        # Anchors navsat_transform_node's GPS datum to the FC's own local-position
+        # origin, so GPS waypoints (/fromLL) and odom-frame position agree on
+        # where (0, 0) is — see sensors/datum_sync.py for why this matters.
+        Node(
+            package="sensors",
+            executable="datum_sync",
+            name="datum_sync",
+            condition=IfCondition(LaunchConfiguration("enable_localization")),
         ),
         # Nav2 — individual nodes so we can omit opennav_docking (unsupported on USV)
         GroupAction(
@@ -309,7 +333,6 @@ def generate_launch_description():
                 LaunchConfiguration("use_pico_bridge"), "' == 'true'"
             ])),
             parameters=[{"port": LaunchConfiguration("pico_port")}, sim_time],
-        ),
         ),
         # Mission
         Node(

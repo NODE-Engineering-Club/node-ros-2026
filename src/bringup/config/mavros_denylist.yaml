@@ -1,0 +1,24 @@
+/**:
+  ros__parameters:
+    plugin_denylist:
+      - actuator_control
+      - adsb
+      - cam_imu_sync
+      - camera
+      - cellular_status
+      - companion_process_status
+      - image_pub
+      - vibration
+      - wheel_odometry
+      - mount_control
+      - mag_calibration_status
+      - manual_control
+      - obstacle_distance
+      - obstacle_distance_3d
+      - onboard_computer_status
+      - geofence
+      - px4flow
+      - waypoint
+      - rallypoint
+      - debug_value
+      - tunnel

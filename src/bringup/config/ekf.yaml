@@ -26,9 +26,14 @@ ekf_node:
     # Hardware: ArduPilot EKF output via MAVROS (already fuses IMU + GPS + compass + baro).
     # No need for a second odom from /odometry/gps — that would double-fuse GPS.
     # Missing topics are silently ignored, so this is safe to leave in for sim too.
+    # vyaw is fused from imu0 only (direct gyro reading) — also fusing it here
+    # double-fuses the same physical quantity from two sources that don't
+    # exactly agree, which made the filter's yaw output jump +/-15-20 deg
+    # between consecutive updates (observed live, far noisier than the IMU's
+    # own smooth yaw) instead of tracking either source cleanly.
     odom1: /mavros/local_position/odom
     odom1_config: [true,  true,  false,
                    false, false, false,
                    true,  true,  false,
-                   false, false, true,
+                   false, false, false,
                    false, false, false]

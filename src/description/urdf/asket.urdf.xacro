@@ -320,6 +320,15 @@
     </sensor>
   </gazebo>
   <gazebo reference="lidar">
+    <!--
+      Tried switching this to type="lidar" (CPU raycast, no Ogre2
+      dependency) to sidestep the software-rendering slowdown, reverted:
+      it produced zero scan data in this gz-sensors8 build even after 45+
+      seconds settled (confirmed at both the ROS and native gz topic
+      levels), likely a plugin/version-specific gap, not something
+      resolved with the time spent investigating it. gpu_lidar is the
+      confirmed-working sensor type; see TODOS.md for the open follow-up.
+    -->
     <sensor name="Lidar_sensor" type="gpu_lidar">
       <always_on>true</always_on>
       <update_rate>15</update_rate>

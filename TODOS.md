@@ -22,27 +22,215 @@
 
 ## Navigation (Docking)
 
-- [ ] **Restore `opennav_docking` for the docking challenge**
-  The Nav2 docking server (`opennav_docking`) was intentionally omitted from
-  `bringup/launch/njord.launch.py` and `Containerfile` because the package
-  isn't installed and including it would crash the lifecycle manager. We need
-  it back for the docking challenge. Required:
-  1. Add `ros-jazzy-opennav-docking` to `Containerfile` (verify exact package
-     name; may be split into `opennav-docking` + `opennav-docking-bt`).
-  2. Add a `docking_server` Node to the Nav2 group in `njord.launch.py` and
-     include `"docking_server"` in the `lifecycle_manager` `node_names`.
-  3. Add a `docking_server:` block to `bringup/config/nav2_params.yaml` with:
-     - `controller:` (graceful_controller params — works for forward-only USV)
-     - `dock_plugins:` list of supported dock types
-     - `docks:` static instances OR `dock_database` YAML path
-  4. Decide on dock-pose source — options:
-     - **Hardcoded GPS**: cheapest, fragile, fine for static known docks
-     - **Vision-based**: AprilTag/ArUco detector publishing dock pose, or a
-       YOLO class for the dock target with PnP for pose
-  5. Custom BT XML that sequences `NavigateToPose` → `DockRobot` → mission
-     continuation (default Nav2 trees don't include docking nodes).
-  6. Sim verification before water: add a dock model to `basicWorld.sdf` and
-     run a full nav-to-dock sequence end-to-end.
+Dock **detection** now exists: `perception/dock_detector_node` clusters
+`/obstacles/lidar` (DBSCAN), extracts wall segments (RANSAC), and matches
+them against a U-shaped berth template — including multiple adjoining
+berths sharing a wall, each independently classified occupied/free.
+Publishes every recognized berth on `/perception/dock_targets`
+(`njord_msgs/DockTargetArray`), plus a backward-compatible
+`/perception/dock_target` (highest-confidence FREE berth only).
+`description/worlds/dockingWorld.sdf` (single berth) and
+`dockingWorldOccupied.sdf` (two berths, one occupied by a static decoy
+boat) provide sim testing worlds. This superseded the vision/AprilTag
+dock-pose idea below — LiDAR gives short-range geometry directly without
+needing a fiducial marker on the dock. What's still missing is everything
+downstream of detection:
+
+- [x] **Multi-berth + occupancy detection** — done. Verified both via a
+  synthetic test suite (`src/perception/test/test_dock_detector.py`, no
+  Gazebo needed — 27-case distance/angle/occupied-berth matrix, 0 failures)
+  and against real simulated LiDAR data in `dockingWorldOccupied.sdf`
+  (confirmed: the occupied berth is flagged `occupied=true` and excluded
+  from `/perception/dock_target`; the free berth reports `occupied=false`).
+  The real-Gazebo pass caught 3 bugs the synthetic-only test couldn't:
+  (1) a shared back wall's per-berth corner can fall mid-segment, not at
+  an endpoint — `_find_u_shapes`' corner-gap check now measures distance
+  to the back-wall *segment*, not just its two endpoints; (2) real
+  (non-uniform) LiDAR sampling can fragment one physical wall into
+  multiple DBSCAN clusters — `cluster_eps` raised 0.4→0.6; (3) a border-line
+  weak RANSAC fit (exactly at the old `ransac_min_inliers=6` floor) could
+  absorb a few of an occupying boat's hull points as if they were "wall,"
+  silently defeating the occupancy check — raised to 10, and a real
+  index-mapping bug (`wall_inlier_idx` was cluster-local but compared
+  against the full-scan point array) was also fixed. `ransac_dist_threshold_m`
+  was tightened 0.05→0.03 so RANSAC cleanly separates a shared wall's two
+  faces (~0.1 m apart) instead of fitting one straddling "compromise" line.
+
+- [ ] **Temporal filtering/tracking for `dock_detector_node`**
+  Detection currently runs per-scan only — no smoothing or persistence of
+  `detected` across frames. Reuse the `Tracker` class already implemented in
+  `src/fusion/fusion/geo_fusion_node.py` (~line 368: constant-velocity Kalman
+  filter per track, gating, hit-confirmation, miss-count-based death) — the
+  dock node's own docstring points at this as the intended next step.
+
+- [x] **Wire docking into the behavior tree** — done (PR #16 + follow-ups).
+  `boat_bt/src/docking_nodes.cpp` implements a state machine
+  (`WAITING_FOR_TARGET → ALIGNING → APPROACHING → FINAL_ENTRY → DOCKED` →
+  hold → reverse → complete) consuming the singular `/perception/dock_target`
+  topic, wired into `simple_boat.xml` as the `DockingTask` subtree
+  (`ExecuteDocking`), selected via `competition_manager`'s
+  `/competition/set_task`. Live-tested end to end (real `dock_detector_node`
+  + `boat_bt_node` + `competition_manager`, synthetic-physics closed loop —
+  see PR #16 review): reaches the berth, holds `docking_hold_duration_sec`
+  (10 s default), reverses out at `docking_reverse_speed_mps`
+  (−0.25 m/s default) for `docking_reverse_duration_sec` (4 s default), and
+  reports completion via `/competition/complete`. Still uses the singular
+  `/perception/dock_target` only — `/perception/dock_targets` (multi-berth
+  array) has no consumer yet.
+
+- [x] **Docking-approach path planning / maneuver** — done, as a BT-internal
+  proportional bearing/heading controller in `docking_nodes.cpp`
+  (`docking_bearing_gain`/`docking_heading_gain`, not a Nav2 goal sequence).
+
+- [x] **Mission-manager / lifecycle hookup** — done via `competition_manager`
+  (new package). `/competition/set_task` + `/competition/start` select and
+  launch a task; waypoint-less tasks (docking, collision avoidance) skip
+  `mission_manager` entirely and run the BT directly, reporting back via
+  `/competition/complete`. See "Competition Behavior Tree" section below for
+  what's still open (path finding/maneuvering, tests, AR-tags, Task 3.2).
+
+- [ ] **Add reacquisition robustness for near-symmetric multi-berth scenes**
+  Found while live-testing the fix above: if `dock_detector_node`'s berth
+  pick flickers between two similarly-scored free berths (e.g. a perfectly
+  symmetric two-berth layout — likely an edge case, not typical competition
+  geometry) while `boat_bt_node` is `APPROACHING`, the boat can oscillate
+  hard before losing lock. `docking_reacquire_timeout_sec` now recovers from
+  a *lost* target, but doesn't smooth out a *flickering* one. Consider berth
+  ID hysteresis/sticky-selection in the detector, or a jump-limiter on
+  boat_bt's steering command.
+
+- [ ] **Improve detection robustness/range against `dockingWorldOccupied.sdf`**
+  Occupancy classification itself is verified (see above), but detection is
+  still viewing-angle-sensitive: from the default spawn pose (dead-center,
+  ~5 m out, symmetric between both berths) the two-berth structure isn't
+  cleanly resolved at all (`detected=false` — a safe fallback, not a
+  false positive, but not useful either); off-center vantage points closer
+  to one berth resolve cleanly. Worth tuning further (segment budget,
+  clustering, or a wider approach-angle sweep in the BT/mission layer) so a
+  boat navigating straight in on the GPS waypoint doesn't need to be
+  laterally offset to get a clean read.
+
+- [ ] **Tune detection parameters against real hardware LiDAR noise**
+  Current defaults (`cluster_eps=0.6`, `ransac_dist_threshold_m=0.03`,
+  `ransac_min_inliers=10`, angle/width tolerances) were tuned against sim
+  data (including the multi-berth/occupancy fixes above) and are untested
+  on hardware. Also verify `lidar_yaw_offset_deg` (currently 90°,
+  sim-derived) against the real mount.
+
+- [ ] **Resolve the orphaned `opennav_docking` wiring**
+  `src/bringup/launch/navigation_no_collision.launch.py` already
+  instantiates Nav2's stock `opennav_docking` `DockingServer` (lifecycle
+  node + component), but this launch file isn't included by
+  `njord.launch.py` and isn't referenced anywhere else in the repo. Decide:
+  consolidate it into the new LiDAR-geometric approach, repurpose it for a
+  different dock type (e.g. a charging dock vs. the Task 3.1 competition
+  berth), or delete it — leaving it as dead code next to the new,
+  actually-wired `dock_detector_node` invites confusion about which is the
+  real docking path.
+
+## Competition Behavior Tree / Task Orchestration
+
+`boat_bt` (BT.CPP 4 tree, `boat_bt_node`) + `competition_manager` (task
+selection/lifecycle, new package) landed via PR #16. Reviewed against the
+official Njord 2026 task specs (9.1 Maneuvering/Path Finding, 9.2 Collision
+Avoidance, 9.3 Docking) and live-tested; see the PR's review comments for
+full evidence. Docking is covered above. Status of the rest:
+
+- [x] **Collision avoidance — task subtree + adaptive bypass side** — done.
+  `CollisionAvoidanceTask` runs the real avoidance sequence (previously an
+  `<AlwaysSuccess/>` stub); `avoidance_side_` now follows the obstacle's
+  bearing (port-side obstacle → bypass starboard, starboard-side → bypass
+  port, ±2° centreline deadband defaults to starboard) instead of being
+  hardcoded to starboard always. Live-verified at three bearings. Still not
+  a full COLREG/CPA classifier — no relative-velocity-direction reasoning,
+  no 2-knot task speed setpoint, no vessel-detection signaling, no
+  gate-crossing start/end logic tied to the task specifically. `GlobalSafety`
+  runs the same reflex unconditionally regardless of selected task (except
+  during docking), so in practice this is one always-on avoidance behavior
+  rather than a collision-avoidance-task-specific one.
+
+- [ ] **Maneuvering / Path Finding — no course configured**
+  `competition_manager/competition_tasks/maneuvering.yaml` and
+  `path_finding.yaml` both have `mission: waypoints: []`.
+  `competition_manager` now rejects `/competition/start` for either task
+  with a clear error instead of silently reaching `STATE_RUNNING` and doing
+  nothing — but the task itself still can't run. Needs real GPS waypoints
+  per the spec (point 1 → waypoints 1.1–1.10 → point 4 for path finding; a
+  similar course for maneuvering) and, once `mission_manager` has a course
+  to run, verification that Nav2 actually drives it end to end. **Owner:
+  Sara (Nav2/path-finding).**
+
+- [ ] **No automated tests for `boat_bt` or `competition_manager`**
+  ~1,500 new C++ lines across `docking_nodes.cpp`, `collision_nodes.cpp`,
+  `cardinal_nodes.cpp`, `mission_monitor.cpp`, plus `competition_manager`'s
+  entire task/state machine, ship with only boilerplate lint tests
+  (`test_copyright.py`/`test_flake8.py`/`test_pep257.py`). No regression
+  coverage for the docking state machine, the bypass-side logic, or task
+  selection/rejection — unlike `perception`'s
+  `test_dock_detector.py` precedent (a real synthetic integration suite).
+
+- [ ] **No AR-tag/ArUco detection for docking**
+  Spec 9.3 frames 3 AR-tags as the primary berth-identification method
+  (LiDAR-shape detection as the documented fallback when tags aren't
+  available); the current pipeline only implements the fallback.
+
+- [ ] **No Task 3.2 (parallel docking)**
+  Only normal docking (3.1, 2m×2m berth) exists. Parallel docking (3.2,
+  2m×4m berth, 5 s hold instead of 10 s, separate GPS points 9/10) has no
+  `CompetitionState` task value, no BT subtree, and no task YAML.
+
+- [ ] **No Surprise task definition**
+  `SurpriseTask` is an explicit `<AlwaysSuccess/>` placeholder —
+  intentional, pending an official task definition.
+
+- [ ] **`/perception/dock_targets` (multi-berth array) has no consumer**
+  `boat_bt_node`'s docking controller only subscribes to the singular
+  `/perception/dock_target` (best free berth). Fine for a single-target
+  competition task, but the multi-berth-aware output has no use yet — worth
+  revisiting if a future task needs to choose among several free berths or
+  reason about which one is occupied.
+
+## Simulation Performance (no-GPU / headless sandboxes)
+
+Found while getting a real-Gazebo docking run working in a GPU-less sandbox
+(see PR #16 review and the `fix/docking-fov-tracking-loss` branch):
+
+- [x] **Gazebo sensor rendering hangs in server-only (`-s`) mode** — root
+  cause identified: `-s` mode deadlocks `gz-sim`'s `Sensors` render thread
+  regardless of software-rendering setup (Xvfb, `LIBGL_ALWAYS_SOFTWARE`,
+  `--headless-rendering`, explicit `--render-engine-server` flags all
+  tried, all hung identically at `Sensors.cc: Waiting for init`). **GUI-
+  attached mode (`headless:=false`) works** — same software (llvmpipe)
+  rendering underneath, just not server-only. Real GPU rendering was never
+  tested here (no GPU in this sandbox); untried but promising: enabling
+  actual GPU passthrough (`--gpus=all`) in `.devcontainer/devcontainer.json`
+  for machines that have one — WSL2 + Docker Desktop should support this
+  natively for an NVIDIA GPU. `runArgs` currently requests none at all.
+
+- [ ] **Real-time factor is very low under software rendering** — measured
+  directly (sim `/clock` vs wall clock): RTF ≈ 0.08 (~12x slower than
+  real-time) with `headless:=false` + camera/gpu_lidar sensors active.
+  Since `docking_reacquire_timeout_sec` and friends are sim-time durations,
+  this makes a "3 second" timeout take ~35 real seconds — painful for
+  interactive testing, though the underlying control logic still behaves
+  correctly in sim-time terms (bearing convergence traced cleanly:
+  88°→18° over ~2.3 sim-seconds). Real hardware is entirely unaffected
+  (no simulated rendering involved at all). Worth revisiting if GPU
+  passthrough becomes available.
+
+- [ ] **`gpu_lidar` → CPU-raycast `lidar` sensor type: tried, reverted**
+  Attempted switching Asket's LiDAR sensor (`asket.urdf.xacro`) from
+  `type="gpu_lidar"` to `type="lidar"` to sidestep Ogre2 rendering
+  entirely for the one sensor docking actually consumes (cameras aren't
+  used by docking). Same `<ray>` schema, should be a drop-in swap per the
+  gz-sensors docs. In practice it produced zero scan data in this
+  gz-sensors8 build — confirmed at both the ROS topic and native `gz
+  topic` level, even 45+ seconds after spawn. Didn't dig further into
+  whether this is a genuine version gap or a missing config; reverted to
+  the confirmed-working `gpu_lidar`. Worth another look if someone wants
+  faster headless testing and has time to debug the CPU lidar plugin
+  directly (check for silent errors in `~/.gz/sim/log/*/server_console.log`
+  around sensor creation, or try a minimal single-sensor test world first).
 
 ## Sensor Data Processing Tests
 

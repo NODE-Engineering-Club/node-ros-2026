@@ -1,0 +1,9 @@
+version: 1
+
+task:
+  id: surprise
+  name: Surprise
+  description: Competition surprise task.
+
+mission:
+  waypoints: []

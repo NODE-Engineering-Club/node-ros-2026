@@ -1,0 +1,13 @@
+# Temporary navigation target requested by the Behavior Tree.
+#
+# Used when perception detects a situation that requires the active route
+# to be temporarily adjusted, for example passing a cardinal marker on the
+# correct safe-water side.
+
+geographic_msgs/GeoPoint target
+
+string reason
+
+---
+bool success
+string message

@@ -43,4 +43,9 @@ jobs:
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # ignore-error: a cache export failure (e.g. "failed to reserve
+          # cache" from concurrent writes to the same GHA cache scope, seen
+          # when a PR-check build and a push build race each other) is not
+          # a reason to fail the job -- the image itself still builds and
+          # pushes correctly either way, caching is purely an optimization.
+          cache-to: type=gha,mode=max,ignore-error=true

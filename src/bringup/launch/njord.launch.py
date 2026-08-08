@@ -23,10 +23,13 @@ def generate_launch_description():
     urdf_path = os.path.join(desc_share, "asket.urdf")
     with open(urdf_path, "w") as f:
         f.write(urdf)
-    world = os.path.join(desc_share, "worlds", "basicWorld.sdf")
+    worlds_dir = os.path.join(desc_share, "worlds")
 
     # fmt: off
     args = [
+        DeclareLaunchArgument("world",                default_value="basicWorld.sdf",
+                              description="World file name under description/worlds/ to load in Gazebo "
+                                          "(e.g. dockingWorld.sdf for the U-shaped Task 3.1 berth)"),
         DeclareLaunchArgument("enable_mavros",       default_value="true"),
         DeclareLaunchArgument("enable_localization",  default_value="true"),
         DeclareLaunchArgument("enable_nav2",          default_value="true"),
@@ -35,11 +38,21 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_geo_fusion",    default_value="true"),
         DeclareLaunchArgument("enable_control",       default_value="true"),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
+        DeclareLaunchArgument("enable_competition",   default_value="true"),
+        DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
         DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
         DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("use_sim",         default_value="false"),
+        DeclareLaunchArgument(
+            "headless",
+            default_value="true",
+            description=(
+                "Run Gazebo server-only. Set false only when graphical "
+                "rendering is known to work."
+            ),
+        ),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
         DeclareLaunchArgument("fcu_url",              default_value="tcp://localhost:5777"),
         DeclareLaunchArgument("gcs_url",              default_value="udp://@localhost:14556"),
@@ -105,17 +118,23 @@ def generate_launch_description():
                 SetParameter("use_sim_time", LaunchConfiguration("use_sim")),
             ] + [
                 Node(package=pkg, executable=exe, name=name, output="screen",
-                     parameters=[nav2_params], remappings=[("/tf", "tf"), ("/tf_static", "tf_static")])
-                for pkg, exe, name in [
-                    ("nav2_controller",      "controller_server",  "controller_server"),
-                    ("nav2_smoother",        "smoother_server",    "smoother_server"),
-                    ("nav2_planner",         "planner_server",     "planner_server"),
-                    ("nav2_route",           "route_server",       "route_server"),
-                    ("nav2_behaviors",       "behavior_server",    "behavior_server"),
-                    ("nav2_bt_navigator",    "bt_navigator",       "bt_navigator"),
-                    ("nav2_waypoint_follower","waypoint_follower",  "waypoint_follower"),
-                    ("nav2_velocity_smoother","velocity_smoother", "velocity_smoother"),
-                    ("nav2_collision_monitor","collision_monitor",  "collision_monitor"),
+                     parameters=[nav2_params],
+                     remappings=[("/tf", "tf"), ("/tf_static", "tf_static")] + extra_remaps)
+                for pkg, exe, name, extra_remaps in [
+                    # controller_server/behavior_server's raw output must not
+                    # land on the shared cmd_vel name: it's pre-smoothing,
+                    # pre-collision-check, and (once twist_mux is added below)
+                    # would otherwise also collide with the final arbitrated
+                    # /cmd_vel. Route it into velocity_smoother instead.
+                    ("nav2_controller",      "controller_server",  "controller_server", [("cmd_vel", "cmd_vel_nav")]),
+                    ("nav2_smoother",        "smoother_server",    "smoother_server",   []),
+                    ("nav2_planner",         "planner_server",     "planner_server",    []),
+                    ("nav2_route",           "route_server",       "route_server",      []),
+                    ("nav2_behaviors",       "behavior_server",    "behavior_server",   [("cmd_vel", "cmd_vel_nav")]),
+                    ("nav2_bt_navigator",    "bt_navigator",       "bt_navigator",       []),
+                    ("nav2_waypoint_follower","waypoint_follower",  "waypoint_follower", []),
+                    ("nav2_velocity_smoother","velocity_smoother", "velocity_smoother",  [("cmd_vel", "cmd_vel_nav")]),
+                    ("nav2_collision_monitor","collision_monitor",  "collision_monitor",  []),
                 ]
             ] + [
                 Node(
@@ -206,6 +225,15 @@ def generate_launch_description():
                 ]),
             }, sim_time],
         ),
+        # U-shaped docking-berth detector (Task 3.1) — DBSCAN + RANSAC over
+        # /obstacles/lidar, publishes /perception/dock_target.
+        Node(
+            package="perception",
+            executable="dock_detector_node",
+            name="dock_detector_node",
+            condition=IfCondition(LaunchConfiguration("enable_perception")),
+            parameters=[sim_time],
+        ),
         # Geo-referenced fusion — labelled obstacles in the global GPS frame on
         # /obstacles/global (runs alongside fusion_node for comparison).
         Node(
@@ -250,6 +278,24 @@ def generate_launch_description():
             ])),
             parameters=[sim_time],
         ),
+        # Arbitrates between Nav2's own /cmd_vel output (via collision_monitor,
+        # remapped to nav2/cmd_vel) and boat_bt's direct docking commands
+        # (boat_bt/cmd_vel) — both used to independently publish straight onto
+        # the shared /cmd_vel that nav_to_pid/ros_gz_bridge consume, racing
+        # each other whenever Nav2's pipeline stayed alive (e.g. its
+        # collision_monitor safety-stop heartbeat) during a BT-direct task
+        # like docking. See bringup/config/twist_mux.yaml for priorities.
+        Node(
+            package="twist_mux",
+            executable="twist_mux",
+            name="twist_mux",
+            remappings=[("/cmd_vel_out", "/cmd_vel")],
+            parameters=[
+                cfg + "/twist_mux.yaml",
+                sim_time,
+            ],
+        ),
+
         # Pico bridge — alternative actuation path: motor commands over serial
         # to a Raspberry Pi Pico, bypassing MAVROS/the Pixhawk for motor control.
         # mavros is still used for GPS/IMU sensing in this mode.
@@ -264,6 +310,7 @@ def generate_launch_description():
             ])),
             parameters=[{"port": LaunchConfiguration("pico_port")}, sim_time],
         ),
+        ),
         # Mission
         Node(
             package="mission",
@@ -271,7 +318,43 @@ def generate_launch_description():
             name="mission_manager",
             condition=IfCondition(LaunchConfiguration("enable_mission")),
             parameters=[sim_time],
+            output="screen",
         ),
+
+        # Competition lifecycle coordination.
+        TimerAction(
+            period=2.0,
+            actions=[
+                Node(
+                    package="competition_manager",
+                    executable="competition_manager",
+                    name="competition_manager",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_competition")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Competition Behavior Tree.
+        TimerAction(
+            period=3.0,
+            actions=[
+                Node(
+                    package="boat_bt",
+                    executable="boat_bt_node",
+                    name="boat_bt",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_boat_bt")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
         # Vision
         Node(
             package="vision",
@@ -323,6 +406,23 @@ def generate_launch_description():
             arguments=["0", "0", "0", "0", "0", "0", "lidar", "asket/base_link/Lidar_sensor"],
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
+        # Sim-only: Gazebo publishes NavSatFix with the scoped sensor frame
+        # "asket/base_link/GPS_sensor", while robot_state_publisher exposes
+        # the URDF GPS link as "GPS". Publish the real URDF GPS offset under
+        # the scoped Gazebo sensor name so navsat_transform_node can transform
+        # GPS measurements into base_link and initialize /fromLL and /toLL.
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="static_gps_sensor_tf",
+            arguments=[
+                "-0.18827", "0", "0.174775",
+                "0", "0", "0",
+                "base_link",
+                "asket/base_link/GPS_sensor",
+            ],
+            condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
         Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
@@ -331,11 +431,49 @@ def generate_launch_description():
             parameters=[{"config_file": cfg + "/gz_bridge.yaml"}],
             condition=IfCondition(LaunchConfiguration("use_sim")),
         ),
-        # Gazebo simulation
+        # Gazebo simulation — server-only by default.
+        #
+        # Do not infer GUI availability from DISPLAY alone. Dev containers
+        # may expose DISPLAY through Xvfb or VS Code while having no usable
+        # GPU/rendering device, causing graphical Gazebo to exit immediately.
         ExecuteProcess(
-            cmd=["gz", "sim", "-r", world] if "DISPLAY" in os.environ else ["gz", "sim", "-s", "-r", world],
+            cmd=[
+                "gz",
+                "sim",
+                "-s",
+                "-r",
+                PathJoinSubstitution(
+                    [worlds_dir, LaunchConfiguration("world")]
+                ),
+            ],
             output="screen",
-            condition=IfCondition(LaunchConfiguration("use_sim")),
+            condition=IfCondition(
+                PythonExpression([
+                    "'", LaunchConfiguration("use_sim"),
+                    "' == 'true' and '",
+                    LaunchConfiguration("headless"),
+                    "' == 'true'",
+                ])
+            ),
+        ),
+        ExecuteProcess(
+            cmd=[
+                "gz",
+                "sim",
+                "-r",
+                PathJoinSubstitution(
+                    [worlds_dir, LaunchConfiguration("world")]
+                ),
+            ],
+            output="screen",
+            condition=IfCondition(
+                PythonExpression([
+                    "'", LaunchConfiguration("use_sim"),
+                    "' == 'true' and '",
+                    LaunchConfiguration("headless"),
+                    "' != 'true'",
+                ])
+            ),
         ),
         # Spawn robot — delayed to allow Gazebo to finish loading the world
         TimerAction(

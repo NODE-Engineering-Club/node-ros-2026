@@ -57,6 +57,8 @@ controller_server:
       max_lookahead_dist: 5.0
       lookahead_time: 1.5
       rotate_to_heading_angular_vel: 0.5
+      use_rotate_to_heading: false
+      allow_reversing: false
       use_velocity_scaled_lookahead_dist: true
 
 

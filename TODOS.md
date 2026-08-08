@@ -2,13 +2,16 @@
 
 ## HIGH PRIORITY — Blocking Water Test (Wednesday)
 
-- [ ] **Disable RPP rotate-to-heading**
-  `bringup/config/nav2_params.yaml:32` enables in-place rotation
-  (`rotate_to_heading_angular_vel: 0.5`). Blocked on confirming `FRAME_TYPE`
-  on the Pixhawk via QGC. If `FRAME_TYPE=2` (skid-steer), leave enabled and
-  also enable `allow_reversing: true` and add `spin`/`back_up` to
-  `behavior_server`. If `FRAME_TYPE=0` (normal steering), set
-  `use_rotate_to_heading: false` and `allow_reversing: false`.
+- [x] **Disable RPP rotate-to-heading** — done. `FRAME_TYPE` confirmed `0`
+  (`FRAME_CLASS=2`, Boat) by pulling FCU params directly via
+  `/mavros/param` against the real Pixhawk (2026-08-08/09 stand test) — this
+  boat is normal rudder+throttle steering, not skid-steer. Set
+  `use_rotate_to_heading: false` and `allow_reversing: false` in
+  `bringup/config/nav2_params.yaml`'s `FollowPath` block per the decision
+  above. Root cause of a real symptom hit live: with rotate-to-heading on,
+  a bypass/reroute goal made the controller try to rotate the boat in
+  place — physically meaningless for a rudder — so it commanded steering
+  deflection with ~zero throttle and the boat never visibly moved.
 
 - [ ] **Stand-test dry-run before water**
   1. Boat on a stand, FCU + RPi + thrusters connected.

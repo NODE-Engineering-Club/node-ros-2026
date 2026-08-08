@@ -40,6 +40,7 @@ class PidController(Node):
         self._speed = 0.0
         self._last_imu_time = None
         self._last_vel_time = None
+        self._last_setpoint_time = None
 
         self.pub = self.create_publisher(Twist, "/control/effort", 10)
         self.create_subscription(Twist, "/control/setpoint", self._sp_cb, 10)
@@ -61,6 +62,7 @@ class PidController(Node):
     def _sp_cb(self, msg):
         self._speed_pid.setpoint = msg.linear.x
         self._yaw_pid.setpoint = msg.angular.z
+        self._last_setpoint_time = self.get_clock().now()
 
     def _imu_cb(self, msg):
         self._yaw_rate = msg.angular_velocity.z
@@ -80,6 +82,29 @@ class PidController(Node):
         if self._last_vel_time is not None:
             if (now - self._last_vel_time).nanoseconds / 1e9 > STALE_TIMEOUT:
                 self.get_logger().warn("Velocity data stale", throttle_duration_sec=1.0)
+
+        # Nothing downstream of /cmd_vel (twist_mux, nav_to_pid) publishes an
+        # explicit zero when its own input goes away — they're purely
+        # event-driven and simply stop publishing. Without this check this
+        # loop would keep outputting whatever effort the last real setpoint
+        # produced forever, so a cancelled/aborted Nav2 goal or a boat_bt
+        # command that just stops (rather than explicitly zeroing) would
+        # leave the boat thrusting indefinitely. Treat "no setpoint yet" the
+        # same as "setpoint gone stale": hold at zero.
+        setpoint_stale = (
+            self._last_setpoint_time is None
+            or (now - self._last_setpoint_time).nanoseconds / 1e9 > STALE_TIMEOUT
+        )
+        if setpoint_stale:
+            self._speed_pid.setpoint = 0.0
+            self._yaw_pid.setpoint = 0.0
+            # reset() alone doesn't touch .setpoint, and .setpoint alone
+            # doesn't clear accumulated integral — need both so a stale
+            # setpoint can't leave residual windup driving a nonzero output.
+            self._speed_pid.reset()
+            self._yaw_pid.reset()
+            if self._last_setpoint_time is not None:
+                self.get_logger().warn("Setpoint stale — holding at zero", throttle_duration_sec=1.0)
 
         effort = Twist()
         effort.linear.x = self._speed_pid(self._speed)

@@ -6,8 +6,14 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 
 
-DEFAULT_MAX_OBSTACLE_RANGE_M = 10.0
+DEFAULT_MAX_OBSTACLE_RANGE_M = 20.0
 DEFAULT_MIN_OBSTACLE_RANGE_M = 0.5
+# The RPLIDAR S2 (DenseBoost mode) emits far more points per revolution than
+# the A-series it replaced. Downstream consumers of /obstacles/lidar include
+# an O(n^2) Euclidean clustering step (fusion/geo_fusion_node.py), so bound
+# the published cloud to one nearest-point per angular bin regardless of the
+# driver's native sample density.
+DEFAULT_ANGULAR_DECIMATION_DEG = 1.0
 
 
 class LidarObstacleNode(Node):
@@ -22,6 +28,10 @@ class LidarObstacleNode(Node):
             "maximum_obstacle_range_m",
             DEFAULT_MAX_OBSTACLE_RANGE_M,
         )
+        self.declare_parameter(
+            "angular_decimation_deg",
+            DEFAULT_ANGULAR_DECIMATION_DEG,
+        )
 
         self._minimum_obstacle_range_m = float(
             self.get_parameter(
@@ -33,6 +43,11 @@ class LidarObstacleNode(Node):
                 "maximum_obstacle_range_m"
             ).value
         )
+        self._angular_decimation_rad = math.radians(float(
+            self.get_parameter(
+                "angular_decimation_deg"
+            ).value
+        ))
 
         self.pub = self.create_publisher(
             PointCloud2,
@@ -50,11 +65,11 @@ class LidarObstacleNode(Node):
         self.get_logger().info(
             "lidar_obstacle_node ready: "
             f"minimum_range={self._minimum_obstacle_range_m:.2f} m, "
-            f"maximum_range={self._maximum_obstacle_range_m:.2f} m"
+            f"maximum_range={self._maximum_obstacle_range_m:.2f} m, "
+            f"angular_decimation={math.degrees(self._angular_decimation_rad):.2f} deg"
         )
 
     def _cb(self, scan):
-        points = []
         angle = scan.angle_min
 
         minimum_range = max(
@@ -66,20 +81,25 @@ class LidarObstacleNode(Node):
             self._maximum_obstacle_range_m,
         )
 
+        # Nearest-point-per-angular-bin decimation: keeps the published
+        # cloud's point count independent of the driver's native scan
+        # resolution.
+        nearest_by_bin = {}
         for distance in scan.ranges:
             if (
                 math.isfinite(distance)
                 and minimum_range < distance < maximum_range
             ):
-                points.append(
-                    (
-                        distance * math.cos(angle),
-                        distance * math.sin(angle),
-                        0.0,
-                    )
-                )
+                bin_idx = int((angle - scan.angle_min) / self._angular_decimation_rad)
+                if distance < nearest_by_bin.get(bin_idx, (math.inf, 0.0))[0]:
+                    nearest_by_bin[bin_idx] = (distance, angle)
 
             angle += scan.angle_increment
+
+        points = [
+            (dist * math.cos(a), dist * math.sin(a), 0.0)
+            for dist, a in nearest_by_bin.values()
+        ]
 
         message = PointCloud2()
         message.header = scan.header

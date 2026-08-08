@@ -38,6 +38,10 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_geo_fusion",    default_value="true"),
         DeclareLaunchArgument("enable_control",       default_value="true"),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
+        DeclareLaunchArgument("enable_maneuvering_pathfinding_mission", default_value="false",
+                              description="Run the Task 9.1 (Maneuvering + Path Finding) mission "
+                                          "sequencer — off by default so bringing up the stack "
+                                          "doesn't immediately start the competition run."),
         DeclareLaunchArgument("enable_competition",   default_value="true"),
         DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -169,15 +173,28 @@ def generate_launch_description():
                 "camera_info_url": "package://bringup/config/front_camera.yaml",
             }, sim_time],
         ),
+        # RPLIDAR S2M1-R2L via Slamtec's official driver (vendored as the
+        # src/sllidar_ros2 submodule). The A-series custom driver that used to
+        # live here (sensors/lidar_driver) spoke the old 115200-baud/PWM-motor
+        # protocol and doesn't apply to the S2's 1 Mbps express-scan protocol.
         Node(
-            package="sensors",
-            executable="lidar_driver",
+            package="sllidar_ros2",
+            executable="sllidar_node",
             name="lidar_driver",
             condition=IfCondition(PythonExpression([
                 "'", LaunchConfiguration("enable_sensors"), "' == 'true' and '",
                 LaunchConfiguration("use_sim"), "' != 'true'"
             ])),
-            parameters=[{"device": LaunchConfiguration("lidar_device")}, sim_time],
+            remappings=[("scan", "/lidar_driver/scan_raw")],
+            parameters=[{
+                "channel_type":      "serial",
+                "serial_port":       LaunchConfiguration("lidar_device"),
+                "serial_baudrate":   1000000,
+                "frame_id":          "lidar",
+                "inverted":          False,
+                "angle_compensate":  True,
+                "scan_mode":         "DenseBoost",
+            }, sim_time],
         ),
         Node(
             package="sensors",
@@ -310,7 +327,6 @@ def generate_launch_description():
             ])),
             parameters=[{"port": LaunchConfiguration("pico_port")}, sim_time],
         ),
-        ),
         # Mission
         Node(
             package="mission",
@@ -348,6 +364,24 @@ def generate_launch_description():
                     name="boat_bt",
                     condition=IfCondition(
                         LaunchConfiguration("enable_boat_bt")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Task 9.1 mission sequencer — starts after competition_manager/boat_bt
+        # so /competition/set_task and /competition/start are already up.
+        TimerAction(
+            period=4.0,
+            actions=[
+                Node(
+                    package="mission_maneuvering_pathfinding",
+                    executable="maneuvering_pathfinding_mission",
+                    name="maneuvering_pathfinding_mission",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_maneuvering_pathfinding_mission")
                     ),
                     parameters=[sim_time],
                     output="screen",

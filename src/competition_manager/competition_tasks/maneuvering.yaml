@@ -1,3 +1,6 @@
+# TODO: PLACEHOLDER COORDINATES — not the real course. 41.39/2.1541 is
+# Barcelona; replace with the actual maneuvering-leg gate/waypoint(s) before
+# running this on the water.
 version: 1
 
 task:

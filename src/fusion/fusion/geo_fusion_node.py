@@ -24,6 +24,13 @@ Calibration: lidar_yaw_offset_deg / offsets / camera_hfov_deg below are the
 extrinsic knobs from the tested rig. They must be re-tuned for the boat's actual
 camera<->lidar mounting (see the standalone script's notes).
 
+LiDAR hardware: the RPLIDAR A-series unit the clustering/tracking constants
+below were validated against has been replaced with an RPLIDAR S2M1-R2L (see
+sensors/lidar_driver via sllidar_ros2). /obstacles/lidar's density is now
+bounded upstream by lidar_obstacle_node's angular decimation, so this node's
+inputs are unchanged in character; cluster_tolerance/min_cluster_points/track_*
+defaults have not been re-validated against real S2 returns.
+
 Behaviour note: like the tested tracker, only lidar-confirmed objects are
 tracked and published. Camera-only (unranged) detections are associated but not
 emitted as obstacles.

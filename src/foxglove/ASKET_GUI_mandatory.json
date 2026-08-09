@@ -1,0 +1,207 @@
+{
+  "configById": {
+    "3D!lidar": {
+      "cameraState": {
+        "perspective": false,
+        "distance": 30,
+        "phi": 0,
+        "thetaOffset": 0,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-none",
+      "followTf": "base_link",
+      "scene": {
+        "backgroundColor": "#0d1117"
+      },
+      "transforms": {},
+      "topics": {
+        "/lidar_driver/scan_raw": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "colormap",
+          "colorMap": "turbo"
+        }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "grid-mandatory",
+          "layerId": "foxglove.Grid",
+          "size": 100,
+          "divisions": 50,
+          "lineWidth": 1,
+          "color": "#248eff2b",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0]
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {},
+      "foxglovePanelTitle": "LiDAR",
+      "fixedFrame": "base_link",
+      "synchronize": false
+    },
+    "Image!cam": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/front_camera_driver/image_raw"
+      },
+      "foxglovePanelTitle": "RGB Front Camera",
+      "synchronize": false
+    },
+    "map!gps": {
+      "layer": "map",
+      "customTileUrl": "",
+      "disabledTopics": [],
+      "followTopic": "/gps_driver/gps_raw",
+      "topicColors": {},
+      "zoomLevel": 18,
+      "maxNativeZoom": 18,
+      "foxglovePanelTitle": "Map — Position vs GNSS Route"
+    },
+    "Indicator!status": {
+      "path": "/vehicle/status.data",
+      "style": "background",
+      "fallbackColor": "#8b949e",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        { "operator": "=", "rawValue": "AUTONOMOUS", "color": "#2e9e44", "label": "AUTONOMOUS" },
+        { "operator": "=", "rawValue": "REMOTE", "color": "#2f6fed", "label": "REMOTE CONTROL" },
+        { "operator": "=", "rawValue": "STANDBY", "color": "#e0a400", "label": "STANDBY" },
+        { "operator": "=", "rawValue": "OUT_OF_CONTROL", "color": "#d13b3b", "label": "OUT OF CONTROL" }
+      ],
+      "foxglovePanelTitle": "ASV STATUS"
+    },
+    "Gauge!heading": {
+      "path": "/heading.data",
+      "minValue": 0,
+      "maxValue": 360,
+      "colorMode": "colormap",
+      "colorMap": "turbo",
+      "gradient": ["#0000ff", "#ff00ff"],
+      "reverse": false,
+      "foxglovePanelTitle": "Heading (deg)"
+    },
+    "Gauge!cog": {
+      "path": "/cog.data",
+      "minValue": 0,
+      "maxValue": 360,
+      "colorMode": "colormap",
+      "colorMap": "turbo",
+      "gradient": ["#0000ff", "#ff00ff"],
+      "reverse": false,
+      "foxglovePanelTitle": "Course Over Ground (deg)"
+    },
+    "Gauge!speed": {
+      "path": "/sog.data",
+      "minValue": 0,
+      "maxValue": 6,
+      "colorMode": "colormap",
+      "colorMap": "turbo",
+      "gradient": ["#0000ff", "#ff00ff"],
+      "reverse": false,
+      "foxglovePanelTitle": "Speed Over Ground (kn)"
+    },
+    "Gauge!battery": {
+      "path": "/battery_percentage.data",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMode": "gradient",
+      "colorMap": "turbo",
+      "gradient": ["#d13b3b", "#2e9e44"],
+      "reverse": false,
+      "foxglovePanelTitle": "Battery (%)"
+    },
+    "RawMessages!latlon": {
+      "topicPath": "/gps_driver/gps_raw",
+      "expansion": "all",
+      "foxglovePanelTitle": "Latitude / Longitude"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": {
+      "first": "3D!lidar",
+      "second": {
+        "first": "Image!cam",
+        "second": "map!gps",
+        "direction": "row",
+        "splitPercentage": 50
+      },
+      "direction": "row",
+      "splitPercentage": 33
+    },
+    "second": {
+      "first": "Indicator!status",
+      "second": {
+        "first": {
+          "first": {
+            "first": "Gauge!heading",
+            "second": "Gauge!cog",
+            "direction": "row",
+            "splitPercentage": 50
+          },
+          "second": {
+            "first": "Gauge!speed",
+            "second": "Gauge!battery",
+            "direction": "row",
+            "splitPercentage": 50
+          },
+          "direction": "row",
+          "splitPercentage": 50
+        },
+        "second": "RawMessages!latlon",
+        "direction": "row",
+        "splitPercentage": 72
+      },
+      "direction": "column",
+      "splitPercentage": 28
+    },
+    "direction": "column",
+    "splitPercentage": 55
+  }
+}

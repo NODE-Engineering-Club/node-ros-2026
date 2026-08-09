@@ -152,16 +152,22 @@ full evidence. Docking is covered above. Status of the rest:
   during docking), so in practice this is one always-on avoidance behavior
   rather than a collision-avoidance-task-specific one.
 
-- [ ] **Maneuvering / Path Finding — no course configured**
+- [ ] **Maneuvering / Path Finding — no real course configured**
+  `mission_maneuvering_pathfinding` (sequencer), the resume-from-point-3
+  rule, and the retry-recovery fix are all done and dry-run verified (see
+  git log 2026-08-09/10). What's still missing: real GPS waypoints.
   `competition_manager/competition_tasks/maneuvering.yaml` and
-  `path_finding.yaml` both have `mission: waypoints: []`.
-  `competition_manager` now rejects `/competition/start` for either task
-  with a clear error instead of silently reaching `STATE_RUNNING` and doing
-  nothing — but the task itself still can't run. Needs real GPS waypoints
-  per the spec (point 1 → waypoints 1.1–1.10 → point 4 for path finding; a
-  similar course for maneuvering) and, once `mission_manager` has a course
-  to run, verification that Nav2 actually drives it end to end. **Owner:
-  Sara (Nav2/path-finding).**
+  `path_finding.yaml` both currently just duplicate the venue's single
+  address point (not `[]` anymore — that was fixed earlier — but still not
+  a real course). Per the official spec
+  (njord.gitbook.io/2026/9-task-descriptions/9.1-maneuvering-and-path-finding,
+  read 2026-08-10, supersedes the imprecise "point 1 → waypoints 1.1–1.10"
+  note this item used to cite): one combined course, GPS point 1 → 3 → 4,
+  8–15 intermediate waypoints across the two parts — `maneuvering.yaml`
+  needs the point 1→3 leg, `path_finding.yaml` needs the point 3→4 leg.
+  Once real waypoints land, still needs verification that Nav2 actually
+  drives the real course end to end (only ever tested against a single
+  placeholder point so far). **Owner: Sara (Nav2/path-finding).**
 
 - [ ] **No automated tests for `boat_bt` or `competition_manager`**
   ~1,500 new C++ lines across `docking_nodes.cpp`, `collision_nodes.cpp`,
@@ -177,10 +183,16 @@ full evidence. Docking is covered above. Status of the rest:
   (LiDAR-shape detection as the documented fallback when tags aren't
   available); the current pipeline only implements the fallback.
 
-- [ ] **No Task 3.2 (parallel docking)**
-  Only normal docking (3.1, 2m×2m berth) exists. Parallel docking (3.2,
-  2m×4m berth, 5 s hold instead of 10 s, separate GPS points 9/10) has no
-  `CompetitionState` task value, no BT subtree, and no task YAML.
+- [x] **Task 3.2 (parallel docking)** — done 2026-08-09/10. `TASK_DOCKING_PARALLEL`
+  `CompetitionState` value, `ExecuteDockingParallel` BT controller
+  (`parallel_docking_nodes.cpp`), `wall_detector_node` (LiDAR U-shape match,
+  reparametrized from `dock_detector_node` for the 4m-wall/2m-arm berth),
+  `docking_parallel.yaml` task definition, and `mission_docking_parallel`
+  sequencer (GPS points 10/11/12, matching spec 9.3) all exist. Hold
+  duration corrected to 5s per spec 9.3 (was wrongly copying 3.1's 10s).
+  Dry-run verified (zero-actuation, synthetic perception input) — **still
+  UNVERIFIED against a real wall**, on the bench or in the water, and no
+  Gazebo world exists for this berth yet unlike 3.1's `dockingWorld.sdf`.
 
 - [ ] **No Surprise task definition**
   `SurpriseTask` is an explicit `<AlwaysSuccess/>` placeholder —

@@ -220,7 +220,11 @@ BoatBTNode::BoatBTNode()
 
   declare_parameter<double>(
     "docking_parallel_hold_duration_sec",
-    10.0);
+    // Spec 9.3 (njord.gitbook.io/2026/9-task-descriptions/9.3-docking,
+    // read 2026-08-10): "stay stationary parallel to the dock for 5
+    // seconds" -- NOT 10s (that's Task 3.1's normal-docking hold time,
+    // this parameter previously just copied it by mistake).
+    5.0);
 
   declare_parameter<double>(
     "docking_parallel_reverse_duration_sec",

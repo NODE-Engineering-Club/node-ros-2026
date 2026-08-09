@@ -1,13 +1,21 @@
 # TODO: still placeholder coordinates, not the real course. These two
 # waypoints are the actual competition venue — Havet Arena, Strandveien 104,
 # 7067 Trondheim (lat/lon from OSM Nominatim geocoding of that address:
-# 63.4414620, 10.4250150) — duplicated, matching maneuvering.yaml's fix. This
-# is NOT the real path-finding course (spec: point 1 -> waypoints 1.1-1.10 ->
-# point 4, per TODOS.md). Replace with the real on-site-captured waypoints
-# before running this for real. Until then this file is non-empty only so it
-# passes competition_manager's waypoint_required_task check for local/dry-run
-# testing of the sequencer — it does not represent a runnable path-finding
-# leg.
+# 63.4414620, 10.4250150) — duplicated, matching maneuvering.yaml's fix.
+# Replace with the real on-site-captured waypoints before running this for
+# real. Until then this file is non-empty only so it passes competition_
+# manager's waypoint_required_task check for local/dry-run testing of the
+# sequencer — it does not represent a runnable path-finding leg.
+#
+# Per the official spec (njord.gitbook.io/2026/9-task-descriptions/
+# 9.1-maneuvering-and-path-finding, read 2026-08-10; supersedes an earlier,
+# less precise internal note that cited "point 1 -> waypoints 1.1-1.10 ->
+# point 4"): this is Part 2 of Task 9.1's single combined course, GPS
+# point 3 -> point 4 (camera vision + GNSS, interpreting cardinal markers
+# and avoiding buoys). Starts at point 3, NOT point 1 — teams may resume
+# here directly if Part 1 (maneuvering.yaml) fails, per the spec's resume
+# rule. This file's real waypoints must therefore start AT point 3,
+# matching maneuvering.yaml's end.
 version: 1
 
 task:

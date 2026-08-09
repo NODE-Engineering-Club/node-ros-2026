@@ -5,6 +5,15 @@
 # two waypoints are just that single point duplicated, NOT the real
 # maneuvering-leg gate/marker positions. Replace with on-site-captured
 # waypoints for the actual gates before running this for real.
+#
+# Per the official spec (njord.gitbook.io/2026/9-task-descriptions/
+# 9.1-maneuvering-and-path-finding, read 2026-08-10): this is Part 1 of
+# Task 9.1's single combined course, GPS point 1 -> point 3 (GNSS waypoint
+# navigation only). If Part 1 fails, teams may resume from GPS point 3
+# for Part 2 (path_finding.yaml) rather than the whole attempt ending —
+# see mission_maneuvering_pathfinding's docstring. This file's real
+# waypoints must therefore end AT point 3, matching path_finding.yaml's
+# start.
 version: 1
 
 task:

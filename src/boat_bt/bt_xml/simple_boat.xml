@@ -16,8 +16,11 @@
         During docking, the dock geometry is intentionally approached at
         close range. It must not be interpreted as a generic obstacle that
         triggers a global bypass request before ExecuteDocking can run.
+        Same reasoning applies to parallel docking (Task 3.2) against its
+        own berth geometry.
       -->
       <IsTask task="docking"/>
+      <IsTask task="docking_parallel"/>
 
       <Sequence name="GlobalCollisionAvoidance">
         <CollisionRiskDetected/>
@@ -50,6 +53,11 @@
       <Sequence name="SelectDockingTask">
         <IsTask task="docking"/>
         <SubTree ID="DockingTask"/>
+      </Sequence>
+
+      <Sequence name="SelectDockingParallelTask">
+        <IsTask task="docking_parallel"/>
+        <SubTree ID="DockingParallelTask"/>
       </Sequence>
 
       <Sequence name="SelectSurpriseTask">
@@ -105,6 +113,21 @@
 
   <BehaviorTree ID="DockingTask">
     <ExecuteDocking/>
+  </BehaviorTree>
+
+  <!--
+    Task 3.2 (Parallel Docking). ExecuteDockingParallel is a real
+    controller now (parallel_docking_nodes.cpp), not the AlwaysSuccess
+    placeholder this used to be — but UNVERIFIED: it has never been run
+    against a real wall, on the bench or in the water. It reuses
+    ExecuteDocking's bearing+heading blended steering law, retargeted at a
+    wall-parallel standoff point (WallTarget.aim_point/heading, from the
+    also-unverified wall_detector_node) instead of a U-opening. Do not
+    enable enable_docking_parallel_mission for a real attempt without a
+    bench check first — see njord.launch.py's DeclareLaunchArgument.
+  -->
+  <BehaviorTree ID="DockingParallelTask">
+    <ExecuteDockingParallel/>
   </BehaviorTree>
 
   <BehaviorTree ID="SurpriseTask">

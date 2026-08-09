@@ -1,5 +1,6 @@
 #include "boat_bt/boat_bt_node.hpp"
 #include "boat_bt/docking_nodes.hpp"
+#include "boat_bt/parallel_docking_nodes.hpp"
 
 
 void BoatBTNode::register_bt_nodes()
@@ -60,6 +61,10 @@ void BoatBTNode::register_bt_nodes()
       else if (task == "surprise") {
         expected_task =
           njord_msgs::msg::CompetitionState::TASK_SURPRISE;
+      }
+      else if (task == "docking_parallel") {
+        expected_task =
+          njord_msgs::msg::CompetitionState::TASK_DOCKING_PARALLEL;
       }
       else if (task != "none") {
         RCLCPP_ERROR(
@@ -346,6 +351,35 @@ void BoatBTNode::register_bt_nodes()
   factory_.registerBuilder<boat_bt::ExecuteDockingNode>(
     "ExecuteDocking",
     execute_docking_builder);
+
+  /*
+   * Long-running parallel-docking action (Task 3.2) — same StatefulActionNode
+   * reasoning as ExecuteDocking above. UNVERIFIED, see
+   * parallel_docking_nodes.cpp's file header.
+   */
+  BT::NodeBuilder execute_docking_parallel_builder =
+    [this](
+    const std::string & name,
+    const BT::NodeConfig & config)
+    {
+      return std::make_unique<boat_bt::ExecuteDockingParallelNode>(
+        name,
+        config,
+        [this]() {
+          return executeDockingParallelController();
+        },
+        [this]() {
+          publishDockingParallelCommand(0.0, 0.0);
+
+          RCLCPP_WARN(
+            get_logger(),
+            "ExecuteDockingParallel halted. Boat stop command published.");
+        });
+    };
+
+  factory_.registerBuilder<boat_bt::ExecuteDockingParallelNode>(
+    "ExecuteDockingParallel",
+    execute_docking_parallel_builder);
 
   // -----------------------------------------------------------------------
   // Mission lifecycle

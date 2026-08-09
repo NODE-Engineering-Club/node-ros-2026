@@ -20,6 +20,7 @@
 #include "njord_msgs/msg/mission_status.hpp"
 #include "njord_msgs/msg/obstacle.hpp"
 #include "njord_msgs/msg/obstacle_array.hpp"
+#include "njord_msgs/msg/wall_target.hpp"
 #include "njord_msgs/srv/set_bypass_target.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -47,6 +48,24 @@ private:
   };
 
   // =========================================================================
+  // Parallel-docking controller states (Task 3.2)
+  //
+  // Same phase structure as DockingState, retargeted from "enter a U-shaped
+  // opening" to "come alongside and lie parallel to a wall": FINAL_ENTRY
+  // becomes FINAL_APPROACH (closing the last of the standoff gap against
+  // the wall instead of moving through an opening), otherwise identical.
+  // =========================================================================
+
+  enum class DockingParallelState
+  {
+    WAITING_FOR_TARGET,
+    ALIGNING,
+    APPROACHING,
+    FINAL_APPROACH,
+    DOCKED
+  };
+
+  // =========================================================================
   // Behavior Tree registration
   // =========================================================================
 
@@ -70,6 +89,9 @@ private:
 
   void dock_target_callback(
     const njord_msgs::msg::DockTarget::SharedPtr msg);
+
+  void wall_target_callback(
+    const njord_msgs::msg::WallTarget::SharedPtr msg);
 
   // =========================================================================
   // Task 1: cardinal-marker handling
@@ -107,6 +129,32 @@ private:
 
   const char * dockingStateName(
     DockingState state) const;
+
+  // =========================================================================
+  // Parallel-docking controller (Task 3.2)
+  //
+  // UNVERIFIED: this state machine has never been run against a real wall,
+  // on the bench or in the water — see parallel_docking_nodes.cpp's file
+  // header for the full caveat. It reuses executeDockingController's
+  // bearing+heading blended steering law, retargeted at a wall-aligned
+  // standoff point instead of a U-opening.
+  // =========================================================================
+
+  BT::NodeStatus executeDockingParallelController();
+
+  void setDockingParallelState(
+    DockingParallelState new_state);
+
+  void resetDockingParallelController();
+
+  void publishDockingParallelCommand(
+    double forward_speed,
+    double yaw_rate);
+
+  bool wallTargetFresh() const;
+
+  const char * dockingParallelStateName(
+    DockingParallelState state) const;
 
   // =========================================================================
   // Collision Avoidance
@@ -175,6 +223,10 @@ private:
   rclcpp::Subscription<
     njord_msgs::msg::DockTarget>::SharedPtr
     dock_target_sub_;
+
+  rclcpp::Subscription<
+    njord_msgs::msg::WallTarget>::SharedPtr
+    wall_target_sub_;
 
   rclcpp::Client<
     njord_msgs::srv::SetBypassTarget>::SharedPtr
@@ -326,6 +378,66 @@ private:
   // Steering gains
   double docking_bearing_gain_;
   double docking_heading_gain_;
+
+  // =========================================================================
+  // Parallel-docking target and controller state (Task 3.2)
+  // =========================================================================
+
+  bool wall_target_received_;
+  bool wall_target_available_;
+  bool docking_parallel_complete_;
+
+  DockingParallelState docking_parallel_state_;
+
+  geometry_msgs::msg::Point
+    wall_aim_point_;
+
+  double wall_heading_{0.0};
+  double wall_length_{0.0};
+  double wall_confidence_{0.0};
+
+  rclcpp::Time
+    last_wall_target_time_{0, 0, RCL_ROS_TIME};
+
+  rclcpp::Time
+    docking_parallel_target_loss_start_time_{0, 0, RCL_ROS_TIME};
+
+  bool docking_parallel_target_loss_active_{false};
+
+  rclcpp::Time
+    final_approach_start_time_{0, 0, RCL_ROS_TIME};
+
+  rclcpp::Time
+    docking_parallel_hold_start_time_{0, 0, RCL_ROS_TIME};
+
+  rclcpp::Time
+    docking_parallel_reverse_start_time_{0, 0, RCL_ROS_TIME};
+
+  bool docking_parallel_reverse_started_{false};
+
+  // Perception filtering
+  double docking_parallel_min_confidence_;
+  double docking_parallel_target_timeout_sec_;
+  double docking_parallel_reacquire_timeout_sec_;
+  double docking_parallel_steering_hold_sec_;
+
+  // State transition thresholds
+  double docking_parallel_alignment_tolerance_rad_;
+  double docking_parallel_approach_trigger_distance_m_;
+  double docking_parallel_final_approach_duration_sec_;
+  double docking_parallel_hold_duration_sec_;
+  double docking_parallel_reverse_duration_sec_;
+
+  // Motion parameters
+  double docking_parallel_alignment_speed_mps_;
+  double docking_parallel_approach_speed_mps_;
+  double docking_parallel_final_speed_mps_;
+  double docking_parallel_reverse_speed_mps_;
+  double docking_parallel_max_yaw_rate_radps_;
+
+  // Steering gains
+  double docking_parallel_bearing_gain_;
+  double docking_parallel_heading_gain_;
 
   // =========================================================================
   // Collision Avoidance state

@@ -1,0 +1,34 @@
+# TODO: PLACEHOLDER COORDINATES — not the real berth position. All three
+# points below are the Havet Arena venue address (Strandveien 104, 7067
+# Trondheim; geocoded via OSM Nominatim: 63.4414620, 10.4250150), duplicated,
+# same placeholder used everywhere else in this repo (maneuvering.yaml,
+# path_finding.yaml, docking_3_1_waypoints.yaml). Replace with the real
+# on-site-captured GPS points for Task 3.2 before running this for real.
+#
+# Per the Njord 2026 spec (9.3 Docking), Task 3.2 uses three GPS points:
+#   point_10_start:   official start line, ~10 m from the berth. NOT
+#                     navigated to by this mission — the boat is expected
+#                     to already be there when docking_parallel_mission is
+#                     launched. Kept here for reference only.
+#   point_11_staging: the mission drives here first (plain GPS transit via
+#                     mission_manager), then hands off to the close-range
+#                     parallel docking approach (boat_bt's
+#                     ExecuteDockingParallel — NOT YET IMPLEMENTED, see
+#                     DockingParallelTask in simple_boat.xml).
+#   point_12_finish:  driven to after a successful parallel dock. Reaching
+#                     this point is what stops the task's timer per spec.
+task: docking_3_2
+
+points:
+  point_10_start:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_11_staging:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_12_finish:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0

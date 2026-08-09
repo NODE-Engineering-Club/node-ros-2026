@@ -23,6 +23,7 @@ add_executable(
   src/docking_nodes.cpp
   src/geo_helpers.cpp
   src/mission_monitor.cpp
+  src/parallel_docking_nodes.cpp
 )
 
 target_include_directories(

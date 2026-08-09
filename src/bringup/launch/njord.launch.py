@@ -56,6 +56,16 @@ def generate_launch_description():
                               description="Run the Task 3.1 (Normal Docking) mission sequencer "
                                           "— off by default, same reasoning as "
                                           "enable_maneuvering_pathfinding_mission."),
+        DeclareLaunchArgument("enable_docking_parallel_mission", default_value="false",
+                              description="Run the Task 3.2 (Parallel Docking) mission "
+                                          "sequencer — off by default, same reasoning as "
+                                          "enable_maneuvering_pathfinding_mission. Its "
+                                          "close-range manoeuvre (ExecuteDockingParallel) "
+                                          "and wall_detector_node are both real now but "
+                                          "UNVERIFIED — never run against a real wall, on "
+                                          "the bench or in the water — see "
+                                          "DockingParallelTask in simple_boat.xml. Do a "
+                                          "bench check before enabling for a real attempt."),
         DeclareLaunchArgument("enable_competition",   default_value="true"),
         DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -335,6 +345,17 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("enable_perception")),
             parameters=[sim_time],
         ),
+        # Straight pier-wall detector (Task 3.2) — DBSCAN + RANSAC over
+        # /obstacles/lidar, publishes /perception/wall_target. Same
+        # LIDAR-only reasoning as dock_detector_node above; UNVERIFIED
+        # against a real berth wall, see wall_detector_node's docstring.
+        Node(
+            package="perception",
+            executable="wall_detector_node",
+            name="wall_detector_node",
+            condition=IfCondition(LaunchConfiguration("enable_perception")),
+            parameters=[sim_time],
+        ),
         # Geo-referenced fusion — labelled obstacles in the global GPS frame on
         # /obstacles/global (runs alongside fusion_node for comparison).
         Node(
@@ -540,6 +561,28 @@ def generate_launch_description():
                     name="docking_mission",
                     condition=IfCondition(
                         LaunchConfiguration("enable_docking_mission")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Task 3.2 (Parallel Docking) mission sequencer — same startup
+        # timing as the other sequencers above. Its close-range manoeuvre
+        # (DockingParallelTask -> ExecuteDockingParallel in simple_boat.xml)
+        # is real now but UNVERIFIED against a real wall; the transit-leg
+        # orchestration is real and follows the same pattern as
+        # mission_docking's.
+        TimerAction(
+            period=4.0,
+            actions=[
+                Node(
+                    package="mission_docking_parallel",
+                    executable="docking_parallel_mission",
+                    name="docking_parallel_mission",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_docking_parallel_mission")
                     ),
                     parameters=[sim_time],
                     output="screen",

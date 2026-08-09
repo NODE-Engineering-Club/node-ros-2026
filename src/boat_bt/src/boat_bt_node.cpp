@@ -21,6 +21,10 @@ BoatBTNode::BoatBTNode()
   competition_completion_request_sent_(false),
   competition_completion_confirmed_(false),
   docking_state_(DockingState::WAITING_FOR_TARGET),
+  wall_target_received_(false),
+  wall_target_available_(false),
+  docking_parallel_complete_(false),
+  docking_parallel_state_(DockingParallelState::WAITING_FOR_TARGET),
   collision_risk_detected_(false),
   avoidance_target_ready_(false),
   last_avoidance_request_id_(0)
@@ -178,6 +182,79 @@ BoatBTNode::BoatBTNode()
     0.40);
 
   // -----------------------------------------------------------------------
+  // Parallel-docking configuration (Task 3.2)
+  //
+  // Same structure as the docking block above, retargeted at a wall-
+  // parallel standoff approach instead of U-opening entry — see
+  // parallel_docking_nodes.cpp's file header. UNVERIFIED defaults, not
+  // tuned against a real wall.
+  // -----------------------------------------------------------------------
+
+  declare_parameter<double>(
+    "docking_parallel_min_confidence",
+    0.45);
+
+  declare_parameter<double>(
+    "docking_parallel_target_timeout_sec",
+    1.0);
+
+  declare_parameter<double>(
+    "docking_parallel_reacquire_timeout_sec",
+    3.0);
+
+  declare_parameter<double>(
+    "docking_parallel_steering_hold_sec",
+    0.3);
+
+  declare_parameter<double>(
+    "docking_parallel_alignment_tolerance_rad",
+    0.20);
+
+  declare_parameter<double>(
+    "docking_parallel_approach_trigger_distance_m",
+    1.0);
+
+  declare_parameter<double>(
+    "docking_parallel_final_approach_duration_sec",
+    2.5);
+
+  declare_parameter<double>(
+    "docking_parallel_hold_duration_sec",
+    10.0);
+
+  declare_parameter<double>(
+    "docking_parallel_reverse_duration_sec",
+    4.0);
+
+  declare_parameter<double>(
+    "docking_parallel_alignment_speed_mps",
+    0.20);
+
+  declare_parameter<double>(
+    "docking_parallel_approach_speed_mps",
+    0.35);
+
+  declare_parameter<double>(
+    "docking_parallel_final_speed_mps",
+    0.15);
+
+  declare_parameter<double>(
+    "docking_parallel_reverse_speed_mps",
+    -0.25);
+
+  declare_parameter<double>(
+    "docking_parallel_max_yaw_rate_radps",
+    0.70);
+
+  declare_parameter<double>(
+    "docking_parallel_bearing_gain",
+    1.20);
+
+  declare_parameter<double>(
+    "docking_parallel_heading_gain",
+    0.40);
+
+  // -----------------------------------------------------------------------
   // Read cardinal-marker parameters
   // -----------------------------------------------------------------------
 
@@ -322,6 +399,74 @@ BoatBTNode::BoatBTNode()
     "docking_heading_gain").as_double();
 
   // -----------------------------------------------------------------------
+  // Read parallel-docking parameters
+  // -----------------------------------------------------------------------
+
+  docking_parallel_min_confidence_ =
+    get_parameter(
+    "docking_parallel_min_confidence").as_double();
+
+  docking_parallel_target_timeout_sec_ =
+    get_parameter(
+    "docking_parallel_target_timeout_sec").as_double();
+
+  docking_parallel_reacquire_timeout_sec_ =
+    get_parameter(
+    "docking_parallel_reacquire_timeout_sec").as_double();
+
+  docking_parallel_steering_hold_sec_ =
+    get_parameter(
+    "docking_parallel_steering_hold_sec").as_double();
+
+  docking_parallel_alignment_tolerance_rad_ =
+    get_parameter(
+    "docking_parallel_alignment_tolerance_rad").as_double();
+
+  docking_parallel_approach_trigger_distance_m_ =
+    get_parameter(
+    "docking_parallel_approach_trigger_distance_m").as_double();
+
+  docking_parallel_final_approach_duration_sec_ =
+    get_parameter(
+    "docking_parallel_final_approach_duration_sec").as_double();
+
+  docking_parallel_hold_duration_sec_ =
+    get_parameter(
+    "docking_parallel_hold_duration_sec").as_double();
+
+  docking_parallel_reverse_duration_sec_ =
+    get_parameter(
+    "docking_parallel_reverse_duration_sec").as_double();
+
+  docking_parallel_alignment_speed_mps_ =
+    get_parameter(
+    "docking_parallel_alignment_speed_mps").as_double();
+
+  docking_parallel_approach_speed_mps_ =
+    get_parameter(
+    "docking_parallel_approach_speed_mps").as_double();
+
+  docking_parallel_final_speed_mps_ =
+    get_parameter(
+    "docking_parallel_final_speed_mps").as_double();
+
+  docking_parallel_reverse_speed_mps_ =
+    get_parameter(
+    "docking_parallel_reverse_speed_mps").as_double();
+
+  docking_parallel_max_yaw_rate_radps_ =
+    get_parameter(
+    "docking_parallel_max_yaw_rate_radps").as_double();
+
+  docking_parallel_bearing_gain_ =
+    get_parameter(
+    "docking_parallel_bearing_gain").as_double();
+
+  docking_parallel_heading_gain_ =
+    get_parameter(
+    "docking_parallel_heading_gain").as_double();
+
+  // -----------------------------------------------------------------------
   // ROS interfaces
   // -----------------------------------------------------------------------
 
@@ -399,6 +544,15 @@ BoatBTNode::BoatBTNode()
     10,
     std::bind(
       &BoatBTNode::dock_target_callback,
+      this,
+      std::placeholders::_1));
+
+  wall_target_sub_ =
+    create_subscription<njord_msgs::msg::WallTarget>(
+    "/perception/wall_target",
+    10,
+    std::bind(
+      &BoatBTNode::wall_target_callback,
       this,
       std::placeholders::_1));
 
@@ -610,6 +764,67 @@ void BoatBTNode::competition_status_callback(
     RCLCPP_WARN(
       get_logger(),
       "Docking task stopped externally");
+  }
+
+  /*
+   * Same reset/complete/stop handling as TASK_DOCKING above, mirrored for
+   * TASK_DOCKING_PARALLEL so the same node process can be reused across
+   * competition attempts of either task.
+   */
+  const bool docking_parallel_task_started =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_DOCKING_PARALLEL &&
+    competition_state_ ==
+    njord_msgs::msg::CompetitionState::STATE_RUNNING &&
+    (
+      previous_task !=
+      njord_msgs::msg::CompetitionState::TASK_DOCKING_PARALLEL ||
+      previous_state !=
+      njord_msgs::msg::CompetitionState::STATE_RUNNING
+    );
+
+  if (docking_parallel_task_started) {
+    tree_finished_ = false;
+    competition_completion_request_sent_ = false;
+    competition_completion_confirmed_ = false;
+    resetDockingParallelController();
+
+    RCLCPP_INFO(
+      get_logger(),
+      "New parallel-docking competition run started");
+  }
+
+  const bool docking_parallel_task_succeeded =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_DOCKING_PARALLEL &&
+    competition_state_ ==
+    njord_msgs::msg::CompetitionState::STATE_SUCCEEDED;
+
+  if (docking_parallel_task_succeeded) {
+    competition_completion_confirmed_ = true;
+    publishDockingParallelCommand(0.0, 0.0);
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Parallel-docking completion confirmed through /competition/status");
+  }
+
+  const bool docking_parallel_stopped =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_DOCKING_PARALLEL &&
+    (
+      competition_state_ ==
+      njord_msgs::msg::CompetitionState::STATE_FAILED ||
+      competition_state_ ==
+      njord_msgs::msg::CompetitionState::STATE_ABORTED
+    );
+
+  if (docking_parallel_stopped) {
+    publishDockingParallelCommand(0.0, 0.0);
+
+    RCLCPP_WARN(
+      get_logger(),
+      "Parallel-docking task stopped externally");
   }
 }
 

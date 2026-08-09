@@ -51,6 +51,7 @@ class CompetitionTaskLoader:
             "collision_avoidance.yaml",
         CompetitionState.TASK_DOCKING: "docking.yaml",
         CompetitionState.TASK_SURPRISE: "surprise.yaml",
+        CompetitionState.TASK_DOCKING_PARALLEL: "docking_parallel.yaml",
     }
 
     EXPECTED_TASK_IDS = {
@@ -60,6 +61,7 @@ class CompetitionTaskLoader:
             "collision_avoidance",
         CompetitionState.TASK_DOCKING: "docking",
         CompetitionState.TASK_SURPRISE: "surprise",
+        CompetitionState.TASK_DOCKING_PARALLEL: "docking_parallel",
     }
 
     SUPPORTED_SCHEMA_VERSION = 1

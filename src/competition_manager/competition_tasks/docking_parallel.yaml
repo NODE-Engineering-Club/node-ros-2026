@@ -1,0 +1,9 @@
+version: 1
+
+task:
+  id: docking_parallel
+  name: Parallel Docking
+  description: Autonomous parallel docking competition task (Task 3.2).
+
+mission:
+  waypoints: []

@@ -31,6 +31,7 @@ class CompetitionManager(Node):
             "TASK_COLLISION_AVOIDANCE",
         CompetitionState.TASK_DOCKING: "TASK_DOCKING",
         CompetitionState.TASK_SURPRISE: "TASK_SURPRISE",
+        CompetitionState.TASK_DOCKING_PARALLEL: "TASK_DOCKING_PARALLEL",
     }
 
     STATE_NAMES = {

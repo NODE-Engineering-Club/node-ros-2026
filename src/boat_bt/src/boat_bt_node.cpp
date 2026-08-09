@@ -339,9 +339,21 @@ BoatBTNode::BoatBTNode()
     "/boat_bt/cmd_vel",
     10);
 
+  // /odometry/gps is never published (see ekf.yaml: deliberately not
+  // created, to avoid double-fusing GPS) -- WaitForOdom, the very first
+  // node in MainTree's ReactiveSequence, gates the entire tree on
+  // odom_received_ becoming true, so subscribing to a topic nothing
+  // publishes meant the whole tree never ticked past that first node.
+  // Confirmed live: /boat_bt/cmd_vel received exactly one message
+  // (resetDockingController()'s own direct call, not from tree ticking)
+  // over an 8s window with TASK_DOCKING RUNNING -- if the tree were
+  // actually ticking, executeDockingController()'s WAITING_FOR_TARGET
+  // branch alone would publish (0,0) on every ~100ms tick. Every other
+  // consumer in this codebase (mission_manager.py, nav2_params.yaml) uses
+  // /odometry/filtered; this now matches them.
   odom_sub_ =
     create_subscription<nav_msgs::msg::Odometry>(
-    "/odometry/gps",
+    "/odometry/filtered",
     10,
     std::bind(
       &BoatBTNode::odom_callback,

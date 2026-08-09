@@ -94,7 +94,25 @@
       "customTileUrl": "",
       "disabledTopics": [],
       "followTopic": "/gps_driver/gps_raw",
-      "topicColors": {},
+      "topicColors": {
+        "/gps_driver/gps_raw": "#2f6fed",
+        "/competition/waypoints/wp_0": "#e0a400",
+        "/competition/waypoints/wp_1": "#e0a400",
+        "/competition/waypoints/wp_2": "#e0a400",
+        "/competition/waypoints/wp_3": "#e0a400",
+        "/competition/waypoints/wp_4": "#e0a400",
+        "/competition/waypoints/wp_5": "#e0a400",
+        "/competition/waypoints/wp_6": "#e0a400",
+        "/competition/waypoints/wp_7": "#e0a400",
+        "/competition/waypoints/wp_8": "#e0a400",
+        "/competition/waypoints/wp_9": "#e0a400",
+        "/docking_mission/points/point_7_start": "#e0a400",
+        "/docking_mission/points/point_8_staging": "#e0a400",
+        "/docking_mission/points/point_9_finish": "#e0a400",
+        "/docking_parallel_mission/points/point_10_start": "#e0a400",
+        "/docking_parallel_mission/points/point_11_staging": "#e0a400",
+        "/docking_parallel_mission/points/point_12_finish": "#e0a400"
+      },
       "zoomLevel": 18,
       "maxNativeZoom": 18,
       "foxglovePanelTitle": "Map — Position vs GNSS Route"
@@ -156,6 +174,14 @@
       "topicPath": "/gps_driver/gps_raw",
       "expansion": "all",
       "foxglovePanelTitle": "Latitude / Longitude"
+    },
+    "DiagnosticStatusPanel!bms": {
+      "selectedHardwareId": "bq76920",
+      "selectedName": "bms: BQ76920",
+      "splitFraction": 0.5,
+      "topicToRender": "/diagnostics",
+      "numericPrecision": 3,
+      "foxglovePanelTitle": "BMS (BQ76920)"
     }
   },
   "globalVariables": {},
@@ -194,7 +220,12 @@
           "direction": "row",
           "splitPercentage": 50
         },
-        "second": "RawMessages!latlon",
+        "second": {
+          "first": "RawMessages!latlon",
+          "second": "DiagnosticStatusPanel!bms",
+          "direction": "row",
+          "splitPercentage": 50
+        },
         "direction": "row",
         "splitPercentage": 72
       },

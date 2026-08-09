@@ -83,6 +83,9 @@ private:
 
   bool cardinalMappingConfigured() const;
 
+  bool isBuoyClassId(
+    const std::string & class_id) const;
+
   // =========================================================================
   // Docking controller
   // =========================================================================
@@ -354,6 +357,18 @@ private:
   double collision_avoidance_offset_m_;
 
   double request_cooldown_sec_;
+
+  /*
+   * Buoy minimum standoff (spec 9.1: "maintain safe distance from buoys
+   * throughout course"). Unlike the generic relative-risk detector above,
+   * this always fires for a buoy-classed obstacle within
+   * buoy_min_standoff_m_ regardless of forward-sector bearing or closing
+   * speed, and always outranks any other candidate obstacle in the same
+   * tick (see updateCollisionRiskState in collision_nodes.cpp).
+   */
+  std::string buoy_green_class_id_;
+  std::string buoy_red_class_id_;
+  double buoy_min_standoff_m_;
 
   // =========================================================================
   // BehaviorTree.CPP

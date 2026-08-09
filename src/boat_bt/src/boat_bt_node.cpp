@@ -87,6 +87,22 @@ BoatBTNode::BoatBTNode()
     5.0);
 
   // -----------------------------------------------------------------------
+  // Buoy minimum standoff (spec 9.1)
+  // -----------------------------------------------------------------------
+
+  declare_parameter<std::string>(
+    "buoy_green_class_id",
+    "");
+
+  declare_parameter<std::string>(
+    "buoy_red_class_id",
+    "");
+
+  declare_parameter<double>(
+    "buoy_min_standoff_m",
+    1.0);
+
+  // -----------------------------------------------------------------------
   // Docking configuration
   //
   // All important values are ROS parameters so the competition team can
@@ -216,6 +232,22 @@ BoatBTNode::BoatBTNode()
   request_cooldown_sec_ =
     get_parameter(
     "request_cooldown_sec").as_double();
+
+  // -----------------------------------------------------------------------
+  // Read buoy standoff parameters
+  // -----------------------------------------------------------------------
+
+  buoy_green_class_id_ =
+    get_parameter(
+    "buoy_green_class_id").as_string();
+
+  buoy_red_class_id_ =
+    get_parameter(
+    "buoy_red_class_id").as_string();
+
+  buoy_min_standoff_m_ =
+    get_parameter(
+    "buoy_min_standoff_m").as_double();
 
   // -----------------------------------------------------------------------
   // Read docking parameters
@@ -407,6 +439,23 @@ BoatBTNode::BoatBTNode()
       "Set cardinal_north_class_id, cardinal_east_class_id, "
       "cardinal_south_class_id and cardinal_west_class_id "
       "when the YOLO class mapping is known.");
+  }
+
+  if (buoy_green_class_id_.empty() && buoy_red_class_id_.empty()) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Buoy class mapping is not configured. Set buoy_green_class_id "
+      "and buoy_red_class_id — the buoy_min_standoff_m_ hard standoff "
+      "check will never fire until at least one is set.");
+  }
+  else {
+    RCLCPP_INFO(
+      get_logger(),
+      "Buoy minimum standoff enabled: %.2f m "
+      "(green class_id='%s', red class_id='%s')",
+      buoy_min_standoff_m_,
+      buoy_green_class_id_.c_str(),
+      buoy_red_class_id_.c_str());
   }
 
   RCLCPP_INFO(

@@ -11,6 +11,8 @@ from rclpy.qos import DurabilityPolicy
 from rclpy.qos import HistoryPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
+from sensor_msgs.msg import NavSatFix
+from sensor_msgs.msg import NavSatStatus
 from std_srvs.srv import Trigger
 
 from competition_manager.task_loader import CompetitionTask
@@ -91,6 +93,18 @@ class CompetitionManager(Node):
         self._current_task = CompetitionState.TASK_NONE
         self._current_task_definition: CompetitionTask | None = None
 
+        # GUI support (spec 9.1: "the GUI must plot the position on the ASV
+        # in relation to the given GPS points"): one latched NavSatFix per
+        # waypoint of the currently selected task, republished whenever the
+        # task changes, so a Foxglove Map panel can plot them as static pins
+        # alongside the live ASV position (/gps_driver/gps_raw, which also
+        # gives the "route taken" trail for free via the Map panel's
+        # built-in position history). Recreated (not just republished) on
+        # every task change so a shorter waypoint list doesn't leave stale
+        # pins from a longer previous task's list still latched on unused
+        # topic indices.
+        self._waypoint_publishers: list = []
+
         self._current_state = CompetitionState.STATE_IDLE
         self._current_message = "Competition Manager initialized"
 
@@ -143,6 +157,8 @@ class CompetitionManager(Node):
             self._current_task_definition = None
             self._latest_mission_state = MissionStatus.IDLE
 
+            self._publish_task_waypoints(None)
+
             self.set_competition_state(
                 CompetitionState.STATE_IDLE,
                 "Competition task cleared",
@@ -176,6 +192,8 @@ class CompetitionManager(Node):
         self._current_task = request.task
         self._current_task_definition = task_definition
         self._latest_mission_state = MissionStatus.IDLE
+
+        self._publish_task_waypoints(task_definition)
 
         self.set_competition_state(
             CompetitionState.STATE_READY,
@@ -556,6 +574,62 @@ class CompetitionManager(Node):
         message.message = self._current_message
 
         self._status_publisher.publish(message)
+
+    def _publish_task_waypoints(
+        self,
+        task_definition: "CompetitionTask | None",
+    ) -> None:
+        """(Re)publish the selected task's waypoints for GUI plotting.
+
+        Each waypoint gets its own latched (TRANSIENT_LOCAL) NavSatFix
+        publisher on /competition/waypoints/<index>, so a Foxglove Map panel
+        opened after task selection still sees them immediately. Publishers
+        from the previous task are destroyed first — a shorter new list must
+        not leave old higher-index pins latched on screen.
+        """
+
+        for publisher in self._waypoint_publishers:
+            self.destroy_publisher(publisher)
+
+        self._waypoint_publishers = []
+
+        if task_definition is None:
+            return
+
+        waypoint_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+
+        for index, waypoint in enumerate(task_definition.waypoints):
+            publisher = self.create_publisher(
+                NavSatFix,
+                f"/competition/waypoints/{index}",
+                waypoint_qos,
+            )
+
+            message = NavSatFix()
+            message.header.frame_id = "map"
+            message.header.stamp = self.get_clock().now().to_msg()
+            message.status.status = NavSatStatus.STATUS_FIX
+            message.status.service = NavSatStatus.SERVICE_GPS
+            message.latitude = waypoint.latitude
+            message.longitude = waypoint.longitude
+            message.altitude = waypoint.altitude
+
+            publisher.publish(message)
+
+            self._waypoint_publishers.append(publisher)
+
+        self.get_logger().info(
+            "Published "
+            f"{len(task_definition.waypoints)} waypoint(s) for GUI "
+            f"plotting: {task_definition.name} "
+            "(/competition/waypoints/0.."
+            f"{len(task_definition.waypoints) - 1})"
+        )
 
     def mission_message(
         self,

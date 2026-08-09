@@ -45,7 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # LiDAR-camera extrinsic calibration
     ros-jazzy-laser-geometry \
     python3-scipy \
-    python3-scikit-learn \
+    python3-sklearn \
     python3-pip \
     git \
     && apt-get clean \

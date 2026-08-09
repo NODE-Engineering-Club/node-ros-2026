@@ -1,6 +1,10 @@
-# TODO: PLACEHOLDER COORDINATES — not the real course. 41.39/2.1541 is
-# Barcelona; replace with the actual maneuvering-leg gate/waypoint(s) before
-# running this on the water.
+# TODO: still placeholder coordinates, not the real course. The Barcelona
+# point that was here before has been replaced with the actual competition
+# venue — Havet Arena, Strandveien 104, 7067 Trondheim (lat/lon from OSM
+# Nominatim geocoding of that address: 63.4414620, 10.4250150) — but these
+# two waypoints are just that single point duplicated, NOT the real
+# maneuvering-leg gate/marker positions. Replace with on-site-captured
+# waypoints for the actual gates before running this for real.
 version: 1
 
 task:
@@ -10,6 +14,9 @@ task:
 
 mission:
   waypoints:
-    - latitude: 41.3900000
-      longitude: 2.1540600
+    - latitude: 63.4414620
+      longitude: 10.4250150
+      altitude: 0.0
+    - latitude: 63.4414620
+      longitude: 10.4250150
       altitude: 0.0

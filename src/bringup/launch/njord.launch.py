@@ -413,16 +413,30 @@ def generate_launch_description():
             parameters=[{"port": LaunchConfiguration("bms_port")}, sim_time],
         ),
         # Mission
+        #
+        # respawn=True: mission_manager holds no state that survives a crash
+        # (waypoint list / progress index are plain in-memory attributes), so
+        # a respawn always restarts a *new* mission at waypoint 0 unless the
+        # caller resends a /mission/start whose waypoints match an on-disk
+        # checkpoint from a previous run (see mission_manager.py) — respawn
+        # only guarantees the service comes back, not that progress survives.
         Node(
             package="mission",
             executable="mission_manager",
             name="mission_manager",
             condition=IfCondition(LaunchConfiguration("enable_mission")),
             parameters=[sim_time],
+            respawn=True,
+            respawn_delay=2.0,
             output="screen",
         ),
 
         # Competition lifecycle coordination.
+        #
+        # respawn=True: a crash here loses the selected task/lifecycle state
+        # (also in-memory only) — the operator (or the mission sequencer, if
+        # it is still alive) must re-issue /competition/set_task +
+        # /competition/start after a respawn.
         TimerAction(
             period=2.0,
             actions=[
@@ -434,12 +448,20 @@ def generate_launch_description():
                         LaunchConfiguration("enable_competition")
                     ),
                     parameters=[sim_time],
+                    respawn=True,
+                    respawn_delay=2.0,
                     output="screen",
                 ),
             ],
         ),
 
         # Competition Behavior Tree.
+        #
+        # respawn=True: a crash mid-docking resets the docking state machine
+        # to WAITING_FOR_TARGET on respawn (docking_state_ is in-memory only)
+        # — acceptable because dock_detector_node will republish a fresh
+        # target and the approach just restarts, rather than the whole
+        # process staying dead.
         TimerAction(
             period=3.0,
             actions=[
@@ -450,7 +472,24 @@ def generate_launch_description():
                     condition=IfCondition(
                         LaunchConfiguration("enable_boat_bt")
                     ),
-                    parameters=[sim_time],
+                    respawn=True,
+                    respawn_delay=2.0,
+                    parameters=[
+                        sim_time,
+                        # YOLO class ids for yolo26n-seg-navier.onnx, read from
+                        # the model's own embedded metadata (names dict):
+                        # {0: 'green', 1: 'red', 2: 'north', 3: 'east',
+                        #  4: 'south', 5: 'west'}.
+                        {
+                            "cardinal_north_class_id": "2",
+                            "cardinal_east_class_id": "3",
+                            "cardinal_south_class_id": "4",
+                            "cardinal_west_class_id": "5",
+                            "buoy_green_class_id": "0",
+                            "buoy_red_class_id": "1",
+                            "buoy_min_standoff_m": 1.0,
+                        },
+                    ],
                     output="screen",
                 ),
             ],

@@ -33,6 +33,7 @@ TASK_SEQUENCE = (
 DEFAULT_TASK_TIMEOUT_S = 180.0
 DEFAULT_GPS_TIMEOUT_S = 30.0
 DEFAULT_SERVICE_TIMEOUT_S = 30.0
+DEFAULT_TASK_RETRIES = 1
 
 
 class ManeuveringPathfindingMission(Node):
@@ -42,10 +43,12 @@ class ManeuveringPathfindingMission(Node):
         self.declare_parameter("task_timeout_s", DEFAULT_TASK_TIMEOUT_S)
         self.declare_parameter("gps_timeout_s", DEFAULT_GPS_TIMEOUT_S)
         self.declare_parameter("service_timeout_s", DEFAULT_SERVICE_TIMEOUT_S)
+        self.declare_parameter("task_retries", DEFAULT_TASK_RETRIES)
 
         self._task_timeout_s = float(self.get_parameter("task_timeout_s").value)
         self._gps_timeout_s = float(self.get_parameter("gps_timeout_s").value)
         self._service_timeout_s = float(self.get_parameter("service_timeout_s").value)
+        self._task_retries = int(self.get_parameter("task_retries").value)
 
         self._fix = None
         self._status = None
@@ -92,8 +95,31 @@ class ManeuveringPathfindingMission(Node):
 
         for name, task_id in TASK_SEQUENCE:
             self.get_logger().info(f"Starting task '{name}'")
-            if not self._run_task(name, task_id):
-                self.get_logger().error(f"Task '{name}' did not succeed — stopping sequence")
+
+            # A retry here re-issues set_task + start against
+            # competition_manager exactly as a fresh attempt would; if
+            # mission_manager still holds a matching on-disk checkpoint from
+            # the failed attempt (see mission_manager.py), this transparently
+            # resumes at the last incomplete waypoint instead of re-running
+            # the whole task from its first waypoint.
+            succeeded = False
+            attempt = 0
+            while attempt <= self._task_retries:
+                if attempt > 0:
+                    self.get_logger().warning(
+                        f"Retrying task '{name}' "
+                        f"(attempt {attempt + 1}/{self._task_retries + 1})"
+                    )
+                succeeded = self._run_task(name, task_id)
+                if succeeded:
+                    break
+                attempt += 1
+
+            if not succeeded:
+                self.get_logger().error(
+                    f"Task '{name}' did not succeed after "
+                    f"{self._task_retries + 1} attempt(s) — stopping sequence"
+                )
                 return False
             self.get_logger().info(f"Task '{name}' succeeded")
 

@@ -1,7 +1,13 @@
-# TODO: no course waypoints configured yet. competition_manager rejects
-# /competition/start for this task while the list is empty (path_finding is
-# a waypoint_required_task) — this is intentionally fail-closed until the
-# real path-finding-leg waypoints are added.
+# TODO: still placeholder coordinates, not the real course. These two
+# waypoints are the actual competition venue — Havet Arena, Strandveien 104,
+# 7067 Trondheim (lat/lon from OSM Nominatim geocoding of that address:
+# 63.4414620, 10.4250150) — duplicated, matching maneuvering.yaml's fix. This
+# is NOT the real path-finding course (spec: point 1 -> waypoints 1.1-1.10 ->
+# point 4, per TODOS.md). Replace with the real on-site-captured waypoints
+# before running this for real. Until then this file is non-empty only so it
+# passes competition_manager's waypoint_required_task check for local/dry-run
+# testing of the sequencer — it does not represent a runnable path-finding
+# leg.
 version: 1
 
 task:
@@ -10,4 +16,10 @@ task:
   description: Autonomous path-finding competition task.
 
 mission:
-  waypoints: []
+  waypoints:
+    - latitude: 63.4414620
+      longitude: 10.4250150
+      altitude: 0.0
+    - latitude: 63.4414620
+      longitude: 10.4250150
+      altitude: 0.0

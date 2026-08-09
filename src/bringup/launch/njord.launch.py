@@ -23,6 +23,16 @@ def generate_launch_description():
     urdf_path = os.path.join(desc_share, "asket.urdf")
     with open(urdf_path, "w") as f:
         f.write(urdf)
+    # robot_state_publisher's robot_description parameter is what actually
+    # reaches TF/Foxglove/RViz — those tools don't get the "written next to
+    # meshes/" trick above (that only works for Gazebo, which loads the file
+    # from disk via -file below). They need package:// mesh URIs to resolve
+    # anything, or they render TF frames with no hull mesh (bare relative
+    # paths like "meshes/hull_visual.obj" carry no location info once this
+    # is just a string on the wire). Only this copy is rewritten — the file
+    # written above for Gazebo's spawn is untouched, so its already-working
+    # resolution isn't at risk.
+    urdf_for_ros = urdf.replace('filename="meshes/', 'filename="package://description/meshes/')
     worlds_dir = os.path.join(desc_share, "worlds")
 
     # fmt: off
@@ -42,6 +52,10 @@ def generate_launch_description():
                               description="Run the Task 9.1 (Maneuvering + Path Finding) mission "
                                           "sequencer — off by default so bringing up the stack "
                                           "doesn't immediately start the competition run."),
+        DeclareLaunchArgument("enable_docking_mission", default_value="false",
+                              description="Run the Task 3.1 (Normal Docking) mission sequencer "
+                                          "— off by default, same reasoning as "
+                                          "enable_maneuvering_pathfinding_mission."),
         DeclareLaunchArgument("enable_competition",   default_value="true"),
         DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -77,7 +91,7 @@ def generate_launch_description():
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
-            parameters=[{"robot_description": urdf}, sim_time],
+            parameters=[{"robot_description": urdf_for_ros}, sim_time],
         ),
         # MAVROS — FCU bridge
         Node(
@@ -506,6 +520,26 @@ def generate_launch_description():
                     name="maneuvering_pathfinding_mission",
                     condition=IfCondition(
                         LaunchConfiguration("enable_maneuvering_pathfinding_mission")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Task 3.1 (Normal Docking) mission sequencer — same startup timing
+        # as the Task 9.1 sequencer above; the two are mutually exclusive in
+        # practice (both default off) but there's no harm in sharing the
+        # delay since only one is normally enabled at a time.
+        TimerAction(
+            period=4.0,
+            actions=[
+                Node(
+                    package="mission_docking",
+                    executable="docking_mission",
+                    name="docking_mission",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_docking_mission")
                     ),
                     parameters=[sim_time],
                     output="screen",

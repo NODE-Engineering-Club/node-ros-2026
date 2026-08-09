@@ -134,23 +134,35 @@ class CompetitionManager(Node):
             self.get_logger().warning(response.message)
             return response
 
-        if self._current_state == CompetitionState.STATE_RUNNING:
-            response.success = False
-            response.message = (
-                "Cannot change task while a competition task is running"
-            )
-            self.get_logger().warning(response.message)
-            return response
-
-        if request.task not in self.TASK_NAMES:
-            response.success = False
-            response.message = (
-                f"Invalid competition task value: {request.task}"
-            )
-            self.get_logger().warning(response.message)
-            return response
-
         if request.task == CompetitionState.TASK_NONE:
+            # Clearing to TASK_NONE is how a direct-BT task (waypoint-less
+            # — docking, collision_avoidance, surprise) gets aborted: those
+            # tasks have no failure path of their own (e.g. docking_nodes.cpp
+            # never returns BT::NodeStatus::FAILURE, it just keeps trying
+            # indefinitely), so this is the only way to end a stuck one.
+            # It must NOT be exempted from the STATE_RUNNING guard for a
+            # waypoint-based task (maneuvering/path_finding) though — that
+            # would silently orphan mission_manager, which is not listening
+            # for this and would just keep driving the boat toward its
+            # waypoints regardless. Those must still go through
+            # /mission/abort first, same as today.
+            current_task_has_waypoints = bool(
+                self._current_task_definition
+                and self._current_task_definition.waypoints
+            )
+
+            if (
+                self._current_state == CompetitionState.STATE_RUNNING
+                and current_task_has_waypoints
+            ):
+                response.success = False
+                response.message = (
+                    "Cannot clear task while a waypoint-based mission is "
+                    "running — call /mission/abort first"
+                )
+                self.get_logger().warning(response.message)
+                return response
+
             previous_task = self._current_task
 
             self._current_task = CompetitionState.TASK_NONE
@@ -174,6 +186,22 @@ class CompetitionManager(Node):
                 "Competition task updated: "
                 "task=TASK_NONE, state=STATE_IDLE"
             )
+            return response
+
+        if self._current_state == CompetitionState.STATE_RUNNING:
+            response.success = False
+            response.message = (
+                "Cannot change task while a competition task is running"
+            )
+            self.get_logger().warning(response.message)
+            return response
+
+        if request.task not in self.TASK_NAMES:
+            response.success = False
+            response.message = (
+                f"Invalid competition task value: {request.task}"
+            )
+            self.get_logger().warning(response.message)
             return response
 
         try:

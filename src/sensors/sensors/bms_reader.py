@@ -2,10 +2,12 @@
 
 Owns the serial link to the battery management system (connected via an
 MCP2221 USB-UART bridge) and republishes its periodic text report as ROS
-topics — a standard sensor_msgs/BatteryState for anything that already
-knows how to render one (e.g. Foxglove's built-in Battery panel), plus a
-raw string with every field the BMS reports (per-cell voltages, FET
-states) since BatteryState has no place for those.
+topics: a standard sensor_msgs/BatteryState (voltage/cells/temp/current —
+plottable, gauge-able, but no dedicated "battery" panel in Foxglove), a
+diagnostic_msgs/DiagnosticArray on /diagnostics (renders natively in
+Foxglove's Diagnostics panel — a colored OK/ERROR summary plus every field
+as key/value, ERROR if a fault flag trips or DSG drops), and a raw string
+with everything the BMS reports verbatim.
 
 Expected report, one block every period (no blank line between blocks —
 each starts with its own "--- BQ76920 [t=... ms] ---" header line):
@@ -30,6 +32,7 @@ import re
 
 import rclpy
 import serial
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
@@ -42,6 +45,7 @@ _PACK_RE = re.compile(r"Pack:\s*(-?[\d.]+)\s*V")
 _TEMP_RE = re.compile(r"Temp:\s*(-?[\d.]+)\s*C")
 _CURR_RE = re.compile(r"Curr:\s*(-?[\d.]+)\s*A")
 _FETS_RE = re.compile(r"FETs:\s*CHG=(ON|OFF)\s*DSG=(ON|OFF)")
+_FLAGS_RE = re.compile(r"Flags:\s*OV=(\d)\s*UV=(\d)\s*OCD=(\d)\s*SCD=(\d)\s*XREADY=(\d)")
 
 
 class BmsReader(Node):
@@ -65,6 +69,7 @@ class BmsReader(Node):
 
         self._state_pub = self.create_publisher(BatteryState, "/battery/state", 10)
         self._raw_pub = self.create_publisher(String, "/battery/status_raw", 10)
+        self._diag_pub = self.create_publisher(DiagnosticArray, "/diagnostics", 10)
 
         self.create_timer(0.2, self._tick)
 
@@ -129,6 +134,11 @@ class BmsReader(Node):
             chg_on = m.group(1) == "ON"
             dsg_on = m.group(2) == "ON"
 
+        flags = {}
+        m = _FLAGS_RE.search(text)
+        if m:
+            flags = dict(zip(("OV", "UV", "OCD", "SCD", "XREADY"), (v == "1" for v in m.groups())))
+
         if not cells and pack_v is None:
             # Nothing recognizable in this block — don't publish a blank
             # BatteryState that would look like a real (zeroed-out) reading.
@@ -155,6 +165,34 @@ class BmsReader(Node):
         raw = String()
         raw.data = text
         self._raw_pub.publish(raw)
+
+        self._publish_diagnostics(cells, pack_v, temp_c, curr_a, chg_on, dsg_on, flags)
+
+    def _publish_diagnostics(self, cells, pack_v, temp_c, curr_a, chg_on, dsg_on, flags):
+        fault = any(flags.values()) or dsg_on is False
+        status = DiagnosticStatus()
+        status.name = "bms: BQ76920"
+        status.hardware_id = "bq76920"
+        status.level = DiagnosticStatus.ERROR if fault else DiagnosticStatus.OK
+        status.message = "Fault" if fault else "OK"
+
+        def kv(key, value):
+            status.values.append(KeyValue(key=key, value=str(value)))
+
+        kv("Pack (V)", f"{pack_v:.2f}" if pack_v is not None else "?")
+        for i, v in enumerate(cells, start=1):
+            kv(f"Cell {i} (V)", f"{v:.3f}")
+        kv("Temp (C)", f"{temp_c:.1f}" if temp_c is not None else "?")
+        kv("Current (A)", f"{curr_a:.2f}" if curr_a is not None else "?")
+        kv("CHG", "ON" if chg_on else "OFF" if chg_on is not None else "?")
+        kv("DSG", "ON" if dsg_on else "OFF" if dsg_on is not None else "?")
+        for name, tripped in flags.items():
+            kv(f"Flag {name}", "TRIPPED" if tripped else "ok")
+
+        arr = DiagnosticArray()
+        arr.header.stamp = self.get_clock().now().to_msg()
+        arr.status.append(status)
+        self._diag_pub.publish(arr)
 
     def destroy_node(self):
         if self._ser and self._ser.is_open:

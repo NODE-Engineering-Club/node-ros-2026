@@ -57,6 +57,7 @@ class ManeuveringPathfindingMission(Node):
 
         self._set_task_client = self.create_client(SetCompetitionTask, "/competition/set_task")
         self._start_client = self.create_client(Trigger, "/competition/start")
+        self._mission_abort_client = self.create_client(Trigger, "/mission/abort")
 
     def _fix_cb(self, msg):
         self._fix = msg
@@ -113,6 +114,22 @@ class ManeuveringPathfindingMission(Node):
                 succeeded = self._run_task(name, task_id)
                 if succeeded:
                     break
+
+                # A timeout in _wait_for_task_outcome (Nav2 itself never
+                # calls back) leaves competition_manager stuck at
+                # STATE_RUNNING -- mission_status_callback only reacts to a
+                # real terminal MissionStatus from mission_manager, which
+                # never arrives on a local timeout. Without clearing it,
+                # the next attempt's set_task is rejected with "Cannot
+                # change task while a competition task is running" and the
+                # retry silently can't happen at all. Best-effort and
+                # unconditional, same pattern as mission_docking's
+                # _clear_competition_task: harmless if the task already
+                # ended in a real FAILED/ABORTED (competition_manager
+                # already left STATE_RUNNING on its own, and
+                # mission_manager has nothing active to abort either).
+                self._abort_mission()
+
                 attempt += 1
 
             if not succeeded:
@@ -158,6 +175,31 @@ class ManeuveringPathfindingMission(Node):
                 return False
         self.get_logger().error(f"Task timed out after {self._task_timeout_s:.0f}s")
         return False
+
+    def _abort_mission(self):
+        """Best-effort /mission/abort. Never blocks or fails the sequence.
+
+        Rejection is expected and harmless when there's nothing to abort
+        (the task already ended in a real FAILED/ABORTED, or never made it
+        past set_task/start) -- this doesn't retry or fail the mission on
+        rejection, same philosophy as mission_docking's
+        _clear_competition_task.
+        """
+        if not self._mission_abort_client.wait_for_service(timeout_sec=self._service_timeout_s):
+            self.get_logger().warning(
+                "/mission/abort service unavailable — cannot clear a stuck task before retrying"
+            )
+            return
+
+        future = self._mission_abort_client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(self, future, timeout_sec=self._service_timeout_s)
+        res = future.result()
+
+        if res is None or not res.success:
+            self.get_logger().info(
+                "/mission/abort did not report success (expected if the task "
+                f"already ended cleanly): {res.message if res else 'no response'}"
+            )
 
 
 def main(args=None):

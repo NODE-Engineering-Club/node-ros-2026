@@ -28,6 +28,7 @@ from sensor_msgs.msg import PointCloud2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from wall_scene_publisher import (  # noqa: E402
+    build_bare_wall_cloud,
     build_scene_cloud,
     expected_aim_point,
     expected_heading,
@@ -163,6 +164,28 @@ def main():
         # seen at all, is excluded from the singular /perception/wall_target.
         if result.detected:
             soft_check(False, f"[{label}] occupied wall NOT surfaced as the free target (unexpected in this control case: only one wall exists)")
+
+    print()
+    print("Negative control: lone wall with no arms (not a real U-shaped berth):")
+    for distance in (3.0, 5.0):
+        label = f"d={distance}m bare wall, no arms"
+        collector.last = None
+        cloud = build_bare_wall_cloud(distance, 0.0)
+        cloud.header.stamp = pub_node.get_clock().now().to_msg()
+        pub_node.pub.publish(cloud)
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            ex.spin_once(timeout_sec=0.1)
+
+        # No message is also an acceptable "correctly rejected" outcome
+        # (nothing published yet on this fresh scan) -- the hard invariant
+        # is only that IF a message arrives, it must not claim detection.
+        check(collector.last is None or not collector.last.detected,
+              f"[{label}] correctly NOT detected as a berth (a bare wall alone "
+              "is not a U-shaped berth -- this is exactly what the U-matcher "
+              "upgrade is for; the old bare-length-filter approach would have "
+              "wrongly accepted this)")
 
     print()
     print(f"Hard-invariant failures: {len(failures)}")

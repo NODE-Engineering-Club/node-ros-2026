@@ -20,9 +20,22 @@ path and this module should not be able to regress it):
     3. Separate point groups with DBSCAN.
     4. Extract straight wall segments from every DBSCAN cluster using RANSAC.
     5. Combine the wall segments from all clusters into one global list.
-    6. Keep segments whose length matches the expected berth wall length.
-    7. Classify each candidate as occupied or free.
-    8. Publish all matches and the highest-confidence free match.
+    6. Match the global segment list against a U template: one long "back
+       wall" (the wall the boat lies against, ~4 m) flanked by two shorter
+       perpendicular "arms" (~2 m) — same U-matching algorithm as
+       dock_detector_node's _find_u_shapes, reparametrized for Task 3.2's
+       ~4m-opening/~2m-arm berth instead of Task 3.1's ~2m-opening/~2m-arm
+       one. Matching against the full U (not just a bare length-filtered
+       segment) both raises detection confidence (three corroborating
+       segments, not one) and means a lone ~4m wall with no arms attached
+       is correctly NOT mistaken for this berth.
+    7. From each accepted match, compute the standoff aim point and
+       wall-parallel heading from the back wall's own two endpoints (NOT
+       the U's opening/arm-tip geometry — Task 3.2 needs the boat to end
+       up alongside the back wall itself, unlike Task 3.1 which enters
+       through the opening toward it).
+    8. Classify each candidate as occupied or free.
+    9. Publish all matches and the highest-confidence free match.
 
 There is no "pier"/"wall" class in the YOLO segmentation model
 (vision/node.py's class_id 0-5 are buoy/cardinal marks only), so — same as
@@ -36,6 +49,7 @@ See DockingParallelTask in boat_bt/bt_xml/simple_boat.xml for the
 consuming controller's own caveats.
 """
 
+import itertools
 import math
 import struct
 
@@ -167,6 +181,188 @@ def _segment_angle(segment):
     return math.atan2(float(vector[1]), float(vector[0]))
 
 
+def _angle_difference_mod_pi(first_angle, second_angle):
+    """Return undirected line angle difference in [0, pi / 2].
+
+    Identical to dock_detector_node's helper of the same name.
+    """
+    difference = (first_angle - second_angle) % math.pi
+    return min(difference, math.pi - difference)
+
+
+def _near_far(segment, origin):
+    """Return segment endpoints ordered by distance from the origin."""
+    first_distance = float(np.hypot(*(segment["p1"] - origin)))
+    second_distance = float(np.hypot(*(segment["p2"] - origin)))
+
+    if first_distance <= second_distance:
+        return (segment["p1"], segment["p2"])
+
+    return (segment["p2"], segment["p1"])
+
+
+def _point_to_segment_distance(point, segment_start, segment_end):
+    """Return clamped Euclidean distance from point to line segment."""
+    segment_vector = segment_end - segment_start
+    segment_length_squared = float(np.dot(segment_vector, segment_vector))
+
+    if segment_length_squared < 1e-9:
+        return float(np.hypot(*(point - segment_start)))
+
+    projection_ratio = float(
+        np.clip(
+            np.dot(point - segment_start, segment_vector) / segment_length_squared,
+            0.0,
+            1.0,
+        )
+    )
+
+    projected_point = segment_start + projection_ratio * segment_vector
+
+    return float(np.hypot(*(point - projected_point)))
+
+
+def _find_u_walls(
+    segments,
+    berth_width,
+    width_tolerance,
+    arm_length_min,
+    arm_length_max,
+    back_wall_length_min,
+    back_wall_length_max,
+    parallel_tolerance,
+    perpendicular_tolerance,
+    corner_gap_tolerance,
+):
+    """Find U-shaped berth candidates: a back wall flanked by two
+    perpendicular arms, opening toward the boat.
+
+    Same matching algorithm as dock_detector_node's _find_u_shapes
+    (duplicated, not imported — see module docstring), reparametrized for
+    Task 3.2's back-wall-is-the-target geometry: unlike Task 3.1, this
+    returns the back wall's own endpoints (back_p1/back_p2), not the U's
+    opening_center, since the boat needs to end up alongside the back wall
+    itself rather than entering through the opening toward it.
+    """
+    candidates = []
+
+    if len(segments) < 3:
+        return candidates
+
+    ORIGIN_LOCAL = np.array([0.0, 0.0], dtype=np.float32)
+
+    for back_index, back_segment in enumerate(segments):
+        back_length = _segment_length(back_segment)
+
+        if not (back_wall_length_min <= back_length <= back_wall_length_max):
+            continue
+
+        other_indices = [i for i in range(len(segments)) if i != back_index]
+
+        for first_arm_index, second_arm_index in itertools.combinations(other_indices, 2):
+            first_arm = segments[first_arm_index]
+            second_arm = segments[second_arm_index]
+
+            first_arm_length = _segment_length(first_arm)
+            second_arm_length = _segment_length(second_arm)
+
+            if not (arm_length_min <= first_arm_length <= arm_length_max):
+                continue
+            if not (arm_length_min <= second_arm_length <= arm_length_max):
+                continue
+
+            first_arm_angle = _segment_angle(first_arm)
+            second_arm_angle = _segment_angle(second_arm)
+            back_angle = _segment_angle(back_segment)
+
+            parallel_error = _angle_difference_mod_pi(first_arm_angle, second_arm_angle)
+            if parallel_error > parallel_tolerance:
+                continue
+
+            first_perpendicular_error = abs(
+                _angle_difference_mod_pi(first_arm_angle, back_angle) - math.pi / 2.0
+            )
+            second_perpendicular_error = abs(
+                _angle_difference_mod_pi(second_arm_angle, back_angle) - math.pi / 2.0
+            )
+
+            if (
+                first_perpendicular_error > perpendicular_tolerance
+                or second_perpendicular_error > perpendicular_tolerance
+            ):
+                continue
+
+            first_near, first_far = _near_far(first_arm, ORIGIN_LOCAL)
+            second_near, second_far = _near_far(second_arm, ORIGIN_LOCAL)
+
+            back_start = back_segment["p1"]
+            back_end = back_segment["p2"]
+
+            first_corner_gap = _point_to_segment_distance(first_far, back_start, back_end)
+            second_corner_gap = _point_to_segment_distance(second_far, back_start, back_end)
+            average_corner_gap = (first_corner_gap + second_corner_gap) / 2.0
+
+            if average_corner_gap > corner_gap_tolerance:
+                continue
+
+            measured_width = float(np.hypot(*(first_near - second_near)))
+            width_error = abs(measured_width - berth_width)
+
+            if width_error > width_tolerance:
+                continue
+
+            inlier_ratio = sum(
+                segment["inliers"] / max(segment["total"], 1)
+                for segment in (first_arm, second_arm, back_segment)
+            ) / 3.0
+
+            error_score = (
+                parallel_error / parallel_tolerance
+                + (first_perpendicular_error + second_perpendicular_error)
+                / 2.0
+                / perpendicular_tolerance
+                + width_error / width_tolerance
+                + average_corner_gap / corner_gap_tolerance
+            ) / 4.0
+
+            confidence = max(0.0, min(1.0, 1.0 - error_score)) * inlier_ratio
+
+            segment_indices = frozenset((back_index, first_arm_index, second_arm_index))
+
+            candidates.append(
+                {
+                    "back_p1": back_start,
+                    "back_p2": back_end,
+                    "back_length": back_length,
+                    "confidence": confidence,
+                    "segment_idxs": segment_indices,
+                    "wall_inlier_idx": np.unique(
+                        np.concatenate(
+                            (
+                                first_arm["inlier_idx"],
+                                second_arm["inlier_idx"],
+                                back_segment["inlier_idx"],
+                            )
+                        )
+                    ),
+                }
+            )
+
+    candidates.sort(key=lambda match: match["confidence"], reverse=True)
+
+    kept_candidates = []
+    for candidate in candidates:
+        duplicate = any(
+            len(candidate["segment_idxs"] & existing["segment_idxs"]) >= 2
+            for existing in kept_candidates
+        )
+        if duplicate:
+            continue
+        kept_candidates.append(candidate)
+
+    return kept_candidates
+
+
 def _canonicalize_heading(angle):
     """Fold a line's direction into the branch within +/-90 deg of +x.
 
@@ -288,11 +484,21 @@ class WallDetectorNode(Node):
         self.declare_parameter("ransac_min_inliers", 10)
         self.declare_parameter("max_lines_per_cluster", 8)
 
-        # Expected berth wall geometry. Per the Njord 2026 spec's ~4m
-        # berth width — NOT independently measured on-site, see this
-        # node's module docstring.
-        self.declare_parameter("wall_length_min_m", 2.5)
-        self.declare_parameter("wall_length_max_m", 5.5)
+        # Expected U-shaped berth geometry: a ~4m back wall (the boat lies
+        # against this) flanked by two ~2m perpendicular arms, opening
+        # ~4m wide (arms attach at the two ends of the back wall). Per the
+        # Njord 2026 spec — NOT independently measured on-site, see this
+        # node's module docstring. Same parameter names/roles as
+        # dock_detector_node's U-matcher, different defaults.
+        self.declare_parameter("back_wall_length_min_m", 3.0)
+        self.declare_parameter("back_wall_length_max_m", 5.0)
+        self.declare_parameter("berth_width_m", 4.0)
+        self.declare_parameter("width_tolerance_m", 0.6)
+        self.declare_parameter("arm_length_min_m", 1.5)
+        self.declare_parameter("arm_length_max_m", 2.5)
+        self.declare_parameter("parallel_angle_tol_deg", 12.0)
+        self.declare_parameter("perp_angle_tol_deg", 12.0)
+        self.declare_parameter("corner_gap_tol_m", 0.35)
 
         # How far off the wall the boat should aim to stop before the
         # close-range controller's own final-approach step closes the
@@ -326,8 +532,19 @@ class WallDetectorNode(Node):
             get_parameter("max_lines_per_cluster").value
         )
 
-        self._wall_length_min = float(get_parameter("wall_length_min_m").value)
-        self._wall_length_max = float(get_parameter("wall_length_max_m").value)
+        self._back_wall_length_min = float(get_parameter("back_wall_length_min_m").value)
+        self._back_wall_length_max = float(get_parameter("back_wall_length_max_m").value)
+        self._berth_width = float(get_parameter("berth_width_m").value)
+        self._width_tolerance = float(get_parameter("width_tolerance_m").value)
+        self._arm_length_min = float(get_parameter("arm_length_min_m").value)
+        self._arm_length_max = float(get_parameter("arm_length_max_m").value)
+        self._parallel_tolerance = math.radians(
+            float(get_parameter("parallel_angle_tol_deg").value)
+        )
+        self._perpendicular_tolerance = math.radians(
+            float(get_parameter("perp_angle_tol_deg").value)
+        )
+        self._corner_gap_tolerance = float(get_parameter("corner_gap_tol_m").value)
 
         self._standoff_distance = float(get_parameter("standoff_distance_m").value)
 
@@ -468,19 +685,35 @@ class WallDetectorNode(Node):
             )
 
     def _find_walls(self, segments):
-        """Keep RANSAC segments whose length matches the expected berth wall."""
+        """Match the global segment list against the U-shaped berth
+        template, then compute the standoff aim point / heading for each
+        accepted back wall."""
+        u_matches = _find_u_walls(
+            segments,
+            berth_width=self._berth_width,
+            width_tolerance=self._width_tolerance,
+            arm_length_min=self._arm_length_min,
+            arm_length_max=self._arm_length_max,
+            back_wall_length_min=self._back_wall_length_min,
+            back_wall_length_max=self._back_wall_length_max,
+            parallel_tolerance=self._parallel_tolerance,
+            perpendicular_tolerance=self._perpendicular_tolerance,
+            corner_gap_tolerance=self._corner_gap_tolerance,
+        )
+
         candidates = []
 
-        for segment in segments:
-            length = _segment_length(segment)
+        for u_match in u_matches:
+            back_p1 = u_match["back_p1"]
+            back_p2 = u_match["back_p2"]
+            length = u_match["back_length"]
 
-            if not (self._wall_length_min <= length <= self._wall_length_max):
-                continue
-
-            angle = _segment_angle(segment)
+            angle = math.atan2(
+                float(back_p2[1] - back_p1[1]), float(back_p2[0] - back_p1[0])
+            )
             heading = _canonicalize_heading(angle)
 
-            midpoint = (segment["p1"] + segment["p2"]) / 2.0
+            midpoint = (back_p1 + back_p2) / 2.0
 
             # Perpendicular from the wall line toward the boat (origin) —
             # this picks which side of the wall the boat is currently on,
@@ -494,25 +727,15 @@ class WallDetectorNode(Node):
 
             aim_point = midpoint + lateral_sign * self._standoff_distance * lateral_axis
 
-            expected_length = (self._wall_length_min + self._wall_length_max) / 2.0
-            length_error = abs(length - expected_length)
-            length_span = (self._wall_length_max - self._wall_length_min) / 2.0
-
-            inlier_ratio = segment["inliers"] / max(segment["total"], 1)
-
-            confidence = max(
-                0.0, min(1.0, 1.0 - length_error / max(length_span, 1e-6))
-            ) * inlier_ratio
-
             candidates.append(
                 {
                     "aim_point": aim_point,
                     "midpoint": midpoint,
                     "heading": heading,
                     "length": length,
-                    "confidence": confidence,
+                    "confidence": u_match["confidence"],
                     "lateral_sign": lateral_sign,
-                    "wall_inlier_idx": segment["inlier_idx"],
+                    "wall_inlier_idx": u_match["wall_inlier_idx"],
                 }
             )
 

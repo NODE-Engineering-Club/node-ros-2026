@@ -4,14 +4,18 @@
 # geometry is what actually matters, not GPS/TF-lifted geometry.
 #
 # Produced by perception/wall_detector_node: DBSCAN separates the raw scan
-# into candidate objects, RANSAC extracts straight wall segments from each
-# (the same line-extraction step dock_detector_node uses for its U-shape's
-# back wall), and segments matching the expected berth wall length are
-# published as candidates. There is no "pier"/"wall" class in the YOLO
-# segmentation model (vision/node.py's class_id 0-5 are buoy/cardinal
-# marks only), so unlike a first guess might assume, this is LIDAR-only —
-# same as Task 3.1's own dock_detector_node, which is also LIDAR-only
-# despite the vision pipeline existing elsewhere in the stack.
+# into candidate objects, RANSAC extracts straight wall segments from each,
+# and the segments are matched against a U template (a ~4m back wall
+# flanked by two ~2m perpendicular arms, opening toward the boat) — the
+# same U-matching algorithm dock_detector_node uses, reparametrized for
+# Task 3.2's berth proportions. The fields below describe the matched back
+# wall specifically (NOT the U's opening/arm-tip geometry) — Task 3.2
+# needs the boat to end up alongside the back wall itself, unlike Task 3.1
+# which enters through the opening toward it. There is no "pier"/"wall"
+# class in the YOLO segmentation model (vision/node.py's class_id 0-5 are
+# buoy/cardinal marks only), so unlike a first guess might assume, this is
+# LIDAR-only — same as Task 3.1's own dock_detector_node, which is also
+# LIDAR-only despite the vision pipeline existing elsewhere in the stack.
 
 std_msgs/Header header                # frame_id = "base_link"
 bool detected                         # true if a wall segment was recognized
@@ -35,8 +39,10 @@ float32 heading                       # rad, wall's line direction,
                                        # DockTarget.heading (0 = boat's
                                        # current heading already matches)
 float32 length                        # m, wall segment length
-float32 confidence                    # 0..1, how well the segment matched
-                                       # the expected berth wall length
+float32 confidence                    # 0..1, how well the 3-segment U match
+                                       # fit (parallelism, perpendicularity,
+                                       # opening width, corner alignment,
+                                       # RANSAC inlier ratio)
 bool occupied                         # true if points near the wall,
                                        # inside the standoff band, aren't
                                        # explained by the wall segment

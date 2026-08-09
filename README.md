@@ -648,6 +648,41 @@ ros2 topic echo /competition/status
 ```
 (Same pattern with `task: 4` + `/perception/dock_target` for Task 3.1.) This is exactly how the Task 3.2 controller was first exercised end to end on 2026-08-09 — see `WAITING_FOR_TARGET → APPROACHING → FINAL_APPROACH → DOCKED → hold → reverse → complete` in the log output.
 
+### Running a mission on the real boat (SSH from another laptop)
+
+The Jetson runs `njord.service` (installed by `scripts/init.sh`, see Production Deploy below), a systemd unit that keeps a Podman container named `njord` running the full stack — `ros2 launch bringup njord.launch.py` with **default args**, so `enable_control:=true` (real thrusters live) and all three `enable_*_mission` flags `false` (no mission auto-starts on boot). To run one specific mission, SSH in and layer just that mission node onto the already-running stack rather than restarting anything:
+
+```bash
+# From your laptop:
+ssh pi@boat.local
+# (or the boat's IP if mDNS/.local resolution isn't working on your network)
+
+# On the boat — confirm the stack is actually up first:
+systemctl status njord.service
+podman ps   # expect a container named "njord"
+
+# Exec into the running container and start the mission sequencer.
+# This does NOT restart the main stack — it just adds this one node.
+podman exec -it njord bash -c \
+  "source /opt/ros/jazzy/setup.bash && source /opt/njord/setup.bash && \
+   ros2 run mission_docking_parallel docking_parallel_mission"
+# (swap the package/executable for mission_maneuvering_pathfinding /
+# maneuvering_pathfinding_mission, or mission_docking / docking_mission)
+```
+
+**Before running any of this for real: the thrusters are live.** Boat secured (on a stand or in the water with the area clear), a human present the whole time, and you know how to cut power or hit the kill switch — same stand-test discipline as `TODOS.md`'s pre-water checklist. `Ctrl+C` in that SSH session stops only the mission node (the exec'd process) — the rest of the stack, and any motion already in progress, is unaffected until you separately stop it.
+
+Useful commands from a second SSH session while a mission runs (the Jetson host itself has no ROS install — `ros2` commands must run inside the container, same as the mission-launch command above):
+
+```bash
+podman logs -f njord                                        # main stack's logs, from the bare host
+podman exec -it njord bash -c \
+  "source /opt/ros/jazzy/setup.bash && source /opt/njord/setup.bash && \
+   ros2 topic echo /competition/status"                      # from the bare host, runs inside the container
+sudo systemctl restart njord.service   # full stack restart (stops any running mission with it) — bare host
+podman stop njord                      # hard stop — kills the whole stack, thrusters included — bare host
+```
+
 ## Production Deploy
 
 ```bash

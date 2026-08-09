@@ -632,9 +632,17 @@ class CompetitionManager(Node):
         )
 
         for index, waypoint in enumerate(task_definition.waypoints):
+            # ROS topic name tokens must not start with a digit — a bare
+            # numeric index here (e.g. /competition/waypoints/0) throws
+            # InvalidTopicNameException and crashes this node's whole
+            # process the instant any waypoint-based task (maneuvering,
+            # path_finding) is selected. Caught live only by actually
+            # calling /competition/set_task for a real waypoint task, not
+            # by starting the node or by testing TASK_DOCKING (zero
+            # waypoints, this loop never ran).
             publisher = self.create_publisher(
                 NavSatFix,
-                f"/competition/waypoints/{index}",
+                f"/competition/waypoints/wp_{index}",
                 waypoint_qos,
             )
 

@@ -30,16 +30,24 @@ from mavros_msgs.msg import State
 
 SPEED_DEADBAND = 0.05  # m/s; below this hold last COG
 
-# ArduPilot Rover mode -> jury-facing status
+# ArduPilot Rover mode -> jury-facing status. Asket is FRAME_CLASS=2 (Boat),
+# which runs ArduPilot's Rover firmware -- confirmed live against the real
+# Pixhawk's params in an earlier session (see TODOS.md). The valid mode set
+# for Rover (mavros_msgs/State's MODE_APM_ROVER_* constants) is MANUAL,
+# LEARNING, STEERING, HOLD, AUTO, RTL, GUIDED, INITIALISING -- notably NOT
+# ACRO/LOITER/SMART_RTL, which only exist for Copter/Plane and would never
+# match here. GUIDED is the mode mission_manager's Nav2 goals actually run
+# the boat in (NavigateToPose -> MAVROS GUIDED), so it must map to
+# AUTONOMOUS for the status bar to be correct during a normal mission run.
 MODE_MAP = {
     "MANUAL": "REMOTE",
-    "ACRO": "REMOTE",
+    "LEARNING": "REMOTE",
+    "STEERING": "REMOTE",
     "HOLD": "STANDBY",
+    "INITIALISING": "STANDBY",
     "AUTO": "AUTONOMOUS",
     "GUIDED": "AUTONOMOUS",
     "RTL": "AUTONOMOUS",
-    "SMART_RTL": "AUTONOMOUS",
-    "LOITER": "STANDBY",
 }
 
 
@@ -76,6 +84,13 @@ class GuiTelemetryHW(Node):
         self.pub_batt.publish(Float64(data=pct))
 
     def on_vel(self, msg: TwistStamped):
+        # UNVERIFIED against real hardware: assumes MAVROS's usual
+        # world-frame ENU convention (x=East, y=North) applies to this
+        # specific "raw" GPS-velocity topic the same as it does to MAVROS's
+        # other local/world-frame topics. If COG ever reads a fixed 90 deg
+        # off compass heading while driving in a straight line, swap
+        # east/north here first -- that's the signature of this being NED
+        # instead of ENU on this particular topic.
         east = msg.twist.linear.x   # ENU: x=East, y=North
         north = msg.twist.linear.y
         speed = math.hypot(east, north)

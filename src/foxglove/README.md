@@ -14,16 +14,14 @@ about the ASV during a task run. Import it into Foxglove
 
 1. `src/foxglove/ASKET_GUI_mandatory.json` — this layout.
 2. `src/foxglove/README.md` — this file.
-3. `src/sensors/sensors/gui_telemetry_hw.py` — the telemetry helper node that
-   feeds the gauges + status bar (see its own README below).
-   **This file does not exist in the repo yet** (checked 2026-08-09,
-   `git log --all` on it is empty) — the layout panels that depend on it
-   (ASV STATUS, all four gauges) are wired up and waiting for data, but
-   will stay empty until this node is actually written and committed.
+3. `src/foxglove/gui_telemetry_hw.py` — the telemetry helper node that feeds
+   the gauges + status bar (see its own section below). It's a standalone
+   script here, not inside a colcon package — run it directly with
+   `python3`, not `ros2 run` (there's no package name for it).
 
 ## What it does
 
-It arranges eleven panels into a single jury-readable screen:
+It arranges ten panels into a single jury-readable screen:
 
 | Panel               | Shows                          | Topic it reads                 | Data source                     |
 | ------------------- | ------------------------------ | ------------------------------ | ------------------------------- |
@@ -31,19 +29,19 @@ It arranges eleven panels into a single jury-readable screen:
 | RGB Front Camera    | Front camera feed              | `/front_camera_driver/image_raw` | `camera_driver` (real hardware) |
 | Map                 | Boat position + planned-route markers | `/gps_driver/gps_raw` (live trail, blue) + `/competition/waypoints/wp_*` and the docking missions' `*/points/*` (planned-route markers, amber) | `imu_gps_driver` GPS + `competition_manager`/`mission_docking*` |
 | Latitude / Longitude| Numeric GPS readout            | `/gps_driver/gps_raw`          | `imu_gps_driver` GPS            |
-| ASV STATUS          | Auto / Remote / Standby / Out of control | `/vehicle/status`    | `gui_telemetry_hw` (from MAVROS) — **node not written yet** |
-| Heading gauge       | Compass heading (deg)          | `/heading`                     | `gui_telemetry_hw` (from MAVROS) — **node not written yet** |
-| COG gauge           | Course over ground (deg)       | `/cog`                         | `gui_telemetry_hw` (from MAVROS) — **node not written yet** |
-| Speed gauge         | Speed over ground (kn)         | `/sog`                         | `gui_telemetry_hw` (from MAVROS) — **node not written yet** |
-| Battery gauge       | Battery remaining (%)          | `/battery_percentage`          | `gui_telemetry_hw` (from MAVROS) — **node not written yet** |
+| ASV STATUS          | Auto / Remote / Standby / Out of control | `/vehicle/status`    | `gui_telemetry_hw` (from MAVROS) |
+| Heading gauge       | Compass heading (deg)          | `/heading`                     | `gui_telemetry_hw` (from MAVROS) |
+| COG gauge           | Course over ground (deg)       | `/cog`                         | `gui_telemetry_hw` (from MAVROS) — see Limitations, frame convention unverified on hardware |
+| Speed gauge         | Speed over ground (kn)         | `/sog`                         | `gui_telemetry_hw` (from MAVROS) |
+| Battery gauge       | Battery remaining (%)          | `/battery_percentage`          | `gui_telemetry_hw` (from MAVROS) |
 | BMS (BQ76920)       | Pack voltage, per-cell voltage, temp, current, CHG/DSG, fault flags | `/diagnostics` | `bms_reader` (real hardware, already working) |
 
 The camera, LiDAR, GPS, map, and BMS panels read real, already-working
 topics directly. The four gauges and the status bar read topics produced
-by the helper node `gui_telemetry_hw.py`, which is referenced by this
-layout but **does not exist in the repo yet** — those five panels will
-stay empty until it's written. The map's waypoint-marker topics only
-exist while a task with waypoints is selected
+by `gui_telemetry_hw.py`, which now exists (see below) but is
+**UNVERIFIED against real hardware** — no bench/water test yet, see
+Limitations for the one specific correctness risk (COG frame convention).
+The map's waypoint-marker topics only exist while a task with waypoints is selected
 (`competition_manager`'s `/competition/waypoints/wp_N`) or while
 `mission_docking`/`mission_docking_parallel` is running (their own
 `*/points/*` topics) — otherwise only the live GPS trail shows. There is
@@ -55,29 +53,29 @@ from the task's waypoint list) that nothing currently publishes.
 ## How to use it
 
 1. Start the boat stack: `ros2 launch bringup njord.launch.py`.
-2. Start the BMS reader (already exists — it just needs to be running for the
-   BMS panel to populate): `ros2 run sensors bms_reader`.
-3. Start the telemetry helper (it produces the gauge + status topics) —
-   **this node doesn't exist yet, see above**: `ros2 run sensors gui_telemetry_hw`.
+2. Start the BMS reader: `ros2 run sensors bms_reader`.
+3. Start the telemetry helper (it produces the gauge + status topics):
+   `python3 src/foxglove/gui_telemetry_hw.py`.
 4. In Foxglove, connect to `ws://<pi-ip>:8765` and import
    `src/foxglove/ASKET_GUI_mandatory.json`.
-5. Camera, LiDAR, map, lat/lon, and BMS panels should populate now. The status
-   bar and four gauges stay empty until step 3's node exists.
+5. All ten panels should populate.
 
 ## Limitations
 
-1. **The four gauges + status bar need `gui_telemetry_hw.py` running, and that
-   node doesn't exist in the repo yet.** `/heading`, `/cog`, `/sog`,
-   `/battery_percentage`, `/vehicle/status` don't exist until it's written —
-   this is currently the biggest gap in the layout, not just a runtime
-   dependency.
-2. **Once written, everything it produces depends on MAVROS being connected.**
-   If `/mavros/state.connected` is false, the status bar should read
-   OUT_OF_CONTROL and battery/heading blank. Fix the FCU link first.
-3. **Battery will read 0% until the ArduPilot battery monitor is configured**
-   (once `gui_telemetry_hw.py` exists) — 0% there means "not set up," not
-   "empty." The BMS panel's own pack voltage is unaffected by this — it reads
-   directly from the BQ76920, not through ArduPilot.
+1. **`gui_telemetry_hw.py`'s COG (course-over-ground) reading is UNVERIFIED
+   against real hardware.** It assumes MAVROS's usual ENU convention
+   (x=East, y=North) applies to `/mavros/global_position/raw/gps_vel`. If COG
+   ever reads a fixed 90° off the compass heading while driving straight,
+   that's the signature of this actually being NED on this topic — swap
+   east/north in `on_vel()`. Heading, speed, battery %, and status don't have
+   this risk (more direct field reads).
+2. **Everything `gui_telemetry_hw.py` produces depends on MAVROS being
+   connected.** If `/mavros/state.connected` is false, the status bar reads
+   OUT_OF_CONTROL and battery/heading are blank. Fix the FCU link first.
+3. **Battery reads 0% until the ArduPilot battery monitor is configured.** 0%
+   here means "not set up," not "empty." The BMS panel's own pack voltage is
+   unaffected by this — it reads directly from the BQ76920, not through
+   ArduPilot.
 4. **The LiDAR panel needs a valid `base_link` TF frame.** If the TF tree does
    not publish `base_link`, the panel shows an empty grid.
 5. **The camera topic is `/front_camera_driver/image_raw` only when launched via
@@ -99,19 +97,18 @@ display the following data:
 | 1 | Camera feed / LIDAR                                       | Yes                |
 | 2 | Latitude                                                 | Yes                |
 | 3 | Longitude                                                | Yes                |
-| 4 | Heading                                                  | Panel wired up — needs `gui_telemetry_hw.py` (not written yet) |
-| 5 | Course over ground (COG) with trail, vs plot of the ideal route from GNSS points | Partial — COG panel wired up but needs `gui_telemetry_hw.py`; live trail + planned-waypoint pins now on the map (working today), but no single connected "ideal route" line, see Limitations |
-| 6 | Speed over ground                                        | Panel wired up — needs `gui_telemetry_hw.py` (not written yet) |
-| 7 | Battery life in %                                        | Panel wired up — needs `gui_telemetry_hw.py` (not written yet); the separate BMS panel (pack voltage, not %) works today regardless |
-| 8 | Status indicator (autonomous / remote / standby / out of control) | Panel wired up — needs `gui_telemetry_hw.py` (not written yet) |
+| 4 | Heading                                                  | Yes |
+| 5 | Course over ground (COG) with trail, vs plot of the ideal route from GNSS points | Partial — COG value shown (frame convention unverified, see Limitations); live trail + planned-waypoint pins now on the map, but no single connected "ideal route" line |
+| 6 | Speed over ground                                        | Yes |
+| 7 | Battery life in %                                        | Yes (via `gui_telemetry_hw.py`) — plus the separate BMS panel's real pack voltage, independent of ArduPilot's battery monitor being configured |
+| 8 | Status indicator (autonomous / remote / standby / out of control) | Yes |
 
 Nice-to-have (not required, not included):
 
 1. Distance between ASV and next waypoint.
 2. Battery life in Wh remaining.
-3. ~~Any other parameters that help the jury understand the ASV.~~ Partially
-   added: BMS pack voltage/per-cell voltage/temp/current panel (works today,
-   independent of `gui_telemetry_hw.py`).
+3. ~~Any other parameters that help the jury understand the ASV.~~ Added: BMS
+   pack voltage/per-cell voltage/temp/current panel.
 
 
 ## GUI Telemetry Bridge (`gui_telemetry_hw`)
@@ -132,7 +129,15 @@ It fills the four gauges + status bar that would otherwise stay empty:
 | Battery gauge      | `/battery_percentage`| `std_msgs/Float64`  | `/mavros/battery`                     |
 | Status indicator   | `/vehicle/status`    | `std_msgs/String`   | `/mavros/state` (flight mode)         |
 
-Status values: `AUTONOMOUS`, `REMOTE`, `STANDBY`, `OUT_OF_CONTROL`.
+Status values: `AUTONOMOUS`, `REMOTE`, `STANDBY`, `OUT_OF_CONTROL`, derived
+from ArduPilot Rover's mode string (Asket is `FRAME_CLASS=2`/Boat, which
+runs Rover firmware) — `MANUAL`/`LEARNING`/`STEERING` → REMOTE,
+`HOLD`/`INITIALISING` → STANDBY, `AUTO`/`GUIDED`/`RTL` → AUTONOMOUS (GUIDED
+matters most: that's the mode `mission_manager`'s Nav2 goals actually run
+the boat in), any other/unknown mode → STANDBY (safe default, never
+falsely claims AUTONOMOUS), not connected → OUT_OF_CONTROL regardless of
+mode. Verified against `mavros_msgs/State`'s real `MODE_APM_ROVER_*`
+enum, not yet against the physical Pixhawk's reported mode strings.
 
 ### Requirements
 
@@ -142,13 +147,15 @@ Status values: `AUTONOMOUS`, `REMOTE`, `STANDBY`, `OUT_OF_CONTROL`.
 
 ### How to run it
 
-Standalone (quickest, for testing):
+This is a standalone script, not part of a colcon package — there's no
+`ros2 run` form for it, run it with `python3` directly:
 
 ```bash
-python3 gui_telemetry_hw.py
+python3 src/foxglove/gui_telemetry_hw.py
 ```
 
-Run it in a second terminal after the main stack is up. Leave it running.
+Run it in a second terminal after the main stack is up (or, on the deployed
+Jetson, `podman exec -it njord bash -c "source /opt/ros/jazzy/setup.bash && source /opt/njord/setup.bash && python3 src/foxglove/gui_telemetry_hw.py"` — see the main README's SSH section). Leave it running.
 
 ### How to check it works
 
@@ -185,8 +192,16 @@ Run it in a second terminal after the main stack is up. Leave it running.
    `/heading` is taken straight from the Pixhawk compass. If it is off, the fix
    is compass calibration in QGC, not this node.
 
+4. **COG reads a fixed ~90° off the compass heading while driving straight**
+   This is the signature of `/mavros/global_position/raw/gps_vel` actually
+   being NED rather than the assumed ENU on this specific topic — see
+   Limitations above. Swap `east`/`north` in `on_vel()`.
+
 ### Optional: run it automatically with the stack
 
-To launch it alongside everything else, add it as a node in
-`bringup/launch/njord.launch.py` (and add `mavros_msgs` to the owning package's
-`package.xml`). Not required for testing.
+It's a standalone script (no colcon package), so the simplest way to run it
+alongside everything else is a second `ExecuteProcess`/`Node`-style entry in
+`bringup/launch/njord.launch.py` invoking `python3` directly on this file's
+path, or moving it into the `sensors` package as a proper console-script
+entry point (matching `bms_reader`'s pattern) if it needs `mavros_msgs` as a
+declared dependency. Not required for testing.

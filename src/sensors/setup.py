@@ -21,6 +21,7 @@ setup(
             "camera_driver = sensors.camera_driver:main",
             "imu_gps_driver = sensors.imu_gps_driver:main",
             "datum_sync = sensors.datum_sync:main",
+            "bms_reader = sensors.bms_reader:main",
             "sensors_all = sensors.launch_all:main",
         ],
     },

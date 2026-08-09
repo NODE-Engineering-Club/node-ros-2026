@@ -62,6 +62,8 @@ def generate_launch_description():
         DeclareLaunchArgument("gcs_url",              default_value="udp://@localhost:14556"),
         DeclareLaunchArgument("use_pico_bridge",      default_value="false"),
         DeclareLaunchArgument("pico_port",            default_value="/dev/ttyACM0"),
+        DeclareLaunchArgument("enable_bms",           default_value="false"),
+        DeclareLaunchArgument("bms_port",             default_value="/dev/ttyACM3"),
         DeclareLaunchArgument("lidar_camera_extrinsic", default_value="",
                               description="Path to lidar_camera_extrinsic.yaml; "
                                           "empty = use URDF nominal TF for lidar→front_camera"),
@@ -394,6 +396,21 @@ def generate_launch_description():
                 LaunchConfiguration("use_pico_bridge"), "' == 'true'"
             ])),
             parameters=[{"port": LaunchConfiguration("pico_port")}, sim_time],
+        ),
+        # BMS reader — sole owner of the serial link to the battery management
+        # system (MCP2221 USB-UART bridge). Publishes sensor_msgs/BatteryState
+        # on /battery/state (renders in Foxglove's built-in Battery panel) and
+        # the full raw report (per-cell voltages, FET states) on
+        # /battery/status_raw.
+        Node(
+            package="sensors",
+            executable="bms_reader",
+            name="bms_reader",
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_bms"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true'"
+            ])),
+            parameters=[{"port": LaunchConfiguration("bms_port")}, sim_time],
         ),
         # Mission
         Node(

@@ -139,18 +139,69 @@ official Njord 2026 task specs (9.1 Maneuvering/Path Finding, 9.2 Collision
 Avoidance, 9.3 Docking) and live-tested; see the PR's review comments for
 full evidence. Docking is covered above. Status of the rest:
 
-- [x] **Collision avoidance — task subtree + adaptive bypass side** — done.
-  `CollisionAvoidanceTask` runs the real avoidance sequence (previously an
-  `<AlwaysSuccess/>` stub); `avoidance_side_` now follows the obstacle's
-  bearing (port-side obstacle → bypass starboard, starboard-side → bypass
-  port, ±2° centreline deadband defaults to starboard) instead of being
-  hardcoded to starboard always. Live-verified at three bearings. Still not
-  a full COLREG/CPA classifier — no relative-velocity-direction reasoning,
-  no 2-knot task speed setpoint, no vessel-detection signaling, no
-  gate-crossing start/end logic tied to the task specifically. `GlobalSafety`
-  runs the same reflex unconditionally regardless of selected task (except
-  during docking), so in practice this is one always-on avoidance behavior
-  rather than a collision-avoidance-task-specific one.
+- [x] **CRITICAL FIX — BT stopped ticking forever after any waypoint-based
+  task's first abort/failure** — found and fixed 2026-08-12 during a
+  full-stack smoke test that cycled all six competition tasks through one
+  long-running `boat_bt_node` process (the realistic pattern for an actual
+  competition day). Root cause: `tick_tree()` latches `tree_finished_ =
+  true` (and then permanently skips ticking the tree at all — `GlobalSafety`
+  included, not just the selected task) whenever `MainTree`'s
+  `ReactiveSequence` resolves to `SUCCESS`/`FAILURE`, which `MissionMonitor`
+  causes for ANY waypoint-based task (maneuvering, path_finding, and now
+  collision_avoidance) ending in `FAILED`/`ABORTED` — e.g. a plain
+  `/mission/abort`. Only `docking_task_started`/`docking_parallel_task_started`
+  ever reset it back to `false`, so a single aborted attempt at *any*
+  waypoint-based task silently killed BT ticking for every task attempted
+  afterward, with no symptom beyond one `"Behavior Tree failed"` ERROR log
+  — `competition_manager`/`mission_manager` state kept progressing normally
+  throughout since that's independent of tree ticking, which is exactly
+  what made this easy to miss (confirmed live: task 2/3's tree genuinely
+  never ticked after task 1's deliberate abort, in a smoke test that
+  otherwise looked completely healthy at the service-response level).
+  **This predates the 9.2 work above but was masked until now** — nothing
+  before this session ever ran more than one waypoint-based task attempt
+  in the same process during testing. Fixed by resetting `tree_finished_`
+  generically on any task transitioning into `STATE_RUNNING`
+  (`boat_bt_node.cpp`'s new `any_task_started`), not just docking/
+  docking_parallel. Re-verified live after the fix: `SelectPathFindingTask`/
+  `SelectCollisionAvoidanceTask` both confirmed ticking (100+ times each)
+  throughout their active window on the very next task after an aborted
+  maneuvering attempt, where before the fix they ticked zero times.
+
+- [x] **Task 9.2 (Collision Avoidance) — gate-crossing + COLREG give-way** —
+  done 2026-08-12. Brought up to the same standard as 9.1/3.1/3.2:
+  `mission_collision_avoidance` sequencer (GPS point 5 → 6 via
+  `mission_manager`/Nav2, same pattern as 9.1 — confirmed live: "Mission
+  started: 2 waypoints" → "Waiting for Nav2..." not an instant
+  `STATE_RUNNING` jump, now that `collision_avoidance.yaml` carries
+  waypoints), a task-scoped 2-knot speed-setpoint override
+  (`/controller_server/set_parameters`, restored after), and real
+  task-specific BT logic in `collision_nodes.cpp`: `updateGateState` pairs
+  green/red buoys into gate 1 then gate 2 and detects line-crossing for
+  each; `updateMarkerVesselState` identifies the marker vessel ("The Otter
+  of Njord", no matching YOLO class) kinematically — nearest moving,
+  unclassified obstacle in the forward sector; `colregGiveWaySide` is a
+  pragmatic, documented simplification of COLREG Rules 14/15, now using the
+  new `Obstacle.velocity_bearing_deg` field (relative-velocity *direction*,
+  not just the previously-exposed scalar speed) to only give way when the
+  vessel is actually converging. `GlobalSafety`'s generic bearing-only
+  reflex is unchanged and still runs unconditionally for this task as the
+  range-closing backstop — this new logic layers on top, same pattern as
+  Maneuvering/Path Finding's cardinal-marker handling.
+  Live-verified (bench, zero-actuation, synthetic `/obstacles/global`): gate
+  1/2 pairing + crossing, marker-vessel identification, and give-way target
+  generation all confirmed firing correctly (`Give-way target generated:
+  ... side=starboard` for a vessel converging from starboard).
+  **Still not a full CPA/judging-accurate COLREG classifier**, and
+  **UNVERIFIED against real gates or a real vessel**, on the bench or in
+  the water — see `enable_collision_avoidance_mission`'s launch-arg
+  description. Do a bench check before enabling for a real attempt.
+
+- [ ] **Collision Avoidance — no real course configured**
+  Same gap as Maneuvering/Path Finding below:
+  `competition_manager/competition_tasks/collision_avoidance.yaml`'s point
+  5/point 6 are still the venue's single address point duplicated, not the
+  real on-site gate/vessel course.
 
 - [ ] **Maneuvering / Path Finding — no real course configured**
   `mission_maneuvering_pathfinding` (sequencer), the resume-from-point-3

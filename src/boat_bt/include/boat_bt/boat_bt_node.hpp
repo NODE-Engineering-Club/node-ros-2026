@@ -25,6 +25,15 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
+// A local-tangent-plane point/offset in metres (east, north), used for
+// gate-crossing geometry (Task 9.2) where straight-line math is simpler done
+// in a flat local frame than directly in lat/lon.
+struct EnuOffset
+{
+  double east_m{0.0};
+  double north_m{0.0};
+};
+
 class BoatBTNode : public rclcpp::Node
 {
 public:
@@ -164,6 +173,33 @@ private:
     const njord_msgs::msg::ObstacleArray & msg);
 
   // =========================================================================
+  // Task 9.2: gate-crossing + marker-vessel COLREG give-way
+  // =========================================================================
+
+  void updateGateState(
+    const njord_msgs::msg::ObstacleArray & msg);
+
+  // Shared search used for both gate 1 and gate 2: finds the nearest valid
+  // green+red buoy pair (spacing within [gate_pair_min_spacing_m_,
+  // gate_pair_max_spacing_m_]) whose midpoint range exceeds min_midpoint_range_m
+  // (0.0 for gate 1; gate1's own midpoint range + gate_min_separation_m_ for
+  // gate 2, so gate 1's buoys can't be re-matched as gate 2). Returns false if
+  // no valid pair is found.
+  bool findGatePair(
+    const njord_msgs::msg::ObstacleArray & msg,
+    double min_midpoint_range_m,
+    geographic_msgs::msg::GeoPoint & out_left,
+    geographic_msgs::msg::GeoPoint & out_right,
+    double & out_midpoint_range_m) const;
+
+  void updateMarkerVesselState(
+    const njord_msgs::msg::ObstacleArray & msg);
+
+  std::string colregGiveWaySide(
+    double obstacle_bearing_deg,
+    double obstacle_velocity_bearing_deg) const;
+
+  // =========================================================================
   // Bypass target helpers
   // =========================================================================
 
@@ -182,6 +218,21 @@ private:
     const geographic_msgs::msg::GeoPoint & origin,
     double east_m,
     double north_m) const;
+
+  // Inverse of offsetGeoPointENU: the (east_m, north_m) of `to` relative to
+  // `from`, using the same metres_per_degree constants for numeric
+  // consistency. Used by Task 9.2's gate-crossing geometry (collision_nodes.cpp).
+  EnuOffset geoDeltaENU(
+    const geographic_msgs::msg::GeoPoint & from,
+    const geographic_msgs::msg::GeoPoint & to) const;
+
+  // Signed perpendicular distance of `point` from the infinite line through
+  // line_start->line_end (right-hand rule). A sign flip between consecutive
+  // calls (same line, boat position each tick) means the line was crossed.
+  double lineSide(
+    const EnuOffset & line_start,
+    const EnuOffset & line_end,
+    const EnuOffset & point) const;
 
   bool sendBypassRequest(
     const geographic_msgs::msg::GeoPoint & target,
@@ -481,6 +532,68 @@ private:
   std::string buoy_green_class_id_;
   std::string buoy_red_class_id_;
   double buoy_min_standoff_m_;
+
+  // =========================================================================
+  // Task 9.2: gate-crossing + marker-vessel state
+  // =========================================================================
+
+  // Gate state — a "gate" is a matched green+red buoy pair (spec: 5m apart).
+  // gateN_left_/gateN_right_ are assigned by boat-relative bearing sign at
+  // detection time (not a fixed colour->side convention — the spec doesn't
+  // fix one for this course).
+  bool gate1_found_{false};
+  bool gate2_found_{false};
+  bool gate1_crossed_{false};
+  bool gate2_crossed_{false};
+
+  geographic_msgs::msg::GeoPoint gate1_left_;
+  geographic_msgs::msg::GeoPoint gate1_right_;
+  geographic_msgs::msg::GeoPoint gate2_left_;
+  geographic_msgs::msg::GeoPoint gate2_right_;
+
+  double gate1_midpoint_range_m_{0.0};
+  double gate2_midpoint_range_m_{0.0};
+
+  bool gate1_prev_side_valid_{false};
+  bool gate2_prev_side_valid_{false};
+  double gate1_prev_side_m_{0.0};
+  double gate2_prev_side_m_{0.0};
+
+  double gate_pair_min_spacing_m_;
+  double gate_pair_max_spacing_m_;
+  double gate_min_separation_m_;
+
+  // Marker-vessel state — "The Otter of Njord", identified as the nearest
+  // moving, unclassified (non-buoy, non-cardinal) obstacle in the forward
+  // sector (see updateMarkerVesselState in collision_nodes.cpp).
+  bool marker_vessel_detected_{false};
+  uint32_t marker_vessel_id_{0};
+  double marker_vessel_range_m_{0.0};
+  double marker_vessel_bearing_deg_{0.0};
+  double marker_vessel_speed_mps_{0.0};
+  double marker_vessel_velocity_bearing_deg_{0.0};
+  geographic_msgs::msg::GeoPoint marker_vessel_position_;
+
+  double vessel_min_speed_mps_;
+  double vessel_max_range_m_;
+  double vessel_forward_sector_deg_;
+  double vessel_centreline_deadband_deg_;
+  double vessel_converging_deg_threshold_;
+  double vessel_giveway_offset_m_;
+
+  // Give-way decision + bypass request state (mirrors avoidance_side_/
+  // avoidance_target_/last_avoidance_request_* above, but scoped to the
+  // Task 9.2 marker-vessel encounter specifically).
+  std::string give_way_side_;
+
+  geographic_msgs::msg::GeoPoint give_way_target_;
+
+  bool give_way_target_ready_{false};
+
+  uint32_t last_give_way_request_id_{0};
+
+  rclcpp::Time
+    last_give_way_request_time_{0, 0, RCL_ROS_TIME};
 
   // =========================================================================
   // BehaviorTree.CPP

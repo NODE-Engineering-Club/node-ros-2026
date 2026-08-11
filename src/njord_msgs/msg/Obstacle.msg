@@ -18,3 +18,7 @@ bool lidar_confirmed               # true if a lidar return supports this obstac
 float32 range_m                    # metric distance boat->obstacle (m); 0 if lidar-unconfirmed
 float32 bearing_deg                # bearing from boat forward axis (deg, + = port/left)
 float32 speed_mps                  # speed estimate from the tracker (m/s); 0 until tracked
+float32 velocity_bearing_deg       # direction of the obstacle's estimated relative-velocity
+                                    # vector, same convention as bearing_deg (0=boat forward,
+                                    # +=port); 0.0 if speed_mps == 0 (direction undefined). Not
+                                    # ego-motion compensated, same caveat as speed_mps.

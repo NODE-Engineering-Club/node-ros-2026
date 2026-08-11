@@ -1,3 +1,22 @@
+# TODO: still placeholder coordinates, not the real course. Both waypoints
+# below are the actual competition venue — Havet Arena, Strandveien 104,
+# 7067 Trondheim (lat/lon from OSM Nominatim geocoding of that address:
+# 63.4414620, 10.4250150) — duplicated, matching maneuvering.yaml/
+# path_finding.yaml's placeholder convention. Replace with the real
+# on-site-captured GPS point 5 / point 6 before running this for real.
+#
+# Per the official spec (njord.gitbook.io/2026/9-task-descriptions/
+# 9.2-collision-avoidance, read 2026-08-12): "The ASV will go from GPS-point
+# 5 to GPS-point 6, and face the marker vessel on its path." This file's
+# mission.waypoints therefore holds exactly point 5 (start) and point 6
+# (end) of Task 9.2's OWN course — unlike docking/docking_parallel, there
+# is no separate open-water transit leg distinct from the scored task here
+# (see docking_3_1_waypoints.yaml's point_7/8/9 split for that pattern);
+# points 5 and 6 ARE this task's start/end. The 2 gates (red/green buoy
+# pairs, 5m apart within a gate, 20-80m between gates) and the marker
+# vessel encounter both happen somewhere between these two waypoints and
+# are detected live via /obstacles/global (see boat_bt's
+# CollisionAvoidanceTask) — their positions are NOT configured here.
 version: 1
 
 task:
@@ -6,4 +25,10 @@ task:
   description: Autonomous collision-avoidance competition task.
 
 mission:
-  waypoints: []
+  waypoints:
+    - latitude: 63.4414620
+      longitude: 10.4250150
+      altitude: 0.0
+    - latitude: 63.4414620
+      longitude: 10.4250150
+      altitude: 0.0

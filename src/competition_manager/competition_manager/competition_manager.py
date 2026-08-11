@@ -137,16 +137,21 @@ class CompetitionManager(Node):
 
         if request.task == CompetitionState.TASK_NONE:
             # Clearing to TASK_NONE is how a direct-BT task (waypoint-less
-            # — docking, collision_avoidance, surprise) gets aborted: those
-            # tasks have no failure path of their own (e.g. docking_nodes.cpp
-            # never returns BT::NodeStatus::FAILURE, it just keeps trying
-            # indefinitely), so this is the only way to end a stuck one.
+            # — docking, surprise) gets aborted: those tasks have no failure
+            # path of their own (e.g. docking_nodes.cpp never returns
+            # BT::NodeStatus::FAILURE, it just keeps trying indefinitely),
+            # so this is the only way to end a stuck one.
             # It must NOT be exempted from the STATE_RUNNING guard for a
-            # waypoint-based task (maneuvering/path_finding) though — that
-            # would silently orphan mission_manager, which is not listening
-            # for this and would just keep driving the boat toward its
-            # waypoints regardless. Those must still go through
-            # /mission/abort first, same as today.
+            # waypoint-based task (maneuvering/path_finding/collision_
+            # avoidance as of 2026-08-12, when collision_avoidance.yaml
+            # gained real waypoints) though — that would silently orphan
+            # mission_manager, which is not listening for this and would
+            # just keep driving the boat toward its waypoints regardless.
+            # Those must still go through /mission/abort first, same as
+            # today. The check below is dynamic (current_task_has_waypoints,
+            # not a hardcoded task list) so this was already correct
+            # behavior before this comment was updated — only the comment
+            # text was stale.
             current_task_has_waypoints = bool(
                 self._current_task_definition
                 and self._current_task_definition.waypoints

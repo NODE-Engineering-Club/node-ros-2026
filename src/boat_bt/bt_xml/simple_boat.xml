@@ -94,19 +94,35 @@
   </BehaviorTree>
 
   <BehaviorTree ID="CollisionAvoidanceTask">
-    <Fallback name="CollisionAvoidanceMission">
+    <!--
+      Task 9.2. GlobalSafety (MainTree) already runs its generic
+      bearing-only obstacle bypass unconditionally for this task: unlike
+      docking/docking_parallel, collision_avoidance has no close-range-
+      approach conflict with that reflex, so it is NOT excluded there (no
+      new IsTask entry added to GlobalSafety's Fallback). This subtree
+      layers the task-specific, velocity-aware COLREG give-way maneuver
+      against the marker vessel on top of it, exactly as
+      ManeuveringTask/PathFindingTask layer cardinal-marker handling on top
+      of GlobalSafety. Gate-crossing tracking (gate1_crossed_/
+      gate2_crossed_) and marker-vessel identification happen per-tick in
+      collision_nodes.cpp's updateGateState/updateMarkerVesselState, driven
+      by /obstacles/global, not by BT nodes below.
 
-      <Sequence name="ExecuteCollisionAvoidance">
-        <CollisionRiskDetected/>
-        <DetermineAvoidanceTarget/>
-        <RequestAvoidance/>
+      Task completion is NOT signalled from here: collision_avoidance.yaml
+      now carries real (see its own TODO) point-5/point-6 waypoints, so
+      competition_manager routes /competition/start through
+      mission_manager's normal waypoint transit, and success is
+      mission_manager's own final-hold-at-point-6 mechanism, identical to
+      maneuvering/path_finding, NOT the /competition/complete pattern
+      docking/docking_parallel use.
+    -->
+    <Fallback name="OptionalMarkerVesselGiveWay">
+      <Sequence name="MarkerVesselGiveWayHandling">
+        <MarkerVesselDetected/>
+        <DetermineGiveWaySide/>
+        <DetermineGiveWayTarget/>
+        <RequestGiveWayBypass/>
       </Sequence>
-
-      <!--
-        No current collision risk is not task completion.
-        MissionMonitor remains responsible for deciding whether the
-        competition mission is still running, succeeded, failed or aborted.
-      -->
       <AlwaysSuccess/>
     </Fallback>
   </BehaviorTree>

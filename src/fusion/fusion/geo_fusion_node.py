@@ -329,6 +329,11 @@ class GeoFusionNode(Node):
         obs.range_m = float(math.hypot(x, y))
         obs.bearing_deg = float(math.degrees(math.atan2(y, x)))
         obs.speed_mps = float(track.speed)
+        obs.velocity_bearing_deg = (
+            float(math.degrees(math.atan2(track.X[3], track.X[2])))
+            if track.speed > 1e-3
+            else 0.0
+        )
         return obs
 
     def _to_geo(self, mx, my, boat_map):

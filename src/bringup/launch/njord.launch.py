@@ -66,6 +66,17 @@ def generate_launch_description():
                                           "the bench or in the water — see "
                                           "DockingParallelTask in simple_boat.xml. Do a "
                                           "bench check before enabling for a real attempt."),
+        DeclareLaunchArgument("enable_collision_avoidance_mission", default_value="false",
+                              description="Run the Task 9.2 (Collision Avoidance) mission "
+                                          "sequencer — off by default, same reasoning as "
+                                          "enable_maneuvering_pathfinding_mission. Its "
+                                          "gate-crossing + COLREG give-way handling "
+                                          "(collision_nodes.cpp's updateGateState/"
+                                          "updateMarkerVesselState) is real now but "
+                                          "UNVERIFIED — never run against real gates or a "
+                                          "real vessel, on the bench or in the water — see "
+                                          "CollisionAvoidanceTask in simple_boat.xml. Do a "
+                                          "bench check before enabling for a real attempt."),
         DeclareLaunchArgument("enable_competition",   default_value="true"),
         DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -541,6 +552,24 @@ def generate_launch_description():
                     name="maneuvering_pathfinding_mission",
                     condition=IfCondition(
                         LaunchConfiguration("enable_maneuvering_pathfinding_mission")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Task 9.2 (Collision Avoidance) mission sequencer — same startup
+        # timing as the Task 9.1 sequencer above.
+        TimerAction(
+            period=4.0,
+            actions=[
+                Node(
+                    package="mission_collision_avoidance",
+                    executable="collision_avoidance_mission",
+                    name="collision_avoidance_mission",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_collision_avoidance_mission")
                     ),
                     parameters=[sim_time],
                     output="screen",

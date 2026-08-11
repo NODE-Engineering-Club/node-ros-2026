@@ -107,6 +107,46 @@ BoatBTNode::BoatBTNode()
     1.0);
 
   // -----------------------------------------------------------------------
+  // Task 9.2: gate-crossing + marker-vessel COLREG give-way
+  // -----------------------------------------------------------------------
+
+  declare_parameter<double>(
+    "gate_pair_min_spacing_m",
+    3.0);
+
+  declare_parameter<double>(
+    "gate_pair_max_spacing_m",
+    7.0);
+
+  declare_parameter<double>(
+    "gate_min_separation_m",
+    15.0);
+
+  declare_parameter<double>(
+    "vessel_min_speed_mps",
+    0.3);
+
+  declare_parameter<double>(
+    "vessel_max_range_m",
+    25.0);
+
+  declare_parameter<double>(
+    "vessel_forward_sector_deg",
+    100.0);
+
+  declare_parameter<double>(
+    "vessel_centreline_deadband_deg",
+    5.0);
+
+  declare_parameter<double>(
+    "vessel_converging_deg_threshold",
+    90.0);
+
+  declare_parameter<double>(
+    "vessel_giveway_offset_m",
+    15.0);
+
+  // -----------------------------------------------------------------------
   // Docking configuration
   //
   // All important values are ROS parameters so the competition team can
@@ -329,6 +369,46 @@ BoatBTNode::BoatBTNode()
   buoy_min_standoff_m_ =
     get_parameter(
     "buoy_min_standoff_m").as_double();
+
+  // -----------------------------------------------------------------------
+  // Read Task 9.2 (gate + marker-vessel) parameters
+  // -----------------------------------------------------------------------
+
+  gate_pair_min_spacing_m_ =
+    get_parameter(
+    "gate_pair_min_spacing_m").as_double();
+
+  gate_pair_max_spacing_m_ =
+    get_parameter(
+    "gate_pair_max_spacing_m").as_double();
+
+  gate_min_separation_m_ =
+    get_parameter(
+    "gate_min_separation_m").as_double();
+
+  vessel_min_speed_mps_ =
+    get_parameter(
+    "vessel_min_speed_mps").as_double();
+
+  vessel_max_range_m_ =
+    get_parameter(
+    "vessel_max_range_m").as_double();
+
+  vessel_forward_sector_deg_ =
+    get_parameter(
+    "vessel_forward_sector_deg").as_double();
+
+  vessel_centreline_deadband_deg_ =
+    get_parameter(
+    "vessel_centreline_deadband_deg").as_double();
+
+  vessel_converging_deg_threshold_ =
+    get_parameter(
+    "vessel_converging_deg_threshold").as_double();
+
+  vessel_giveway_offset_m_ =
+    get_parameter(
+    "vessel_giveway_offset_m").as_double();
 
   // -----------------------------------------------------------------------
   // Read docking parameters
@@ -706,6 +786,37 @@ void BoatBTNode::competition_status_callback(
     msg->message.c_str());
 
   /*
+   * tick_tree() latches tree_finished_ = true (and stops ticking the tree
+   * at all, permanently, for the rest of this process's life) whenever
+   * MainTree's ReactiveSequence resolves to either SUCCESS or FAILURE --
+   * which MissionMonitor causes on ANY waypoint-based task (maneuvering,
+   * path_finding, collision_avoidance) ending in FAILED/ABORTED, e.g. from
+   * a plain /mission/abort. Until this fix, only docking_task_started/
+   * docking_parallel_task_started below ever reset it back to false, so a
+   * single aborted attempt at any waypoint-based task would silently kill
+   * BT ticking (GlobalSafety's reflex included) for every task afterward,
+   * with no error beyond the one-time "Behavior Tree failed" log line --
+   * found live 2026-08-12 by cycling all six tasks through one long-running
+   * process and noticing task 2/3's tree never actually ticked after task
+   * 1's deliberate abort (competition_manager/mission_manager state still
+   * progressed normally throughout, since that's independent of tree
+   * ticking, which is exactly what made this easy to miss). Reset
+   * generically on ANY task starting, not just docking/docking_parallel.
+   */
+  const bool any_task_started =
+    competition_state_ ==
+    njord_msgs::msg::CompetitionState::STATE_RUNNING &&
+    (
+      previous_task != competition_task_ ||
+      previous_state !=
+      njord_msgs::msg::CompetitionState::STATE_RUNNING
+    );
+
+  if (any_task_started) {
+    tree_finished_ = false;
+  }
+
+  /*
    * Reset docking only when a new docking run begins.
    *
    * This allows the same node process to be reused for multiple competition
@@ -724,7 +835,7 @@ void BoatBTNode::competition_status_callback(
     );
 
   if (docking_task_started) {
-    tree_finished_ = false;
+    // tree_finished_ already reset above by any_task_started.
     competition_completion_request_sent_ = false;
     competition_completion_confirmed_ = false;
     resetDockingController();
@@ -788,7 +899,7 @@ void BoatBTNode::competition_status_callback(
     );
 
   if (docking_parallel_task_started) {
-    tree_finished_ = false;
+    // tree_finished_ already reset above by any_task_started.
     competition_completion_request_sent_ = false;
     competition_completion_confirmed_ = false;
     resetDockingParallelController();
@@ -830,6 +941,45 @@ void BoatBTNode::competition_status_callback(
       get_logger(),
       "Parallel-docking task stopped externally");
   }
+
+  /*
+   * Task 9.2 (Collision Avoidance) is waypoint-based (unlike docking/
+   * docking_parallel above) -- it completes through mission_manager's own
+   * /mission/status, not a boat_bt-owned /competition/complete request, so
+   * there is no _succeeded/_stopped cmd_vel handling here to mirror. Only
+   * the gate/marker-vessel/give-way state needs resetting on a fresh
+   * attempt, so the same node process can be reused across attempts.
+   */
+  const bool collision_avoidance_task_started =
+    competition_task_ ==
+    njord_msgs::msg::CompetitionState::TASK_COLLISION_AVOIDANCE &&
+    competition_state_ ==
+    njord_msgs::msg::CompetitionState::STATE_RUNNING &&
+    (
+      previous_task !=
+      njord_msgs::msg::CompetitionState::TASK_COLLISION_AVOIDANCE ||
+      previous_state !=
+      njord_msgs::msg::CompetitionState::STATE_RUNNING
+    );
+
+  if (collision_avoidance_task_started) {
+    gate1_found_ = false;
+    gate2_found_ = false;
+    gate1_crossed_ = false;
+    gate2_crossed_ = false;
+    gate1_prev_side_valid_ = false;
+    gate2_prev_side_valid_ = false;
+
+    marker_vessel_detected_ = false;
+
+    give_way_side_.clear();
+    give_way_target_ready_ = false;
+    last_give_way_request_id_ = 0;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "New collision-avoidance (Task 9.2) competition run started");
+  }
 }
 
 
@@ -844,6 +994,8 @@ void BoatBTNode::obstacles_callback(
 
   updateCardinalMarkerState(*msg);
   updateCollisionRiskState(*msg);
+  updateGateState(*msg);
+  updateMarkerVesselState(*msg);
 }
 
 

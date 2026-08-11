@@ -129,6 +129,68 @@ geographic_msgs::msg::GeoPoint BoatBTNode::offsetGeoPointENU(
 }
 
 
+EnuOffset BoatBTNode::geoDeltaENU(
+  const geographic_msgs::msg::GeoPoint & from,
+  const geographic_msgs::msg::GeoPoint & to) const
+{
+  constexpr double metres_per_degree_lat =
+    111320.0;
+
+  const double latitude_rad =
+    from.latitude * M_PI / 180.0;
+
+  double metres_per_degree_lon =
+    metres_per_degree_lat *
+    std::cos(latitude_rad);
+
+  if (
+    std::abs(metres_per_degree_lon) <
+    1.0)
+  {
+    metres_per_degree_lon = 1.0;
+  }
+
+  EnuOffset offset;
+
+  offset.east_m =
+    (to.longitude - from.longitude) *
+    metres_per_degree_lon;
+
+  offset.north_m =
+    (to.latitude - from.latitude) *
+    metres_per_degree_lat;
+
+  return offset;
+}
+
+
+double BoatBTNode::lineSide(
+  const EnuOffset & line_start,
+  const EnuOffset & line_end,
+  const EnuOffset & point) const
+{
+  const double line_east =
+    line_end.east_m -
+    line_start.east_m;
+
+  const double line_north =
+    line_end.north_m -
+    line_start.north_m;
+
+  const double point_east =
+    point.east_m -
+    line_start.east_m;
+
+  const double point_north =
+    point.north_m -
+    line_start.north_m;
+
+  return
+    line_east * point_north -
+    line_north * point_east;
+}
+
+
 bool BoatBTNode::sendBypassRequest(
   const geographic_msgs::msg::GeoPoint & target,
   const std::string & reason)

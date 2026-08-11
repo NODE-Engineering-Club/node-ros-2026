@@ -288,6 +288,103 @@ void BoatBTNode::register_bt_nodes()
     });
 
   // -----------------------------------------------------------------------
+  // Task 9.2: Collision Avoidance (gate-crossing + marker-vessel COLREG
+  // give-way). Layers on top of GlobalSafety's generic reflex above,
+  // exactly as ManeuveringTask/PathFindingTask layer cardinal-marker
+  // handling on top of it -- see CollisionAvoidanceTask in simple_boat.xml.
+  // -----------------------------------------------------------------------
+
+  factory_.registerSimpleCondition(
+    "MarkerVesselDetected",
+    [this](BT::TreeNode &) {
+      return
+        (marker_vessel_detected_ && gate1_crossed_ && !gate2_crossed_)
+        ? BT::NodeStatus::SUCCESS
+        : BT::NodeStatus::FAILURE;
+    });
+
+  factory_.registerSimpleAction(
+    "DetermineGiveWaySide",
+    [this](BT::TreeNode &) {
+      if (!marker_vessel_detected_) {
+        give_way_side_.clear();
+        return BT::NodeStatus::FAILURE;
+      }
+
+      give_way_side_ =
+        colregGiveWaySide(
+        marker_vessel_bearing_deg_,
+        marker_vessel_velocity_bearing_deg_);
+
+      return
+        give_way_side_ != "none"
+        ? BT::NodeStatus::SUCCESS
+        : BT::NodeStatus::FAILURE;
+    });
+
+  factory_.registerSimpleAction(
+    "DetermineGiveWayTarget",
+    [this](BT::TreeNode &) {
+      if (give_way_side_.empty() || give_way_side_ == "none") {
+        give_way_target_ready_ = false;
+        return BT::NodeStatus::FAILURE;
+      }
+
+      give_way_target_ =
+        offsetGeoPointRelativeToBoat(
+        current_boat_position_,
+        current_boat_heading_,
+        give_way_side_,
+        vessel_giveway_offset_m_);
+
+      give_way_target_ready_ = true;
+
+      RCLCPP_WARN(
+        get_logger(),
+        "Give-way target generated: "
+        "obstacle_id=%u side=%s target=(%.8f, %.8f)",
+        marker_vessel_id_,
+        give_way_side_.c_str(),
+        give_way_target_.latitude,
+        give_way_target_.longitude);
+
+      return BT::NodeStatus::SUCCESS;
+    });
+
+  factory_.registerSimpleAction(
+    "RequestGiveWayBypass",
+    [this](BT::TreeNode &) {
+      if (!give_way_target_ready_) {
+        return BT::NodeStatus::FAILURE;
+      }
+
+      if (
+        marker_vessel_id_ != 0 &&
+        marker_vessel_id_ == last_give_way_request_id_ &&
+        !requestCooldownExpired(last_give_way_request_time_))
+      {
+        return BT::NodeStatus::SUCCESS;
+      }
+
+      const bool requested =
+        sendBypassRequest(
+        give_way_target_,
+        "collision_avoidance_colreg_giveway");
+
+      if (!requested) {
+        return BT::NodeStatus::FAILURE;
+      }
+
+      last_give_way_request_id_ =
+        marker_vessel_id_;
+
+      last_give_way_request_time_ =
+        now();
+
+      return BT::NodeStatus::SUCCESS;
+    });
+
+  // -----------------------------------------------------------------------
   // Docking
   // -----------------------------------------------------------------------
 

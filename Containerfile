@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ros-jazzy-web-video-server \
     ros-jazzy-foxglove-bridge \
     ros-jazzy-ros-gz-bridge \
+    ros-jazzy-ros-gz-sim \
     # Camera calibration
     ros-jazzy-camera-calibration-parsers \
     ros-jazzy-camera-info-manager \

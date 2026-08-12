@@ -1,0 +1,220 @@
+<?xml version="1.0" ?>
+<sdf version="1.10">
+    <world name="default">
+        <spherical_coordinates>
+            <surface_model>EARTH_WGS84</surface_model>
+            <world_frame_orientation>ENU</world_frame_orientation>
+            <latitude_deg>63.4305</latitude_deg>
+            <longitude_deg>10.3951</longitude_deg>
+            <elevation>0</elevation>
+            <heading_deg>0</heading_deg>
+        </spherical_coordinates>
+        <physics name="1ms" type="ignored">
+            <max_step_size>0.001</max_step_size>
+            <real_time_factor>1.0</real_time_factor>
+        </physics>
+        <plugin
+            filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics">
+        </plugin>
+        <plugin
+            filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands">
+        </plugin>
+        <plugin
+            filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster">
+        </plugin>
+        <plugin
+            filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin>
+        <plugin
+            filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu">
+        </plugin>
+        <plugin
+            filename="gz-sim-navsat-system"
+            name="gz::sim::systems::NavSat">
+        </plugin>
+
+        <light type="directional" name="sun">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+
+        <model name="ground_plane">
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                        </plane>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>200 200</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <ambient>0.1 0.3 0.5 1</ambient>
+                        <diffuse>0.1 0.3 0.5 1</diffuse>
+                        <specular>0.2 0.3 0.4 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!--
+            Task 9.2 "collision avoidance" test world. Boat spawns at world
+            origin facing +x (same convention as dockingWorld.sdf).
+
+            IMPORTANT KNOWN LIMITATION, read before trusting a "gate not
+            detected" result: asket.urdf.xacro's gpu_lidar + its +90deg
+            lidar_mount_joint yaw together mean the sensor's raw +/-90deg
+            FOV maps to base_link bearings 0deg (dead ahead) through +90deg
+            (PORT/left) to 180deg (dead astern) -- the entire STARBOARD
+            (world -y from the boat's forward heading) half-plane is a
+            total blind spot, confirmed against real hardware behavior
+            during Task 3.1/3.2 testing (see repo memory/TODOS.md). This
+            was a deliberate decision NOT to fix for this world (2026-08-12)
+            -- fixing it changes what the mount angle represents and needs
+            confirming against the real physical LiDAR mount first.
+
+            Consequence for this world's layout: gate_1's buoys are BOTH
+            placed on the PORT (+y) side (not straddling the boat's y=0
+            approach line like a real gate would) purely so real LiDAR can
+            see both of them -- the boat crossing x=15 still triggers
+            boat_bt's line-crossing detection (it tests the boat's position
+            against the buoys' line extended to infinity, not a bounded
+            segment), but this is NOT a realistic "sail between the
+            buoys" gate. Only exists to unlock boat_bt's
+            MarkerVesselDetected condition (gate1_crossed_ &&
+            !gate2_crossed_) using real sensor data. No gate_2 is defined
+            on purpose, so gate2_crossed_ never latches true and the
+            give-way window stays open for the whole run.
+
+            Gate buoy classification also depends on vision/node.py's real
+            trained YOLO model (yolo26n-seg-navier.onnx) correctly
+            recognizing these as buoy_green_class_id="0" /
+            buoy_red_class_id="1" -- unverified against simple colored
+            primitives before this file was written; check
+            /obstacles/global's class_id field live rather than assuming.
+
+            The marker vessel ("otter", standing in for "The Otter of
+            Njord") has NONE of these dependencies: boat_bt identifies it
+            purely kinematically (nearest lidar_confirmed, unclassified,
+            moving obstacle in the forward sector) with no vision
+            classification needed at all, and it starts dead ahead
+            (bearing ~0deg) which is squarely inside the visible arc
+            regardless of the blind-spot issue above.
+        -->
+
+        <model name="gate1_green_buoy">
+            <pose>15 4 0.3 0 0 0</pose>
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder><radius>0.15</radius><length>0.6</length></cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder><radius>0.15</radius><length>0.6</length></cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0 0.9 0 1</ambient>
+                        <diffuse>0 0.9 0 1</diffuse>
+                        <specular>0.2 0.2 0.2 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <model name="gate1_red_buoy">
+            <pose>15 1 0.3 0 0 0</pose>
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder><radius>0.15</radius><length>0.6</length></cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder><radius>0.15</radius><length>0.6</length></cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.9 0 0 1</ambient>
+                        <diffuse>0.9 0 0 1</diffuse>
+                        <specular>0.2 0.2 0.2 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!--
+            "otter" -- marker vessel stand-in. Reuses Asket's own hull mesh
+            (same reuse pattern as dockingWorldOccupied.sdf's decoy_boat),
+            but UNLIKE decoy_boat this one is dynamic (not static) and
+            carries the same gz-sim-velocity-control-system plugin
+            asket.urdf.xacro itself uses, scoped to this model's own name
+            so it never collides with the real boat's /model/asket/cmd_vel
+            -- drive it via a ROS bridge on /model/otter/cmd_vel (bridged
+            ad hoc at test time, not a permanent gz_bridge.yaml entry,
+            since this is a test-only world).
+
+            Starts ~45m ahead of the boat's spawn, slightly off dead-centre
+            (y=0.3) to avoid an exact-zero-bearing edge case, facing back
+            toward the boat (yaw ~180deg) -- a constant-velocity straight
+            line aimed at the boat's start position is a literal
+            constant-bearing-decreasing-range collision course, matching
+            spec 9.2 part 1's "approaches directly on a collision course".
+        -->
+        <model name="otter">
+            <pose>45 0.3 0.1 0 0 3.10</pose>
+            <link name="hull">
+                <inertial>
+                    <mass>15.0</mass>
+                    <inertia>
+                        <ixx>2.0</ixx><iyy>4.0</iyy><izz>4.0</izz>
+                        <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+                    </inertia>
+                </inertial>
+                <visual name="visual">
+                    <geometry>
+                        <mesh><uri>../meshes/hull_visual.obj</uri></mesh>
+                    </geometry>
+                    <material>
+                        <ambient>0.6 0.05 0.05 1</ambient>
+                        <diffuse>0.6 0.05 0.05 1</diffuse>
+                    </material>
+                </visual>
+                <collision name="collision">
+                    <geometry>
+                        <mesh><uri>../meshes/hull_collision.stl</uri></mesh>
+                    </geometry>
+                </collision>
+            </link>
+            <plugin filename="gz-sim-velocity-control-system"
+                    name="gz::sim::systems::VelocityControl">
+                <cmd_vel_topic>/cmd_vel</cmd_vel_topic>
+            </plugin>
+        </model>
+    </world>
+</sdf>

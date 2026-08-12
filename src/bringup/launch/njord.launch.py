@@ -432,13 +432,20 @@ def generate_launch_description():
         # Pico bridge — alternative actuation path: motor commands over serial
         # to a Raspberry Pi Pico, bypassing MAVROS/the Pixhawk for motor control.
         # mavros is still used for GPS/IMU sensing in this mode.
+        #
+        # Deliberately allowed to run even when use_sim:=true (unlike
+        # actuator_driver above, which stays sim-excluded since it targets
+        # mavros/the Pixhawk): this lets a bench test drive REAL motors via
+        # the real Pico off of Gazebo-simulated perception/mission logic —
+        # the boat physically can't move (elevated/on a stand), but the
+        # thrusters WILL spin in response to real /control/effort commands.
+        # Never enable this combination with the boat in the water.
         Node(
             package="control",
             executable="pico_bridge",
             name="pico_bridge",
             condition=IfCondition(PythonExpression([
                 "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
-                LaunchConfiguration("use_sim"), "' != 'true' and '",
                 LaunchConfiguration("use_pico_bridge"), "' == 'true'"
             ])),
             parameters=[{"port": LaunchConfiguration("pico_port")}, sim_time],
@@ -448,14 +455,17 @@ def generate_launch_description():
         # on /battery/state (renders in Foxglove's built-in Battery panel) and
         # the full raw report (per-cell voltages, FET states) on
         # /battery/status_raw.
+        #
+        # Deliberately allowed to run even when use_sim:=true, same reasoning
+        # as pico_bridge above: real battery telemetry has nothing to do with
+        # whether the boat's motion is simulated, so a hybrid bench test (real
+        # hardware, Gazebo-simulated perception/mission) should still surface
+        # the real pack's voltage/cell balance.
         Node(
             package="sensors",
             executable="bms_reader",
             name="bms_reader",
-            condition=IfCondition(PythonExpression([
-                "'", LaunchConfiguration("enable_bms"), "' == 'true' and '",
-                LaunchConfiguration("use_sim"), "' != 'true'"
-            ])),
+            condition=IfCondition(LaunchConfiguration("enable_bms")),
             parameters=[{"port": LaunchConfiguration("bms_port")}, sim_time],
         ),
         # Mission

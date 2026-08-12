@@ -197,6 +197,47 @@ full evidence. Docking is covered above. Status of the rest:
   the water — see `enable_collision_avoidance_mission`'s launch-arg
   description. Do a bench check before enabling for a real attempt.
 
+- [x] **Task 9.2 — marker-vessel detection sector too narrow for part 2's
+  0-90 deg starboard approach** — fixed 2026-08-12, re-reading the full
+  official spec text (part 1: Otter approaches dead-ahead on a collision
+  course; part 2: same GPS point, Otter approaches from the ASV's
+  starboard side at a bearing anywhere from 0 to 90 deg relative to the
+  ASV's direction of travel). `vessel_forward_sector_deg_` defaulted to
+  100.0 (halved to a +/-50 deg detection cone in `updateMarkerVesselState`),
+  which silently could never detect a vessel approaching near dead abeam
+  (90 deg) -- and on a genuine constant-bearing collision course the
+  bearing barely changes as it closes, so it would never enter that 50 deg
+  cone before impact. Yesterday's dry run didn't catch this because the
+  synthetic test vessel happened to be placed inside the narrow cone.
+  Widened default to 200.0 (+/-100 deg, covering the full 0-90 deg spec
+  range with margin) in `boat_bt_node.cpp`. `colregGiveWaySide`'s
+  bearing-sign convention (negative = starboard) and the give-way-target
+  offset maneuver were both re-checked against the spec and are already
+  correct -- no other code change needed for part 1 or part 2.
+  **Real-hardware hybrid bench test done 2026-08-12** (real Pico on
+  `/dev/ttyACM0` armed AUTONOMOUS, Gazebo-simulated GPS/localization,
+  synthetic `/obstacles/global` gate+vessel injection, full real
+  competition_manager/mission_manager/Nav2/pico_bridge stack): confirmed
+  the widened sector correctly detects a vessel at bearing -85 deg
+  (previously undetectable), correctly computes `side=starboard`, and the
+  resulting give-way bypass genuinely propagates end-to-end — real
+  `/mission/set_bypass_target` service call, real Nav2 goal cancel +
+  reissue, and a real non-neutral differential motor command
+  (`/pico_bridge/motor_cmd: 1.000,0.143`) written over serial to the real,
+  armed, AUTONOMOUS Pico. Also found and fixed live (not a code bug):
+  `navsat_transform_node`'s datum was defaulting to (0,0,0) because
+  `datum_sync` depends on real `/mavros/home_position/home`, which this
+  hybrid test setup (Pico-only actuation, no Pixhawk in the loop)
+  never provides -- worked around this run via a manual `/datum` service
+  call seeded from the live GPS fix; see the new
+  `datum-sync-mavros-dependency` TODO item below for the real fix. Also
+  found: bypass goals that are close-range (the give-way case, ~15-20m)
+  eventually abort after ~25s on this stationary bench rig, almost
+  certainly Nav2's progress checker correctly noticing the boat isn't
+  actually moving (it's on a stand) -- expected for a bench test, not
+  re-verifiable as a real issue until tested with the boat actually able
+  to move.
+
 - [ ] **Collision Avoidance — no real course configured**
   Same gap as Maneuvering/Path Finding below:
   `competition_manager/competition_tasks/collision_avoidance.yaml`'s point
@@ -219,6 +260,27 @@ full evidence. Docking is covered above. Status of the rest:
   Once real waypoints land, still needs verification that Nav2 actually
   drives the real course end to end (only ever tested against a single
   placeholder point so far). **Owner: Sara (Nav2/path-finding).**
+
+- [ ] **`datum_sync` hard-depends on real mavros `/mavros/home_position/home`,
+  breaking any Pico-only (no Pixhawk in the loop) run's GPS-waypoint
+  navigation** -- found 2026-08-12 during Task 9.2's hybrid bench test.
+  `sensors/datum_sync.py` only calls `/datum` on `navsat_transform_node`
+  when it receives a `HomePosition` from mavros; with `enable_mavros:=false`
+  (this hybrid test's setup: real Pico for actuation, Gazebo for
+  GPS/perception, no real or simulated Pixhawk at all) it never fires, so
+  `navsat_transform_node` falls back to a (0,0,0) datum and every `/fromLL`
+  conversion (used by every GPS-waypoint mission, not just 9.2) comes out
+  wildly wrong -- confirmed live: `bt_navigator` computed a goal ~700km
+  away in UTM easting/northing and immediately aborted. Worked around this
+  session with a one-off manual `/datum` service call from the live GPS
+  fix; not a real fix. Only matters when Pixhawk/mavros genuinely isn't in
+  the loop -- the documented real-competition config
+  ([[pico-actuation-architecture]]) runs mavros alongside pico_bridge for
+  GPS/IMU sensing, so this may not affect competition day, but it silently
+  breaks this exact hybrid bench-test pattern and would affect any other
+  Pico-only test setup. Needs a real fix (e.g. `datum_sync` falling back to
+  the first live GPS fix itself when mavros home position never arrives
+  within some timeout) before relying on this test pattern again.
 
 - [ ] **No automated tests for `boat_bt` or `competition_manager`**
   ~1,500 new C++ lines across `docking_nodes.cpp`, `collision_nodes.cpp`,

@@ -130,9 +130,21 @@ BoatBTNode::BoatBTNode()
     "vessel_max_range_m",
     25.0);
 
+  // Per spec 9.2 part 2: the marker vessel can approach from the ASV's
+  // starboard side at a bearing anywhere from 0 deg (near dead-ahead) to
+  // 90 deg (dead abeam) relative to the ASV's direction of travel. On a
+  // genuine collision course (constant-bearing, decreasing-range) that
+  // bearing stays roughly fixed as it closes, so the detector must see the
+  // full 0-90 deg range from first detection, not just a narrow forward
+  // cone. Full sector is +/- (this value / 2), so 200 deg covers +/-100
+  // deg -- 90 deg plus margin -- on both sides (kept symmetric so part 1's
+  // dead-ahead approach and any left-side test also stay covered). Old
+  // default of 100 deg (+/-50 deg) was too narrow and would miss a vessel
+  // approaching near dead abeam until it had already closed well past a
+  // safe reaction distance.
   declare_parameter<double>(
     "vessel_forward_sector_deg",
-    100.0);
+    200.0);
 
   declare_parameter<double>(
     "vessel_centreline_deadband_deg",

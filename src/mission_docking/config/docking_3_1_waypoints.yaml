@@ -1,9 +1,5 @@
-# TODO: PLACEHOLDER COORDINATES — not the real berth position. All three
-# points below are the Havet Arena venue address (Strandveien 104, 7067
-# Trondheim; geocoded via OSM Nominatim: 63.4414620, 10.4250150), duplicated,
-# same placeholder used for maneuvering.yaml/path_finding.yaml. Replace with
-# the real on-site-captured GPS points for Task 3.1 before running this for
-# real — the team will supply these when the competition course is set up.
+# Real on-site-captured GPS points for Task 3.1, supplied by the team
+# 2026-08-12.
 #
 # Per the Njord 2026 spec (9.3 Docking), Task 3.1 uses three GPS points:
 #   point_7_start:   official start line, ~10 m from the berth. NOT
@@ -19,14 +15,14 @@ task: docking_3_1
 
 points:
   point_7_start:
-    latitude: 63.4414620
-    longitude: 10.4250150
+    latitude: 63.4411868406
+    longitude: 10.4239389212
     altitude: 0.0
   point_8_staging:
-    latitude: 63.4414620
-    longitude: 10.4250150
+    latitude: 63.4411738814
+    longitude: 10.4242062185
     altitude: 0.0
   point_9_finish:
-    latitude: 63.4414620
-    longitude: 10.4250150
+    latitude: 63.4410865264
+    longitude: 10.4241096050
     altitude: 0.0

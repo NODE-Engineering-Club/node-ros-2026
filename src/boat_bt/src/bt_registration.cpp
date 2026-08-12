@@ -181,6 +181,106 @@ void BoatBTNode::register_bt_nodes()
     });
 
   // -----------------------------------------------------------------------
+  // Task 9.4: individual buoy COLREG-side handling (Surprise)
+  // -----------------------------------------------------------------------
+
+  factory_.registerSimpleCondition(
+    "BuoyMarkerDetected",
+    [this](BT::TreeNode &) {
+      return buoy_marker_detected_
+        ? BT::NodeStatus::SUCCESS
+        : BT::NodeStatus::FAILURE;
+    });
+
+  factory_.registerSimpleAction(
+    "DetermineBuoyPassingSide",
+    [this](BT::TreeNode &) {
+      if (
+        !buoy_marker_detected_ ||
+        detected_buoy_color_.empty())
+      {
+        return BT::NodeStatus::FAILURE;
+      }
+
+      buoy_passing_side_ =
+        (detected_buoy_color_ == "red")
+        ? red_buoy_side_
+        : oppositeSide(red_buoy_side_);
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Buoy marker decision: colour=%s, keep-on-side=%s",
+        detected_buoy_color_.c_str(),
+        buoy_passing_side_.c_str());
+
+      return BT::NodeStatus::SUCCESS;
+    });
+
+  factory_.registerSimpleAction(
+    "DetermineBuoyBypassTarget",
+    [this](BT::TreeNode &) {
+      if (
+        !buoy_marker_detected_ ||
+        buoy_passing_side_.empty())
+      {
+        buoy_target_ready_ = false;
+        return BT::NodeStatus::FAILURE;
+      }
+
+      buoy_bypass_target_ =
+        offsetGeoPointRelativeToBoat(
+        detected_buoy_position_,
+        current_boat_heading_,
+        oppositeSide(buoy_passing_side_),
+        buoy_bypass_offset_m_);
+
+      buoy_target_ready_ = true;
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Buoy bypass target: "
+        "lat=%.8f lon=%.8f keep-on-side=%s",
+        buoy_bypass_target_.latitude,
+        buoy_bypass_target_.longitude,
+        buoy_passing_side_.c_str());
+
+      return BT::NodeStatus::SUCCESS;
+    });
+
+  factory_.registerSimpleAction(
+    "RequestBuoyBypass",
+    [this](BT::TreeNode &) {
+      if (!buoy_target_ready_) {
+        return BT::NodeStatus::FAILURE;
+      }
+
+      if (
+        detected_buoy_id_ != 0 &&
+        detected_buoy_id_ == last_buoy_request_id_ &&
+        !requestCooldownExpired(last_buoy_request_time_))
+      {
+        return BT::NodeStatus::SUCCESS;
+      }
+
+      const bool requested =
+        sendBypassRequest(
+        buoy_bypass_target_,
+        "buoy_" + detected_buoy_color_ + "_" + buoy_passing_side_);
+
+      if (!requested) {
+        return BT::NodeStatus::FAILURE;
+      }
+
+      last_buoy_request_id_ =
+        detected_buoy_id_;
+
+      last_buoy_request_time_ =
+        now();
+
+      return BT::NodeStatus::SUCCESS;
+    });
+
+  // -----------------------------------------------------------------------
   // Collision Avoidance
   // -----------------------------------------------------------------------
 

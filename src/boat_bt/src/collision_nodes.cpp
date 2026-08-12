@@ -590,3 +590,83 @@ std::string BoatBTNode::colregGiveWaySide(
   // Near dead-ahead: Rule 14 head-on, both vessels alter to starboard.
   return "starboard";
 }
+
+
+std::string BoatBTNode::oppositeSide(
+  const std::string & side)
+{
+  if (side == "port") {
+    return "starboard";
+  }
+
+  if (side == "starboard") {
+    return "port";
+  }
+
+  return side;
+}
+
+
+void BoatBTNode::updateBuoyMarkerState(
+  const njord_msgs::msg::ObstacleArray & msg)
+{
+  // Per-tick fresh reset, same semantics as the other update*State
+  // functions -- a stale detection does not persist.
+  buoy_marker_detected_ = false;
+
+  detected_buoy_color_.clear();
+  detected_buoy_id_ = 0;
+
+  double best_range_m =
+    std::numeric_limits<double>::infinity();
+
+  for (const auto & obstacle : msg.obstacles) {
+    if (!obstacle.lidar_confirmed) {
+      continue;
+    }
+
+    if (
+      !std::isfinite(obstacle.range_m) ||
+      obstacle.range_m <= 0.0F)
+    {
+      continue;
+    }
+
+    if (!isBuoyClassId(obstacle.class_id)) {
+      continue;
+    }
+
+    if (
+      obstacle.range_m >
+      buoy_colreg_max_range_m_)
+    {
+      continue;
+    }
+
+    if (obstacle.range_m >= best_range_m) {
+      continue;
+    }
+
+    best_range_m = obstacle.range_m;
+
+    buoy_marker_detected_ = true;
+    detected_buoy_id_ = obstacle.id;
+    detected_buoy_position_ = obstacle.position;
+
+    detected_buoy_color_ =
+      (!buoy_green_class_id_.empty() && obstacle.class_id == buoy_green_class_id_)
+      ? "green"
+      : "red";
+  }
+
+  if (buoy_marker_detected_) {
+    RCLCPP_INFO_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      1000,
+      "Buoy marker candidate: id=%u color=%s range=%.2f m",
+      detected_buoy_id_,
+      detected_buoy_color_.c_str(),
+      best_range_m);
+  }
+}

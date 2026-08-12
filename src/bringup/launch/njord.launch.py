@@ -77,6 +77,21 @@ def generate_launch_description():
                                           "real vessel, on the bench or in the water — see "
                                           "CollisionAvoidanceTask in simple_boat.xml. Do a "
                                           "bench check before enabling for a real attempt."),
+        DeclareLaunchArgument("enable_surprise_mission", default_value="false",
+                              description="Run the Task 9.4 (Surprise) mission sequencer "
+                                          "— off by default, same reasoning as "
+                                          "enable_maneuvering_pathfinding_mission. TEAM "
+                                          "WORKING DRAFT (the official 9.4 spec is still "
+                                          "unreleased) that chains normal docking -> "
+                                          "open-water transit -> parallel docking into one "
+                                          "run — see mission_surprise/surprise_mission.py's "
+                                          "docstring and TODOS.md. UNVERIFIED end to end — "
+                                          "never run, on the bench or in the water. Do NOT "
+                                          "enable alongside enable_docking_mission/"
+                                          "enable_docking_parallel_mission/"
+                                          "enable_collision_avoidance_mission — they would "
+                                          "race for the same competition_manager task "
+                                          "selection."),
         DeclareLaunchArgument("enable_competition",   default_value="true"),
         DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
         DeclareLaunchArgument("enable_vision",        default_value="true"),
@@ -622,6 +637,27 @@ def generate_launch_description():
                     name="docking_parallel_mission",
                     condition=IfCondition(
                         LaunchConfiguration("enable_docking_parallel_mission")
+                    ),
+                    parameters=[sim_time],
+                    output="screen",
+                ),
+            ],
+        ),
+
+        # Task 9.4 (Surprise) mission sequencer — same startup timing as the
+        # other sequencers above. Chains TASK_DOCKING -> open-water transit
+        # (TASK_SURPRISE) -> TASK_DOCKING_PARALLEL into one run; see
+        # mission_surprise/surprise_mission.py's docstring. TEAM WORKING
+        # DRAFT, UNVERIFIED end to end — see enable_surprise_mission above.
+        TimerAction(
+            period=4.0,
+            actions=[
+                Node(
+                    package="mission_surprise",
+                    executable="surprise_mission",
+                    name="surprise_mission",
+                    condition=IfCondition(
+                        LaunchConfiguration("enable_surprise_mission")
                     ),
                     parameters=[sim_time],
                     output="screen",

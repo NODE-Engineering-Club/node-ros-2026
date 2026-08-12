@@ -1,0 +1,83 @@
+# TODO: PLACEHOLDER COORDINATES — not the real course. All points below are
+# the Havet Arena venue address (Strandveien 104, 7067 Trondheim; geocoded
+# via OSM Nominatim: 63.4414620, 10.4250150), duplicated, same placeholder
+# convention used by docking_3_1_waypoints.yaml/docking_3_2_waypoints.yaml/
+# collision_avoidance.yaml. Replace with the real on-site-captured GPS
+# points before running this for real.
+#
+# Task 9.4 (Surprise) is a TEAM WORKING DRAFT — the official Njord 2026
+# handbook page for 9.4 is still blank ("revealed during competition"). This
+# file's point IDs/order are built from the team's own course-sketch
+# interpretation, not a confirmed spec. See TODOS.md for the full list of
+# open questions (real waypoint IDs and order, whether the "S"/"E" markers
+# are genuinely cardinal marks, real parallel-berth dimensions).
+#
+# Per that working draft, Task 9.4 uses:
+#   point_12_start:              official start point, ~10 m from the
+#                                 normal-docking berth. NOT navigated to by
+#                                 this mission — the boat is RC-positioned
+#                                 here by the operator before switching to
+#                                 Autonomous Mode. Kept here for reference
+#                                 only, same as point_7_start in
+#                                 docking_3_1_waypoints.yaml.
+#   point_14_exit:                just outside the normal-dock entrance.
+#                                 First transit target after the normal
+#                                 docking manoeuvre's built-in hold+reverse
+#                                 (ExecuteDocking's own odometry-based
+#                                 reverse-out-of-berth, not a waypoint —
+#                                 there is no GPS waypoint inside the berth
+#                                 itself, per spec).
+#   point_4_1 .. point_4_5:       open-water transit waypoints, in
+#                                 navigation order, between the two
+#                                 dockings. Per the source sketch these
+#                                 labels are NOT the real competition point
+#                                 IDs — only the navigation order is
+#                                 confirmed.
+#   point_13_parallel_approach:   just outside the parallel-dock entrance.
+#                                 Final transit target before the parallel
+#                                 docking manoeuvre. The berth's approach
+#                                 heading is flexible (double-headed arrow
+#                                 in the sketch) — handled by
+#                                 ExecuteDockingParallel reacting to the
+#                                 live-detected wall geometry
+#                                 (WallTarget.aim_point/heading), not by
+#                                 this point's own heading.
+#
+# The task ends the instant the boat is stationary inside the parallel
+# berth — no further waypoint after point_13_parallel_approach is used.
+
+task: surprise_9_4
+
+points:
+  point_12_start:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_14_exit:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_4_1:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_4_2:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_4_3:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_4_4:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_4_5:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0
+  point_13_parallel_approach:
+    latitude: 63.4414620
+    longitude: 10.4250150
+    altitude: 0.0

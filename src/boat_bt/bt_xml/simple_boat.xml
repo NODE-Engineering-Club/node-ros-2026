@@ -146,8 +146,41 @@
     <ExecuteDockingParallel/>
   </BehaviorTree>
 
+  <!--
+    Task 9.4 (Surprise). Team working draft, not an official spec, see
+    TODOS.md. Selected by surprise_mission's sequencer only during the
+    open-water leg between the two dockings (task is TASK_DOCKING /
+    TASK_DOCKING_PARALLEL, not TASK_SURPRISE, during the dockings
+    themselves, so GlobalSafety's docking suppression above still applies
+    to those phases unchanged). Layers cardinal-mark passing (reused as-is
+    from ManeuveringTask/PathFindingTask) and individual buoy COLREG-side
+    passing (new, Task-9.4-specific, see collision_nodes.cpp's
+    updateBuoyMarkerState / bt_registration.cpp's Buoy* nodes) on top of
+    GlobalSafety's generic buoy-standoff + collision-risk reflex, which
+    fires unconditionally for this task same as it does for
+    collision_avoidance. Cardinal handling is tried first: both branches
+    share the same single bypass-target mechanism
+    (/mission/set_bypass_target), so only one detour can be active at a
+    time, a real limitation if a cardinal mark and a buoy both need
+    action in the same tick, not expected to matter given the course
+    sketch's spacing but worth knowing about.
+  -->
   <BehaviorTree ID="SurpriseTask">
-    <AlwaysSuccess/>
+    <Fallback name="OptionalSurpriseTransitHandling">
+      <Sequence name="SurpriseCardinalMarkerHandling">
+        <CardinalMarkerDetected/>
+        <DeterminePassingSide/>
+        <DetermineCardinalBypassTarget/>
+        <RequestCardinalBypass/>
+      </Sequence>
+      <Sequence name="SurpriseBuoyColregHandling">
+        <BuoyMarkerDetected/>
+        <DetermineBuoyPassingSide/>
+        <DetermineBuoyBypassTarget/>
+        <RequestBuoyBypass/>
+      </Sequence>
+      <AlwaysSuccess/>
+    </Fallback>
   </BehaviorTree>
 
 </root>

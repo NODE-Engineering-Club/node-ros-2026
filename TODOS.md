@@ -307,9 +307,44 @@ full evidence. Docking is covered above. Status of the rest:
   UNVERIFIED against a real wall**, on the bench or in the water, and no
   Gazebo world exists for this berth yet unlike 3.1's `dockingWorld.sdf`.
 
-- [ ] **No Surprise task definition**
-  `SurpriseTask` is an explicit `<AlwaysSuccess/>` placeholder —
-  intentional, pending an official task definition.
+- [ ] **Task 9.4 (Surprise)** — structurally implemented 2026-08-12 from the
+  team's own working-draft interpretation of the course sketch, **not** an
+  official spec (the njord.gitbook.io 9.4 page is still blank, "revealed
+  during competition"). `mission_surprise` sequencer chains normal docking
+  (`TASK_DOCKING`) → open-water transit (`TASK_SURPRISE`, own 7-point leg
+  from `config/surprise_9_4_waypoints.yaml`) → parallel docking
+  (`TASK_DOCKING_PARALLEL`), ending stationary in the final berth with no
+  exit leg. `SurpriseTask` in `simple_boat.xml` now layers cardinal-mark
+  passing (reused as-is) and a new individual-buoy COLREG-side reflex
+  (`updateBuoyMarkerState` in `collision_nodes.cpp`, `Buoy*` BT nodes in
+  `bt_registration.cpp`) on top of `GlobalSafety`'s existing generic
+  buoy-standoff/collision-risk reflex. **UNVERIFIED end to end** — never
+  run, on the bench or in the water; chains mission_docking's proven
+  orchestration with mission_docking_parallel's own still-UNVERIFIED
+  close-range controller (see that entry above), and the new buoy-side
+  logic has no prior real-world exercise at all. `enable_surprise_mission`
+  defaults off. Open questions carried over from the team's own draft, all
+  still unresolved:
+  1. Real GPS-point IDs and order — the sketch's 12/14/4.1-4.5/13 labelling
+     is explicitly not the real numbering issued at competition.
+  2. Whether the sketch's "S"/"E" markers are genuinely IALA cardinal marks
+     (as assumed — this reuses the existing cardinal-mark pipeline as-is)
+     or something else, e.g. additional AR-tag posts.
+  3. Real parallel-berth dimensions (assumed same 2×4 m spec as Task 3.2).
+  4. **Buoy colour→side convention**: implemented as a single fixed
+     `red_buoy_side` param (default `"port"`) applied for the *whole*
+     open-water leg, not a per-sub-leg seaward/shoreward detector — the
+     source doc flags "which side is seaward" as unresolved (no compass
+     reference on the sketch), but since Surprise's transit is one
+     continuous one-way leg dock-to-dock (not an out-and-back course),
+     there is no reversal case to detect within a single run; flip the
+     param on-site if the real course orientation comes out reversed from
+     this assumption.
+  5. Cardinal-mark and buoy handling share one bypass-target mechanism
+     (`/mission/set_bypass_target`) — only one detour can be active per
+     tick, so a cardinal mark and a buoy needing action in the same tick
+     would have cardinal take priority. Not expected to matter given the
+     course sketch's spacing, but untested.
 
 - [ ] **`/perception/dock_targets` (multi-berth array) has no consumer**
   `boat_bt_node`'s docking controller only subscribes to the singular

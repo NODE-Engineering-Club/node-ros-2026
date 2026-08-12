@@ -200,6 +200,23 @@ private:
     double obstacle_velocity_bearing_deg) const;
 
   // =========================================================================
+  // Task 9.4: individual buoy COLREG-side handling (Surprise)
+  //
+  // Distinct from updateGateState above: that logic pairs buoys into gates
+  // and assigns left/right purely by boat-relative side at detection time
+  // (no colour convention, per its own comment -- correct for Task 9.2's
+  // own course, which doesn't fix one). Surprise's spec does fix one ("keep
+  // red to port / green to starboard"), and buoys here are handled
+  // individually, not as matched pairs.
+  // =========================================================================
+
+  void updateBuoyMarkerState(
+    const njord_msgs::msg::ObstacleArray & msg);
+
+  static std::string oppositeSide(
+    const std::string & side);
+
+  // =========================================================================
   // Bypass target helpers
   // =========================================================================
 
@@ -532,6 +549,34 @@ private:
   std::string buoy_green_class_id_;
   std::string buoy_red_class_id_;
   double buoy_min_standoff_m_;
+
+  // =========================================================================
+  // Task 9.4: individual buoy COLREG-side state (Surprise)
+  // =========================================================================
+
+  bool buoy_marker_detected_{false};
+
+  std::string detected_buoy_color_;
+  uint32_t detected_buoy_id_{0};
+
+  geographic_msgs::msg::GeoPoint
+    detected_buoy_position_;
+
+  std::string buoy_passing_side_;
+
+  geographic_msgs::msg::GeoPoint
+    buoy_bypass_target_;
+
+  bool buoy_target_ready_{false};
+
+  uint32_t last_buoy_request_id_{0};
+
+  rclcpp::Time
+    last_buoy_request_time_{0, 0, RCL_ROS_TIME};
+
+  double buoy_colreg_max_range_m_;
+  double buoy_bypass_offset_m_;
+  std::string red_buoy_side_;
 
   // =========================================================================
   // Task 9.2: gate-crossing + marker-vessel state

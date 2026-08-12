@@ -107,6 +107,31 @@ BoatBTNode::BoatBTNode()
     1.0);
 
   // -----------------------------------------------------------------------
+  // Task 9.4: individual buoy COLREG-side handling (Surprise)
+  //
+  // Fixed colour->side convention for the whole open-water leg (not a
+  // per-sub-leg seaward/shoreward detector): Surprise's transit is one
+  // continuous one-way leg from the normal-dock exit to the parallel-dock
+  // entrance, not an out-and-back course, so there is no "reversal" case to
+  // detect within a single run. red_buoy_side is the side a red buoy
+  // should end up on as the boat passes it; green buoys always take the
+  // opposite side. Flip this parameter on-site if the real course's
+  // orientation turns out reversed from this assumption -- see TODOS.md.
+  // -----------------------------------------------------------------------
+
+  declare_parameter<double>(
+    "buoy_colreg_max_range_m",
+    15.0);
+
+  declare_parameter<double>(
+    "buoy_bypass_offset_m",
+    2.0);
+
+  declare_parameter<std::string>(
+    "red_buoy_side",
+    "port");
+
+  // -----------------------------------------------------------------------
   // Task 9.2: gate-crossing + marker-vessel COLREG give-way
   // -----------------------------------------------------------------------
 
@@ -381,6 +406,22 @@ BoatBTNode::BoatBTNode()
   buoy_min_standoff_m_ =
     get_parameter(
     "buoy_min_standoff_m").as_double();
+
+  // -----------------------------------------------------------------------
+  // Read Task 9.4 (individual buoy COLREG-side) parameters
+  // -----------------------------------------------------------------------
+
+  buoy_colreg_max_range_m_ =
+    get_parameter(
+    "buoy_colreg_max_range_m").as_double();
+
+  buoy_bypass_offset_m_ =
+    get_parameter(
+    "buoy_bypass_offset_m").as_double();
+
+  red_buoy_side_ =
+    get_parameter(
+    "red_buoy_side").as_string();
 
   // -----------------------------------------------------------------------
   // Read Task 9.2 (gate + marker-vessel) parameters
@@ -1008,6 +1049,7 @@ void BoatBTNode::obstacles_callback(
   updateCollisionRiskState(*msg);
   updateGateState(*msg);
   updateMarkerVesselState(*msg);
+  updateBuoyMarkerState(*msg);
 }
 
 

@@ -25,6 +25,9 @@
           "colorField": "intensity",
           "colorMode": "colormap",
           "colorMap": "turbo"
+        },
+        "/gui/cardinal_markers_3d": {
+          "visible": true
         }
       },
       "layers": {
@@ -111,7 +114,19 @@
         "/docking_mission/points/point_9_finish": "#e0a400",
         "/docking_parallel_mission/points/point_10_start": "#e0a400",
         "/docking_parallel_mission/points/point_11_staging": "#e0a400",
-        "/docking_parallel_mission/points/point_12_finish": "#e0a400"
+        "/docking_parallel_mission/points/point_12_finish": "#e0a400",
+        "/gui/markers/marker_0": "#ffffff",
+        "/gui/markers/marker_1": "#ffffff",
+        "/gui/markers/marker_2": "#ffffff",
+        "/gui/markers/marker_3": "#ffffff",
+        "/gui/markers/marker_4": "#ffffff",
+        "/gui/markers/marker_5": "#ffffff",
+        "/gui/markers/marker_6": "#ffffff",
+        "/gui/markers/marker_7": "#ffffff",
+        "/gui/markers/marker_8": "#ffffff",
+        "/gui/markers/marker_9": "#ffffff",
+        "/gui/markers/marker_10": "#ffffff",
+        "/gui/markers/marker_11": "#ffffff"
       },
       "zoomLevel": 18,
       "maxNativeZoom": 18,
@@ -182,6 +197,41 @@
       "topicToRender": "/diagnostics",
       "numericPrecision": 3,
       "foxglovePanelTitle": "BMS (BQ76920)"
+    },
+    "Indicator!mission_task": {
+      "path": "/competition/status.task",
+      "style": "background",
+      "fallbackColor": "#8b949e",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        { "operator": "=", "rawValue": "0", "color": "#8b949e", "label": "TASK_NONE" },
+        { "operator": "=", "rawValue": "1", "color": "#2f6fed", "label": "MANEUVERING" },
+        { "operator": "=", "rawValue": "2", "color": "#2f6fed", "label": "PATH_FINDING" },
+        { "operator": "=", "rawValue": "3", "color": "#2f6fed", "label": "COLLISION_AVOIDANCE" },
+        { "operator": "=", "rawValue": "4", "color": "#e0a400", "label": "DOCKING" },
+        { "operator": "=", "rawValue": "5", "color": "#e0a400", "label": "SURPRISE" },
+        { "operator": "=", "rawValue": "6", "color": "#e0a400", "label": "DOCKING_PARALLEL" }
+      ],
+      "foxglovePanelTitle": "Mission"
+    },
+    "Indicator!mission_state": {
+      "path": "/mission/status.state",
+      "style": "background",
+      "fallbackColor": "#8b949e",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        { "operator": "=", "rawValue": "0", "color": "#8b949e", "label": "IDLE" },
+        { "operator": "=", "rawValue": "1", "color": "#2f6fed", "label": "RUNNING" },
+        { "operator": "=", "rawValue": "2", "color": "#2e9e44", "label": "SUCCEEDED" },
+        { "operator": "=", "rawValue": "3", "color": "#d13b3b", "label": "FAILED" },
+        { "operator": "=", "rawValue": "4", "color": "#d13b3b", "label": "ABORTED" }
+      ],
+      "foxglovePanelTitle": "Mission State"
+    },
+    "RawMessages!mission_progress": {
+      "topicPath": "/mission/status",
+      "expansion": "all",
+      "foxglovePanelTitle": "Mission Progress"
     }
   },
   "globalVariables": {},
@@ -206,31 +256,46 @@
       "second": {
         "first": {
           "first": {
-            "first": "Gauge!heading",
-            "second": "Gauge!cog",
+            "first": {
+              "first": "Gauge!heading",
+              "second": "Gauge!cog",
+              "direction": "row",
+              "splitPercentage": 50
+            },
+            "second": {
+              "first": "Gauge!speed",
+              "second": "Gauge!battery",
+              "direction": "row",
+              "splitPercentage": 50
+            },
             "direction": "row",
             "splitPercentage": 50
           },
           "second": {
-            "first": "Gauge!speed",
-            "second": "Gauge!battery",
+            "first": "RawMessages!latlon",
+            "second": "DiagnosticStatusPanel!bms",
             "direction": "row",
             "splitPercentage": 50
           },
           "direction": "row",
-          "splitPercentage": 50
+          "splitPercentage": 72
         },
         "second": {
-          "first": "RawMessages!latlon",
-          "second": "DiagnosticStatusPanel!bms",
+          "first": "Indicator!mission_task",
+          "second": {
+            "first": "Indicator!mission_state",
+            "second": "RawMessages!mission_progress",
+            "direction": "row",
+            "splitPercentage": 50
+          },
           "direction": "row",
-          "splitPercentage": 50
+          "splitPercentage": 33
         },
-        "direction": "row",
-        "splitPercentage": 72
+        "direction": "column",
+        "splitPercentage": 65
       },
       "direction": "column",
-      "splitPercentage": 28
+      "splitPercentage": 20
     },
     "direction": "column",
     "splitPercentage": 55

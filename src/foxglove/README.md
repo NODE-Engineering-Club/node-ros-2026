@@ -18,16 +18,20 @@ about the ASV during a task run. Import it into Foxglove
    the gauges + status bar (see its own section below). It's a standalone
    script here, not inside a colcon package — run it directly with
    `python3`, not `ros2 run` (there's no package name for it).
+4. `src/foxglove/gui_markers.py` — republishes `/obstacles/global` (cardinal
+   markers/buoys, mission name/state) for the GUI's 3D and Map panels + the
+   mission Indicators (see its own section below). Same standalone-script
+   convention as `gui_telemetry_hw.py`.
 
 ## What it does
 
-It arranges ten panels into a single jury-readable screen:
+It arranges thirteen panels into a single jury-readable screen:
 
 | Panel               | Shows                          | Topic it reads                 | Data source                     |
 | ------------------- | ------------------------------ | ------------------------------ | ------------------------------- |
-| LiDAR (3D)          | Live 2D LiDAR scan             | `/lidar_driver/scan_raw`       | `lidar_driver` (real hardware)  |
+| LiDAR (3D)          | Live 2D LiDAR scan + detected cardinal markers/buoys, colored by class | `/lidar_driver/scan_raw` + `/gui/cardinal_markers_3d` | `lidar_driver` (real hardware) + `gui_markers` (from fusion) |
 | RGB Front Camera    | Front camera feed              | `/front_camera_driver/image_raw` | `camera_driver` (real hardware) |
-| Map                 | Boat position + planned-route markers | `/gps_driver/gps_raw` (live trail, blue) + `/competition/waypoints/wp_*` and the docking missions' `*/points/*` (planned-route markers, amber) | `imu_gps_driver` GPS + `competition_manager`/`mission_docking*` |
+| Map                 | Boat position + planned-route markers + detected markers | `/gps_driver/gps_raw` (live trail, blue) + `/competition/waypoints/wp_*` and the docking missions' `*/points/*` (planned-route markers, amber) + `/gui/markers/marker_0..11` (detected markers, white — see Limitations for why these aren't color-coded here) | `imu_gps_driver` GPS + `competition_manager`/`mission_docking*` + `gui_markers` |
 | Latitude / Longitude| Numeric GPS readout            | `/gps_driver/gps_raw`          | `imu_gps_driver` GPS            |
 | ASV STATUS          | Auto / Remote / Standby / Out of control | `/vehicle/status`    | `gui_telemetry_hw` (from MAVROS) |
 | Heading gauge       | Compass heading (deg)          | `/heading`                     | `gui_telemetry_hw` (from MAVROS) |
@@ -35,6 +39,9 @@ It arranges ten panels into a single jury-readable screen:
 | Speed gauge         | Speed over ground (kn)         | `/sog`                         | `gui_telemetry_hw` (from MAVROS) |
 | Battery gauge       | Battery remaining (%)          | `/battery_percentage`          | `gui_telemetry_hw` (from MAVROS) |
 | BMS (BQ76920)       | Pack voltage, per-cell voltage, temp, current, CHG/DSG, fault flags | `/diagnostics` | `bms_reader` (real hardware, already working) |
+| Mission             | Current competition task name  | `/competition/status`          | `competition_manager`           |
+| Mission State       | Current mission state (idle/running/succeeded/failed/aborted) | `/mission/status` | `mission_manager` |
+| Mission Progress    | Raw mission status: current/total waypoint, state message | `/mission/status` | `mission_manager` |
 
 The camera, LiDAR, GPS, map, and BMS panels read real, already-working
 topics directly. The four gauges and the status bar read topics produced
@@ -49,6 +56,10 @@ no single connected "ideal route" polyline published anywhere yet, only
 individual waypoint pins in a different color from the live trail; a real
 connected route line would need a new topic (e.g. a `nav_msgs/Path` built
 from the task's waypoint list) that nothing currently publishes.
+The cardinal-marker/buoy panels (3D + Map) and the three Mission panels
+read topics produced by `gui_markers.py` / `competition_manager` /
+`mission_manager` directly — see the "GUI Markers Bridge" section below,
+**UNVERIFIED against real hardware**, sim-tested only so far.
 
 ## How to use it
 
@@ -56,9 +67,11 @@ from the task's waypoint list) that nothing currently publishes.
 2. Start the BMS reader: `ros2 run sensors bms_reader`.
 3. Start the telemetry helper (it produces the gauge + status topics):
    `python3 src/foxglove/gui_telemetry_hw.py`.
-4. In Foxglove, connect to `ws://<pi-ip>:8765` and import
+4. Start the markers helper (it produces the cardinal-marker + mission
+   topics): `python3 src/foxglove/gui_markers.py`.
+5. In Foxglove, connect to `ws://<pi-ip>:8765` and import
    `src/foxglove/ASKET_GUI_mandatory.json`.
-5. All ten panels should populate.
+6. All thirteen panels should populate.
 
 ## Limitations
 
@@ -85,6 +98,24 @@ from the task's waypoint list) that nothing currently publishes.
    planned-waypoint pins (amber) alongside the boat's live GPS trail (blue),
    but there's no connected "ideal route" polyline — see the note under
    "What it does" above.
+7. **`gui_markers.py`'s class legend isn't documented anywhere else in the
+   repo.** It's pulled straight from the vision model's embedded Ultralytics
+   metadata (`strings models/yolo26n-seg-navier.onnx | grep names`):
+   `{0: 'green', 1: 'red', 2: 'north', 3: 'east', 4: 'south', 5: 'west'}`.
+   If the model is ever retrained/re-exported with a different class order,
+   `CLASS_COLORS`/`CLASS_LABELS` in `gui_markers.py` need updating to match.
+8. **The 2D Map panel's detected-marker dots (`/gui/markers/marker_0..11`)
+   are a single fixed color (white), not per-class.** Foxglove's Map panel
+   assigns one color per topic, set at layout-authoring time — it can't
+   recolor per-message. The 3D LiDAR panel's `/gui/cardinal_markers_3d` is
+   the color-accurate view (green/red buoys, colored cardinal marks); the
+   map dots are redundant position confirmation only.
+9. **A Map-panel marker slot's last position can linger briefly after that
+   obstacle drops out of tracking**, since `sensor_msgs/NavSatFix` has no
+   "clear" equivalent to `visualization_msgs/Marker`'s `DELETEALL` (which
+   the 3D panel uses, so it's always current). Cosmetic only.
+10. **`gui_markers.py` and its panels are sim-tested only, UNVERIFIED against
+    real hardware.**
 
 ## Mandatory GUI requirements (Njord 2026, section 11.4)
 
@@ -103,12 +134,14 @@ display the following data:
 | 7 | Battery life in %                                        | Yes (via `gui_telemetry_hw.py`) — plus the separate BMS panel's real pack voltage, independent of ArduPilot's battery monitor being configured |
 | 8 | Status indicator (autonomous / remote / standby / out of control) | Yes |
 
-Nice-to-have (not required, not included):
+Nice-to-have (not required):
 
 1. Distance between ASV and next waypoint.
 2. Battery life in Wh remaining.
 3. ~~Any other parameters that help the jury understand the ASV.~~ Added: BMS
-   pack voltage/per-cell voltage/temp/current panel.
+   pack voltage/per-cell voltage/temp/current panel; Mission/Mission
+   State/Mission Progress panels; detected cardinal markers/buoys (3D +
+   Map panels).
 
 
 ## GUI Telemetry Bridge (`gui_telemetry_hw`)
@@ -205,3 +238,59 @@ alongside everything else is a second `ExecuteProcess`/`Node`-style entry in
 path, or moving it into the `sensors` package as a proper console-script
 entry point (matching `bms_reader`'s pattern) if it needs `mavros_msgs` as a
 declared dependency. Not required for testing.
+
+## GUI Markers Bridge (`gui_markers`)
+
+### What this adds
+
+Feeds the mandatory Foxglove GUI with cardinal-marker/buoy detections and
+mission name/state/progress. Reads `/obstacles/global`
+(`njord_msgs/ObstacleArray`, already fused + tracked by
+`src/fusion/fusion/geo_fusion_node.py` from vision + lidar) and republishes
+it as GUI-friendly topics. `/competition/status` and `/mission/status`
+(already published by `competition_manager`/`mission_manager`) are read
+directly by the layout's Indicator/RawMessages panels — `gui_markers.py`
+doesn't touch those, only the obstacle republishing.
+
+| GUI element                | Publishes                        | Type                              | Source                    |
+| --------------------------- | --------------------------------- | ---------------------------------- | -------------------------- |
+| 3D LiDAR panel markers      | `/gui/cardinal_markers_3d`        | `visualization_msgs/MarkerArray`   | `/obstacles/global`        |
+| Map panel marker dots       | `/gui/markers/marker_0..11`       | `sensor_msgs/NavSatFix` (x12)      | `/obstacles/global`        |
+
+Class legend (`CLASS_COLORS`/`CLASS_LABELS` in `gui_markers.py`), pulled
+from the vision model's embedded metadata, not invented:
+`{0: 'green', 1: 'red', 2: 'north', 3: 'east', 4: 'south', 5: 'west'}`.
+Obstacles with `class_id == "unknown"` (lidar-only, no vision confirmation)
+render gray, labelled "unknown".
+
+The 3D markers use each obstacle's boat-relative `range_m`/`bearing_deg`
+(already computed by the fusion node's tracker) to place a colored cylinder
++ text label directly in the `base_link` frame — no coordinate-frame
+conversion needed. The Map-panel dots use each obstacle's absolute
+`position` (WGS84), same as the existing waypoint pins.
+
+### Requirements
+
+1. The main stack running, with `/obstacles/global` publishing — i.e. both
+   `src/vision/vision/node.py` and `src/fusion/fusion/geo_fusion_node.py`
+   (or the sim equivalent) up and fusing detections.
+
+### How to run it
+
+Standalone script, same as `gui_telemetry_hw.py` — no `ros2 run` form:
+
+```bash
+python3 src/foxglove/gui_markers.py
+```
+
+### How to check it works
+
+1. Confirm the topics exist once an obstacle is tracked:
+   ```bash
+   ros2 topic echo /gui/cardinal_markers_3d --once
+   ros2 topic echo /gui/markers/marker_0 --once
+   ```
+2. Open the GUI in Foxglove: colored cylinders + labels should appear in
+   the 3D LiDAR panel where LiDAR sees a tracked marker; white dots should
+   appear at the same location on the Map panel; the Mission/Mission
+   State/Mission Progress panels should update as a task runs.

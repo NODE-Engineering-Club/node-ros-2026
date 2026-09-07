@@ -1,0 +1,39 @@
+omniscan_bridge:
+  ros__parameters:
+    # The sonar's address. Overridden to 127.0.0.1 when sim:=true, where
+    # asket_sim serves real Ping Protocol frames on a real socket.
+    host: "192.168.2.92"
+    port: 62312
+    transport: "udp"
+
+    frame_id: "base_link"
+
+    # The Jetson's own NTP server, disciplined by GPS time (there is no
+    # internet in the field). Everything in section 5 of the brief — recording
+    # the sonar stream and the trajectory separately and pairing them
+    # afterwards on utc_msec — depends on this being right.
+    ntp_url: "192.168.2.1"
+
+    # PROVISIONAL (Q1): depth profile in Namibia unknown.
+    range_m: 30.0
+    gain: 4
+    ping_rate_hz: 5.0
+
+    # The GUI is not a sonar analysis tool, so the point cloud is rate-limited
+    # for RViz and debugging. Health accounting still sees every ping.
+    max_publish_rate_hz: 20.0
+    drain_rate_hz: 100.0
+
+    use_vessel_attitude: true
+
+    # PROVISIONAL (Q2): mounting angle and lever arm must be measured to the
+    # centimetre. The lever arm is a systematic offset that no amount of
+    # post-processing will discover for you.
+    mounting:
+      tilt_deg: 35.0        # downward from vertical, positive to starboard
+      yaw_deg: 0.0
+      pitch_deg: 0.0
+      lever_x_m: -0.20      # forward positive, so this is 20 cm aft
+      lever_y_m: -0.35      # port positive, so this is 35 cm to starboard
+      lever_z_m: -0.15      # up positive, so this is 15 cm below the antenna
+      side: "starboard"

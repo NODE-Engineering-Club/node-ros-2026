@@ -23,7 +23,7 @@ def generate_launch_description() -> LaunchDescription:
                         [FindPackageShare("asket_bringup"), "launch", "asket.launch.py"]
                     )
                 ),
-                launch_arguments={"sim": "true"}.items(),
+                launch_arguments={"sim": "true", "sonar_host": "127.0.0.1"}.items(),
             )
         ]
     )

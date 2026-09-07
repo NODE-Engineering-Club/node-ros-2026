@@ -13,7 +13,7 @@ them. Attempting to do so from here is a bug, and there is a test for it.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 MODE_ESTOP = 0
 MODE_MANUAL = 1

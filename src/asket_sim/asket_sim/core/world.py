@@ -21,10 +21,10 @@ from asket_common.survey import SIDE_STARBOARD, SurveyPlan
 from .battery import BatteryConfig, BatterySample, BatterySim
 from .faults import FaultInjector
 from .lidar import LidarConfig, LidarScan, LidarSim, Obstacle
-from .link import LinkConfig, LinkSample, LinkSim, LINK_4G, LINK_LTEM, LINK_NONE
+from .link import LINK_4G, LINK_NONE, LinkConfig, LinkSample, LinkSim
 from .pico import PicoConfig, PicoSample, PicoSim
 from .sonar import PingSet, SeabedConfig, SonarSim, SonarSimConfig
-from .vessel import HEADING_SOURCE_MAG, VesselConfig, VesselSample, VesselSim
+from .vessel import VesselConfig, VesselSample, VesselSim
 
 
 @dataclass

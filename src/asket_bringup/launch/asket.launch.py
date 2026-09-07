@@ -26,11 +26,11 @@ def generate_launch_description() -> LaunchDescription:
     sonar_host = LaunchConfiguration("sonar_host")
     log_level = LaunchConfiguration("log_level")
 
-    mission_config = PathJoinSubstitution(
-        [FindPackageShare("asket_bringup"), "config", "mission_defaults.yaml"]
-    )
     sim_config = PathJoinSubstitution(
         [FindPackageShare("asket_sim"), "config", "sim.yaml"]
+    )
+    sonar_config = PathJoinSubstitution(
+        [FindPackageShare("omniscan_bridge"), "config", "omniscan.yaml"]
     )
 
     args = [
@@ -42,7 +42,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "sonar_host",
             default_value="192.168.2.92",
-            description="Omniscan 3D address. Overridden to localhost when sim:=true.",
+            description="Omniscan 3D address.",
         ),
         DeclareLaunchArgument("log_level", default_value="info"),
     ]
@@ -75,4 +75,15 @@ def generate_launch_description() -> LaunchDescription:
     # to make the asymmetry explicit rather than surprising.
     real_sources = GroupAction(condition=UnlessCondition(sim), actions=[])
 
-    return LaunchDescription(args + [simulated_sources, real_sources])
+    # Identical in both modes. In sim it simply connects to localhost, where
+    # fake_sonar_node is serving real Ping Protocol frames.
+    sonar_bridge = Node(
+        package="omniscan_bridge",
+        executable="omniscan_bridge_node",
+        name="omniscan_bridge",
+        parameters=[sonar_config, {"host": sonar_host}],
+        arguments=["--ros-args", "--log-level", log_level],
+        output="screen",
+    )
+
+    return LaunchDescription(args + [simulated_sources, real_sources, sonar_bridge])

@@ -4,7 +4,6 @@ import math
 
 from asket_sim.core.sonar import (
     PT_TYPE_BOTTOM,
-    PT_TYPE_NONE,
     SeabedConfig,
     SonarSim,
     SonarSimConfig,

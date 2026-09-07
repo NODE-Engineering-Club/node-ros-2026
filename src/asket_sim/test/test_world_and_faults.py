@@ -2,7 +2,7 @@
 
 import pytest
 from asket_sim.core.faults import FAULTS, FaultInjector
-from asket_sim.core.pico import MODE_AUTONOMOUS, MODE_ESTOP, MODE_MANUAL
+from asket_sim.core.pico import MODE_AUTONOMOUS
 from asket_sim.core.world import SimWorld, WorldConfig
 
 

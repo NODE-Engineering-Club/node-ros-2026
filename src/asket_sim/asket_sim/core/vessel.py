@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from asket_common.geo import (
-    LocalOrigin,
     angular_difference,
     bearing_to_enu,
     enu_bearing_deg,

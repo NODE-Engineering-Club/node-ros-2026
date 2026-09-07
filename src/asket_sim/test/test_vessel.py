@@ -2,7 +2,6 @@
 
 import math
 
-import pytest
 from asket_common.geo import LocalOrigin, angular_difference
 from asket_common.survey import SurveyPlan
 from asket_sim.core.vessel import HEADING_SOURCE_GNSS, VesselConfig, VesselSim

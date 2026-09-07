@@ -1,0 +1,34 @@
+# Automatic link profile selection.
+#
+# PROVISIONAL (Q6): tuned for a shore-based operation on a degrading WiFi link
+# with a cellular fallback. Operating from a support vessel would change these
+# substantially — the link would be short and stable rather than long and
+# fading.
+#
+# Selection runs on MEASURED round-trip time and quality, not on the bearer's
+# name. A "WiFi" link at 300 m with 40% loss is a 4G link as far as the GUI is
+# concerned, and the profile that keeps the operator informed is the one that
+# matches what the link is actually doing.
+
+thresholds:
+  full_max_rtt_ms: 150.0
+  reduced_max_rtt_ms: 600.0
+  full_min_quality: 0.35
+  reduced_min_quality: 0.10
+
+  # Degrading is fast and recovering is slow, on purpose. Flapping between
+  # profiles is worse than being wrong: every change re-runs the client's
+  # subscriptions and the operator watches panels appear and vanish.
+  upgrade_hold_s: 8.0
+  downgrade_hold_s: 2.0
+
+# How often the server measures each client's round trip.
+ping_interval_s: 2.0
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  tick_hz: 20.0
+  # Pre-downloaded map tiles for the survey area. There is no internet in the
+  # field; without this the map falls back to a coordinate grid and says so.
+  tiles_path: "/data/maps/survey.mbtiles"

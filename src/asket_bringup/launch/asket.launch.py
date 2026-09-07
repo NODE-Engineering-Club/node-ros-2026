@@ -32,6 +32,15 @@ def generate_launch_description() -> LaunchDescription:
     sonar_config = PathJoinSubstitution(
         [FindPackageShare("omniscan_bridge"), "config", "omniscan.yaml"]
     )
+    topics_config = PathJoinSubstitution(
+        [FindPackageShare("gui_backend"), "config", "topics.yaml"]
+    )
+    link_config = PathJoinSubstitution(
+        [FindPackageShare("gui_backend"), "config", "link_profiles.yaml"]
+    )
+    gui_static = PathJoinSubstitution(
+        [FindPackageShare("gui_backend"), "static"]
+    )
 
     args = [
         DeclareLaunchArgument(
@@ -45,6 +54,17 @@ def generate_launch_description() -> LaunchDescription:
             description="Omniscan 3D address.",
         ),
         DeclareLaunchArgument("log_level", default_value="info"),
+        DeclareLaunchArgument(
+            "gui_port", default_value="8080", description="Mission GUI HTTP port."
+        ),
+        DeclareLaunchArgument(
+            "tiles_path",
+            default_value="/data/maps/survey.mbtiles",
+            description=(
+                "Pre-downloaded offline map tiles. There is no internet in the "
+                "field; without this the map degrades to a coordinate grid."
+            ),
+        ),
     ]
 
     simulated_sources = GroupAction(
@@ -86,4 +106,23 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    return LaunchDescription(args + [simulated_sources, real_sources, sonar_bridge])
+    mission_gui = Node(
+        package="gui_backend",
+        executable="gui_backend_node",
+        name="gui_backend",
+        parameters=[
+            {
+                "port": LaunchConfiguration("gui_port"),
+                "topics_config": topics_config,
+                "link_profiles_config": link_config,
+                "tiles_path": LaunchConfiguration("tiles_path"),
+                "static_dir": gui_static,
+            }
+        ],
+        arguments=["--ros-args", "--log-level", log_level],
+        output="screen",
+    )
+
+    return LaunchDescription(
+        args + [simulated_sources, real_sources, sonar_bridge, mission_gui]
+    )

@@ -51,8 +51,10 @@ means `pytest` at the repo root runs the entire test suite with zero ROS
 dependencies.
 
 ```bash
-pytest                                     # whole suite, no ROS needed
-python3 -m flake8 --max-line-length=100 src/   # lint, same as CI
+pytest                                          # whole suite, no ROS needed
+python3 -m flake8 --max-line-length=100 src/    # lint
+cd src/asket_gui && npm install && npm run build
+python3 -m gui_backend.core.app --sim --port 8080   # the GUI, no ROS, no hardware
 ```
 
 ## Boundaries

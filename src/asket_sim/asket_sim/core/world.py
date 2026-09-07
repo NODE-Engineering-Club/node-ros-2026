@@ -13,6 +13,7 @@ step it from a recording.
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from asket_common.geo import LocalOrigin
@@ -114,6 +115,12 @@ class SimWorld:
         self._next_lidar_t = 0.0
         self._last_ping: PingSet | None = None
         self._last_lidar: LidarScan | None = None
+        # Pings produced since a consumer last drained them. Bounded: a
+        # consumer that stops draining must not grow this without limit.
+        # Stepping the world in large chunks produces several pings at once, so
+        # a consumer that only ever saw the latest would measure a ping rate the
+        # sonar is not actually running at.
+        self._ping_queue: deque[PingSet] = deque(maxlen=256)
         self._clock_drift_ms = 0.0
 
     # -- clock ------------------------------------------------------------
@@ -200,6 +207,7 @@ class SimWorld:
             )
             if ping is not None:
                 self._last_ping = ping
+                self._ping_queue.append(ping)
 
     # -- observation ------------------------------------------------------
 
@@ -225,9 +233,26 @@ class SimWorld:
         )
 
     def take_ping(self) -> PingSet | None:
-        """Consume the most recent ping, so a consumer sees each one once."""
+        """Consume the most recent ping and discard any older ones.
+
+        For consumers stepping in increments smaller than the ping period, which
+        is every consumer that wants one ping at a time.
+        """
+        self._ping_queue.clear()
         ping, self._last_ping = self._last_ping, None
         return ping
+
+    def take_pings(self) -> list[PingSet]:
+        """Consume every ping produced since the last call.
+
+        For consumers stepping in chunks larger than the ping period: seeing
+        only the newest would under-report the ping rate by the ratio of the two.
+        """
+        pings = list(self._ping_queue)
+        self._ping_queue.clear()
+        if pings:
+            self._last_ping = None
+        return pings
 
     def take_lidar(self) -> LidarScan | None:
         scan, self._last_lidar = self._last_lidar, None

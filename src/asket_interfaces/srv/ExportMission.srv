@@ -1,0 +1,6 @@
+string name
+string destination        # a detected fast path; rejected otherwise
+---
+bool   success
+string message
+string checksum_status    # "verified" | "mismatch" | "not_checked"

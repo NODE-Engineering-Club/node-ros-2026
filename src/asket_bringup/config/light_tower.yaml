@@ -1,0 +1,49 @@
+# Light tower colour codes. Documented in docs/light_tower.md.
+#
+# The light tower is the only visual feedback available from shore. Driving the
+# hardware is pico_bridge's job; this file is the contract, and system_test
+# reports the state it believes the tower should be showing so it can be
+# compared against reality during pre-flight.
+
+# Highest priority wins; only one mode pattern shows at a time.
+modes:
+  - id: propulsion_cut
+    priority: 1
+    when: "estop_latched"
+    colour: red
+    pattern: solid
+  - id: link_lost_autonomous
+    priority: 2
+    when: "link_lost and mode == AUTONOMOUS"
+    colour: red
+    pattern: blink
+    hz: 2.0
+  - id: autonomous
+    priority: 3
+    when: "mode == AUTONOMOUS"
+    colour: blue
+    pattern: solid
+  - id: manual
+    priority: 4
+    when: "mode == MANUAL and armed"
+    colour: amber
+    pattern: solid
+  - id: idle
+    priority: 5
+    when: "not armed"
+    colour: amber
+    pattern: blink
+    hz: 0.5
+
+# Recording is an overlay, never a replacement: mode must stay readable.
+overlays:
+  - id: recording
+    when: "mission_state == RECORDING"
+    colour: green
+    pattern: flash
+    period_s: 2.0
+  - id: recording_error
+    when: "mission_state == ERROR"
+    colour: green
+    pattern: blink
+    hz: 2.0

@@ -1,0 +1,7 @@
+# Requests a mode change. Success here means the Pico CONFIRMED it, not that the
+# request was sent. See docs/safety.md rule 4.
+uint8 mode           # matches PicoStatus MODE_* constants
+---
+bool   success
+uint8  confirmed_mode
+string message

@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# colcon
+build/
+install/
+log/
+
+# Frontend
+node_modules/
+src/asket_gui/dist/
+src/gui_backend/gui_backend/static/
+
+# Runtime data — missions are large and never belong in git
+/data/
+*.mbtiles
+*.bin.gz

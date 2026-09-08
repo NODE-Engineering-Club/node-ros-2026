@@ -1,0 +1,35 @@
+mission_recorder:
+  ros__parameters:
+    missions_root: "/data/missions"
+
+    # Stop recording rather than fill the disk completely. A full file system
+    # takes the whole Jetson down, not just the recording, and a mission that
+    # stops with a valid manifest is salvageable.
+    min_free_bytes: 1073741824        # 1 GiB
+    low_free_bytes: 5368709120        # 5 GiB — warn the operator here
+
+    # A mission that ends with the power being cut should lose a second, not a
+    # minute.
+    flush_interval_s: 1.0
+
+    trajectory_rate_hz: 10.0
+    diagnostics_rate_hz: 1.0
+
+    # Optional; a full rosbag2 roughly doubles the disk cost.
+    record_rosbag: false
+
+    export:
+      # PROVISIONAL (Q9): which mount points count as a removable fast path.
+      # Full mission data is 2-5 GB per hour and never goes over the wireless
+      # link, so export needs a USB drive or a wired client.
+      fast_path_globs:
+        - "/media/*"
+        - "/media/*/*"
+        - "/mnt/usb*"
+        - "/run/media/*/*"
+      # Never offer the Jetson's own storage: copying a mission onto the disk
+      # it already lives on fills that disk and stops the next recording.
+      exclude_roots:
+        - "/data"
+        - "/"
+      verify_after_copy: true

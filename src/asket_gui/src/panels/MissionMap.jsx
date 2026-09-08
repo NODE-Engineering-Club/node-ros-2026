@@ -162,6 +162,19 @@ export function MissionMap({ state, follow, onFollowChange, showRawLidar = false
         <button onClick={() => onFollowChange(!follow)}>
           {follow ? 'Following vessel' : 'Follow vessel'}
         </button>
+        {/* Judging coverage means seeing the whole box at once. Following the
+            vessel keeps you at a zoom where a gap two lines away is off
+            screen. */}
+        <button
+          onClick={() => {
+            onFollowChange(false);
+            fitSurvey(map.current, plan, coverage);
+          }}
+          disabled={!plan?.lines?.length}
+          title="Zoom out to the whole survey box, so gaps in coverage are visible"
+        >
+          Fit survey
+        </button>
       </div>
       {tiles && !tiles.available && (
         <div className="map-note">
@@ -177,6 +190,26 @@ export function MissionMap({ state, follow, onFollowChange, showRawLidar = false
           </div>
         )}
     </div>
+  );
+}
+
+/** Zoom to the planned survey box plus whatever has been covered so far. */
+function fitSurvey(map, plan, coverage) {
+  if (!map || !plan?.lines?.length) return;
+  const points = plan.lines.flatMap((line) => line.coords);
+  for (const segment of coverage?.segments || []) {
+    if (segment) points.push([segment[1], segment[0]]);
+  }
+  if (!points.length) return;
+
+  const lons = points.map((p) => p[0]);
+  const lats = points.map((p) => p[1]);
+  map.fitBounds(
+    [
+      [Math.min(...lons), Math.min(...lats)],
+      [Math.max(...lons), Math.max(...lats)],
+    ],
+    { padding: 48, duration: 600 },
   );
 }
 
@@ -208,14 +241,17 @@ function addLayers(map, withGraticule) {
     });
   }
 
-  // Coverage sits under everything: it is context, not a thing to read values
-  // off. Semi-transparent so overlapping passes are visible as darker bands,
+  // Coverage sits under everything else, but it is not background: with a
+  // single sonar covering one side only, spotting a gap is the whole reason
+  // this map exists, and a 28%-opacity green on a near-black basemap is
+  // effectively invisible in sunlight. Opaque enough to read at a glance,
+  // still translucent enough that overlapping passes show as a brighter band —
   // which is how an operator spots a line flown twice.
   map.addLayer({
     id: 'coverage',
     type: 'fill',
     source: 'coverage',
-    paint: { 'fill-color': '#35c46a', 'fill-opacity': 0.28 },
+    paint: { 'fill-color': '#2fd07a', 'fill-opacity': 0.55 },
   });
 
   map.addLayer({

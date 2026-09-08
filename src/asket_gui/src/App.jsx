@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { AlarmPanel } from './panels/AlarmPanel.jsx';
+import { DiagnosticsPanel } from './panels/DiagnosticsPanel.jsx';
 import { HeadingPanel } from './panels/HeadingPanel.jsx';
 import { LidarPanel } from './panels/LidarPanel.jsx';
 import { LinkStatus } from './panels/LinkStatus.jsx';
 import { MissionMap } from './panels/MissionMap.jsx';
+import { MissionPanel } from './panels/MissionPanel.jsx';
 import { ModeCommands } from './panels/ModeCommands.jsx';
 import { PowerPanel } from './panels/PowerPanel.jsx';
 import { SonarPanel } from './panels/SonarPanel.jsx';
@@ -39,6 +41,8 @@ const SUBSCRIPTIONS = [
   { name: 'lidar', rate_hz: 5 },
   { name: 'power', rate_hz: 1 },
   { name: 'sonar', rate_hz: 1 },
+  { name: 'mission', rate_hz: 1 },
+  { name: 'diagnostics', rate_hz: 0.2 },
   { name: 'plan' },
 ];
 
@@ -116,6 +120,8 @@ export function App({ connection }) {
         />
         <PowerPanel state={state} />
         <SonarPanel state={state} connection={connection} />
+        <MissionPanel state={state} connection={connection} />
+        <DiagnosticsPanel state={state} connection={connection} />
         <LinkStatus state={state} connection={connection} />
       </aside>
     </div>

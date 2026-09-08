@@ -340,3 +340,160 @@ def test_coverage_gaps_survive_onto_the_wire(hub, client):
     for message in [m for m in frames if m.get("stream") == "coverage"]:
         segments += message["payload"]["segments"]
     assert any(s is None for s in segments), "the dropout must show as a gap"
+
+    # A dropout is a CONTIGUOUS run of gaps, which is what distinguishes it on
+    # the map from the single-sample gaps a turn produces. A ribbon that closed
+    # over it would claim seabed nobody ensonified.
+    longest = current = 0
+    for segment in segments:
+        current = current + 1 if segment is None else 0
+        longest = max(longest, current)
+    assert longest >= 3, f"the dropout closed over: longest gap run was {longest}"
+
+
+def test_coverage_is_painted_only_on_the_ensonified_side(hub, client):
+    """One sonar unit means one side. Painting both would hide every gap."""
+    hub.set_profile("full")
+    hub.subscribe(client, [{"name": "coverage", "rate_hz": 2.0}])
+    drain(client)
+    frames = run_collecting(hub, client, 20.0)
+
+    payloads = [m["payload"] for m in frames if m.get("stream") == "coverage"]
+    assert payloads
+    assert payloads[0]["side"] == "starboard"
+
+    # Every sample carries a positive half-width; the side is applied once, in
+    # the envelope, so a per-sample sign error cannot flip part of the ribbon.
+    for payload in payloads:
+        for segment in payload["segments"]:
+            if segment is not None:
+                assert segment[3] > 0, "half width must be positive"
+
+
+def test_coverage_stops_when_the_heading_goes_invalid(hub, client):
+    """Data recorded without a trustworthy heading cannot be georeferenced, so
+    painting it as covered would be a lie the operator acts on."""
+    hub.set_profile("full")
+    hub.subscribe(client, [{"name": "coverage", "rate_hz": 2.0}])
+    drain(client)
+    run_collecting(hub, client, 10.0)
+
+    hub.issue_command("inject_fault", {"fault": "heading_invalid"})
+    frames = run_collecting(hub, client, 15.0, start=1010.0)
+
+    segments = []
+    for message in [m for m in frames if m.get("stream") == "coverage"]:
+        segments += message["payload"]["segments"]
+    assert segments, "no coverage samples arrived at all"
+    assert segments[-1] is None, "coverage must stop while the heading is invalid"
+
+
+# -- recording ------------------------------------------------------------
+
+
+def test_recording_is_confirmed_by_bytes_landing_not_by_the_request(hub, client):
+    """'Recording' on screen must mean the recorder reports it is writing, not
+    that a start request was accepted."""
+    result = hub.issue_command("start_mission", {"name": "namibia"})
+    assert result["status"] == "pending"
+
+    run(hub, 2.0)
+    results = [m for m in drain(client) if m["type"] == "command_result"]
+    assert results and results[-1]["status"] == "confirmed"
+
+    mission = hub.source.state()["mission"]
+    assert mission["state"] == "RECORDING"
+    assert mission["name"] == "namibia"
+
+
+def test_a_recorded_mission_appears_in_the_list_and_is_complete(hub, client):
+    hub.issue_command("start_mission", {"name": "listed"})
+    run(hub, 5.0)
+    hub.issue_command("stop_mission", {})
+    run(hub, 2.0)
+
+    missions = hub.source.state()["mission"]["missions"]
+    assert [m["name"] for m in missions] == ["listed"]
+    assert missions[0]["complete"] is True
+    assert missions[0]["size_bytes"] > 0
+
+
+def test_export_is_refused_while_recording(hub, client):
+    hub.issue_command("start_mission", {"name": "busy"})
+    run(hub, 3.0)
+    result = hub.issue_command(
+        "export_mission", {"path": hub.source.recorder.status.mission_dir,
+                           "destination": "/tmp"}
+    )
+    assert result["status"] == "failed"
+    assert "recording" in result["detail"]
+
+
+def test_deleting_without_confirmation_is_refused(hub, client):
+    result = hub.issue_command("delete_mission", {"path": "/tmp/whatever"})
+    assert result["status"] == "failed"
+    assert "confirmation" in result["detail"]
+
+
+def test_the_disk_full_fault_stops_recording_and_raises_an_alarm(hub, client):
+    hub.issue_command("start_mission", {"name": "diskfull"})
+    run(hub, 3.0)
+    drain(client)
+
+    hub.issue_command("inject_fault", {"fault": "disk_full"})
+    run(hub, 5.0)
+
+    mission = hub.source.state()["mission"]
+    assert mission["state"] == "ERROR"
+    assert "left" in mission["error_message"]
+
+    # The recorder is no longer "recording", so the pre-emptive disk_low alarm
+    # has gone quiet — which is exactly why there is a separate alarm for a
+    # recorder that stopped.
+    alarms = [m for m in drain(client) if m["type"] == "alarms"]
+    keys = {a["key"] for m in alarms for a in m["active"]}
+    assert "recording_stopped" in keys
+
+
+# -- pre-flight -----------------------------------------------------------
+
+
+def test_the_preflight_runs_and_reaches_the_client(hub, client):
+    hub.subscribe(client, [{"name": "diagnostics", "rate_hz": 1.0}])
+    drain(client)
+    hub.issue_command("run_system_test", {})
+    frames = run_collecting(hub, client, 4.0)
+
+    reports = [m for m in frames if m.get("stream") == "diagnostics"]
+    assert reports
+    payload = reports[-1]["payload"]
+    assert "go" in payload and "summary" in payload
+    assert payload["items"], "a report with no items is not a report"
+    for item in payload["items"]:
+        assert item["status"] in ("PASS", "WARN", "FAIL", "SKIPPED")
+        assert item["message"]
+
+
+def test_a_gnss_fault_turns_the_verdict_no_go_with_an_actionable_message(hub, client):
+    hub.issue_command("inject_fault", {"fault": "gnss_degraded"})
+    run(hub, 2.0)
+    hub.issue_command("run_system_test", {})
+    run(hub, 1.0)
+
+    report = hub.source.last_report
+    assert not report.go
+    gnss = next(i for i in report.items if i.id == "gnss.fix")
+    assert gnss.status == "FAIL"
+    assert "satellites" in gnss.message
+    assert gnss.remedy
+
+
+def test_clock_drift_is_caught_by_the_preflight(hub, client):
+    hub.issue_command("inject_fault", {"fault": "clock_drift"})
+    run(hub, 40.0)
+    hub.issue_command("run_system_test", {})
+    run(hub, 1.0)
+
+    clock = next(i for i in hub.source.last_report.items if i.id == "sonar.clock")
+    assert clock.status == "FAIL"
+    assert "un-georeferenceable" in clock.remedy

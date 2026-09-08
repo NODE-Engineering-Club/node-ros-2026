@@ -324,6 +324,11 @@ class RosSource:
             "state_of_charge": state["power"].get("state_of_charge"),
             "can_finish_survey": state["power"].get("can_finish_survey"),
             "recording": state["mission"].get("state") == "RECORDING",
+            "recording_error": (
+                state["mission"].get("error_message")
+                if state["mission"].get("state") == "ERROR"
+                else None
+            ),
             "disk_free_bytes": None,
             "sonar_expected": self._msg("sonar_status") is not None,
             "sonar_connected": state["sonar"].get("connected"),

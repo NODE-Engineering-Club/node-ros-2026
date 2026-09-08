@@ -29,6 +29,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import Imu, PointCloud2, PointField
 from std_msgs.msg import Header
+from std_msgs.msg import UInt8MultiArray
 from std_srvs.srv import Trigger
 
 from omniscan_bridge.core import ping_protocol as pp
@@ -77,6 +78,11 @@ class OmniscanBridge(Node):
         self.declare_parameter("mounting.lever_z_m", -0.15)
         self.declare_parameter("mounting.side", "starboard")
         self.declare_parameter("use_vessel_attitude", True)
+        # Republish the unmodified stream for mission_recorder. This is what
+        # ends up in sonar_raw.bin, and it must be the bytes as they arrived:
+        # anything reinterpreted before it reaches disk is something a
+        # post-mission tool cannot reinterpret differently later.
+        self.declare_parameter("publish_raw", True)
 
         self.frame_id = self.get_parameter("frame_id").value
         self.mounting = SonarMounting(
@@ -111,6 +117,11 @@ class OmniscanBridge(Node):
         self.pub_status = self.create_publisher(SonarStatus, "/sonar/status", 10)
         self.pub_attitude = self.create_publisher(Imu, "/sonar/attitude", SENSOR_QOS)
         self.pub_diag = self.create_publisher(DiagnosticArray, "/diagnostics", 10)
+        self.pub_raw = (
+            self.create_publisher(UInt8MultiArray, "/sonar/raw", SENSOR_QOS)
+            if self.get_parameter("publish_raw").value
+            else None
+        )
 
         # Vessel attitude at the instant of the ping. Roll is what turns a flat
         # seabed into an apparent slope, so it is corrected here rather than
@@ -196,6 +207,11 @@ class OmniscanBridge(Node):
     def _drain(self) -> None:
         """Move bytes from the reader thread into ROS. Never blocks."""
         for chunk in self.transport.read():
+            if self.pub_raw is not None:
+                # Published BEFORE parsing, so a chunk the parser rejects still
+                # reaches the recording. A frame we could not decode is exactly
+                # the frame somebody will want to look at afterwards.
+                self.pub_raw.publish(UInt8MultiArray(data=list(chunk)))
             for frame, message in self.parser.feed_and_decode(chunk):
                 self._dispatch(frame, message)
 

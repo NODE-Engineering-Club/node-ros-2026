@@ -41,6 +41,12 @@ def generate_launch_description() -> LaunchDescription:
     gui_static = PathJoinSubstitution(
         [FindPackageShare("gui_backend"), "static"]
     )
+    recorder_config = PathJoinSubstitution(
+        [FindPackageShare("mission_recorder"), "config", "recorder.yaml"]
+    )
+    system_test_config = PathJoinSubstitution(
+        [FindPackageShare("system_test"), "config", "system_test.yaml"]
+    )
 
     args = [
         DeclareLaunchArgument(
@@ -56,6 +62,11 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("log_level", default_value="info"),
         DeclareLaunchArgument(
             "gui_port", default_value="8080", description="Mission GUI HTTP port."
+        ),
+        DeclareLaunchArgument(
+            "missions_root",
+            default_value="/data/missions",
+            description="Where mission directories are written.",
         ),
         DeclareLaunchArgument(
             "tiles_path",
@@ -123,6 +134,25 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    recorder = Node(
+        package="mission_recorder",
+        executable="mission_recorder_node",
+        name="mission_recorder",
+        parameters=[recorder_config, {"missions_root": LaunchConfiguration("missions_root")}],
+        arguments=["--ros-args", "--log-level", log_level],
+        output="screen",
+    )
+
+    built_in_test = Node(
+        package="system_test",
+        executable="system_test_node",
+        name="system_test",
+        parameters=[system_test_config],
+        arguments=["--ros-args", "--log-level", log_level],
+        output="screen",
+    )
+
     return LaunchDescription(
-        args + [simulated_sources, real_sources, sonar_bridge, mission_gui]
+        args
+        + [simulated_sources, real_sources, sonar_bridge, recorder, built_in_test, mission_gui]
     )

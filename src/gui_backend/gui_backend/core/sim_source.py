@@ -22,18 +22,37 @@ from asket_common.heading import (
 )
 from asket_common.survey import swath_half_width_m
 from asket_sim.core.faults import FAULTS
-from asket_sim.core.pico import MODE_VALUES
+from asket_sim.core.pico import MODE_NAMES, MODE_VALUES
+from asket_sim.core.raw_stream import encode_sim_ping
 from asket_sim.core.vessel import HEADING_SOURCE_GNSS
 from asket_sim.core.world import SimWorld, WorldConfig
+from mission_recorder.core.export import (
+    NO_FAST_PATH_MESSAGE,
+    delete_mission,
+    detect_destinations,
+    export_mission,
+)
+from mission_recorder.core.mission import (
+    MissionRecorder,
+    RecorderConfig,
+    list_missions,
+)
 from omniscan_bridge.core.status import SonarHealthTracker
+from system_test.core.checks import run_checks
+from system_test.core.history import PreflightHistory
 
 from . import payloads
 from .commands import (
     CMD_CLEAR_FAULT,
     CMD_CUT_PROPULSION,
+    CMD_DELETE_MISSION,
+    CMD_EXPORT_MISSION,
     CMD_INJECT_FAULT,
+    CMD_RUN_SYSTEM_TEST,
     CMD_SET_MODE,
     CMD_SET_PING_PARAMETERS,
+    CMD_START_MISSION,
+    CMD_STOP_MISSION,
 )
 from .source import CommandOutcome, Sample
 from .streams import DETAIL_FULL
@@ -47,6 +66,7 @@ class SimSource:
         world: SimWorld | None = None,
         time_scale: float = 1.0,
         max_step_s: float = 0.2,
+        missions_root=None,
     ) -> None:
         self.world = world or SimWorld(WorldConfig())
         self.time_scale = time_scale
@@ -66,8 +86,42 @@ class SimSource:
         self._track: list[tuple[float, float]] = []
         self._coverage: list[dict] = []
         self._last_track_utc = 0
+        self._last_trajectory_utc = 0
+        self._last_diagnostics_utc = 0
+        self._last_mode: int | None = None
+
+        # A real recorder writing real files, backed by the simulated disk so
+        # that "disk full during recording" is reachable from the GUI. Running
+        # the actual writer rather than a stub is the point: the mission files
+        # a simulated run produces are the ones a real run produces.
+        import tempfile
+        from pathlib import Path
+
+        root = Path(missions_root) if missions_root else Path(
+            tempfile.mkdtemp(prefix="asket-sim-missions-")
+        )
+        self.recorder = MissionRecorder(
+            RecorderConfig(missions_root=root, min_free_bytes=1024**3),
+            disk_usage=self._simulated_disk_usage,
+        )
+        self.missions_root = root
+        self.preflight = PreflightHistory(root / "system_test.jsonl")
+        self.last_report = None
 
     # -- clock ------------------------------------------------------------
+
+    def _simulated_disk_usage(self, _path):
+        """The recorder writes to a real directory but sees the simulated disk,
+        so the disk_full fault reaches the code that has to handle it."""
+        snapshot = self.world.snapshot()
+        return type(
+            "Usage", (),
+            {
+                "free": snapshot.disk_free_bytes,
+                "total": snapshot.disk_total_bytes,
+                "used": snapshot.disk_total_bytes - snapshot.disk_free_bytes,
+            },
+        )()
 
     def step(self, now_s: float | None = None) -> None:
         now_s = now_s if now_s is not None else time.monotonic()
@@ -86,6 +140,7 @@ class SimSource:
 
         self._consume_sonar()
         self._accumulate_map_layers()
+        self._record(now_s)
 
     def now_utc_ms(self) -> int:
         return self.world.utc_ms
@@ -102,6 +157,15 @@ class SimSource:
         pings = self.world.take_pings()
         if not pings:
             return
+
+        if self.recorder.recording:
+            # The same Ping Protocol frames the real bridge would hand the
+            # recorder. Writing the real bytes rather than a placeholder is what
+            # makes a simulated mission directory a genuine rehearsal of the
+            # post-mission fusion path: raw stream plus trajectory, paired on
+            # utc_ms, exactly as SonarView will have to do it.
+            for ping in pings:
+                self.recorder.write_sonar(encode_sim_ping(ping))
         period = 1.0 / max(0.1, self.world.cfg.sonar.ping_rate_hz)
         # Space the batch across the interval it was actually produced in, so
         # the measured rate is the rate the sonar ran at rather than the rate
@@ -173,6 +237,66 @@ class SimSource:
             }
         )
         del self._coverage[: max(0, len(self._coverage) - 4000)]
+
+    def _record(self, now_s: float) -> None:
+        """Feed the recorder, at the rates the mission file layout expects."""
+        snap = self.world.snapshot()
+        utc = snap.utc_ms
+
+        # Mode changes are events whether or not anything is recording, but only
+        # a running recorder has anywhere to put them.
+        if self._last_mode is not None and snap.pico.mode != self._last_mode:
+            self.recorder.write_event(
+                utc, "mode_changed",
+                {"from": MODE_NAMES.get(self._last_mode), "to": MODE_NAMES.get(snap.pico.mode)},
+            )
+        self._last_mode = snap.pico.mode
+
+        if self.recorder.recording:
+            # Trajectory at ~10 Hz, per the brief.
+            if utc - self._last_trajectory_utc >= 100:
+                self._write_trajectory(utc)
+
+            if utc - self._last_diagnostics_utc >= 1000:
+                self._last_diagnostics_utc = utc
+                sonar = self.snapshot("sonar", DETAIL_FULL)
+                self.recorder.write_diagnostics({
+                    "utc_ms": utc,
+                    # Logged every second, so if the clock does drift the damage
+                    # is at least visible in the recording rather than invisible
+                    # in the data.
+                    "clock_offset_ms": (sonar.payload if sonar else {}).get("clock_offset_ms"),
+                    "sonar_connected": (sonar.payload if sonar else {}).get("connected"),
+                    "battery_soc": snap.battery.state_of_charge,
+                    "link": snap.link.active_link,
+                    "link_quality": round(snap.link.quality, 3),
+                    "active_faults": snap.active_faults,
+                })
+
+        self.recorder.tick(now_s, utc)
+
+    def _write_trajectory(self, utc: int) -> None:
+        """One trajectory record.
+
+        Called on the 10 Hz tick, and also once at mission start and once at
+        stop. Those two extra records are not redundant: post-mission fusion
+        interpolates the trajectory at each ping's timestamp, and without them
+        the first and last pings fall outside the trajectory and cannot be
+        placed at all. The trajectory must bracket the sonar stream.
+        """
+        self._last_trajectory_utc = utc
+        heading = self._heading_estimate()
+        v = self.world.snapshot().vessel
+        self.recorder.write_trajectory({
+            "utc_ms": utc,
+            "lat": v.lat, "lon": v.lon, "alt": v.alt,
+            "heading_deg": heading.heading_deg,
+            "heading_source": heading.source,
+            "heading_valid": heading.valid,
+            "cog_deg": v.cog_deg, "sog_ms": v.sog_ms,
+            "roll_deg": v.roll_deg, "pitch_deg": v.pitch_deg,
+            "gnss_fix_type": v.gnss_fix_type, "num_sats": v.num_sats, "hdop": v.hdop,
+        })
 
     def _heading_estimate(self):
         v = self.world.snapshot().vessel
@@ -253,7 +377,17 @@ class SimSource:
                 ),
             )
         if stream == "mission":
-            return Sample(stream, utc, dict(self.state()["mission"]))
+            return Sample(stream, utc, self._mission_payload())
+        if stream == "diagnostics":
+            if self.last_report is None:
+                return None
+            return Sample(
+                stream, self.last_report.run_utc_ms,
+                {
+                    **self.last_report.to_dict(),
+                    "history": self.preflight.summary(),
+                },
+            )
         if stream == "plan":
             return Sample(stream, utc, payloads.plan_payload(self.world.plan))
         if stream == "track":
@@ -274,6 +408,80 @@ class SimSource:
             )
         return None
 
+    def _mission_payload(self) -> dict:
+        status = self.recorder.status
+        return {
+            "state": status.state,
+            "name": status.name,
+            "mission_dir": status.mission_dir,
+            "elapsed_s": round(status.elapsed_s, 1),
+            "bytes_written": status.bytes_written,
+            "disk_free_bytes": status.disk_free_bytes,
+            "disk_total_bytes": status.disk_total_bytes,
+            "estimated_remaining_s": (
+                None
+                if status.estimated_remaining_s == float("inf")
+                else round(status.estimated_remaining_s)
+            ),
+            "trajectory_records": status.trajectory_records,
+            "error_message": status.error_message,
+            "missions": [m.to_dict() for m in list_missions(self.missions_root)],
+            "destinations": [d.to_dict() for d in self._destinations()],
+            "no_fast_path_message": NO_FAST_PATH_MESSAGE,
+        }
+
+    def _destinations(self):
+        return detect_destinations(exclude_roots=[str(self.missions_root)])
+
+    def _preflight_state(self) -> dict:
+        """The flattened snapshot the pre-flight checks read."""
+        snap = self.world.snapshot()
+        heading = self._heading_estimate()
+        sonar = self.snapshot("sonar", DETAIL_FULL)
+        sonar_payload = sonar.payload if sonar else {}
+        return {
+            "pico_age_s": 0.0,
+            "rc_link_ok": snap.pico.rc_link_ok,
+            "rc_channel8_raw_pct": snap.pico.rc_channel8_raw_pct,
+            "num_sats": snap.vessel.num_sats,
+            "gnss_fix_type": snap.vessel.gnss_fix_type,
+            "hdop": snap.vessel.hdop,
+            "heading_valid": heading.valid,
+            "heading_source": heading.source,
+            "heading_accuracy_deg": heading.accuracy_deg,
+            "heading_divergence_deg": heading.divergence_deg,
+            "heading_divergence_meaningful": heading.divergence_meaningful,
+            "roll_deg": snap.vessel.roll_deg,
+            "pitch_deg": snap.vessel.pitch_deg,
+            "lidar_rotation_hz": snap.lidar.rotation_hz if snap.lidar else None,
+            "lidar_points_per_revolution": (
+                snap.lidar.points_per_revolution if snap.lidar else None
+            ),
+            "sonar_connected": sonar_payload.get("connected"),
+            "sonar_discovered": True,
+            "sonar_ping_rate_hz": sonar_payload.get("actual_ping_rate_hz"),
+            "sonar_points_per_ping": sonar_payload.get("points_per_ping"),
+            "clock_offset_ms": sonar_payload.get("clock_offset_ms"),
+            "disk_free_bytes": snap.disk_free_bytes,
+            # Not measured in sim: reported as unknown rather than invented,
+            # which is what makes it a SKIPPED check rather than a false PASS.
+            "disk_write_mbps": None,
+            "state_of_charge": snap.battery.state_of_charge,
+            "battery_voltage": snap.battery.voltage,
+            "link_rtt_ms": snap.link.rtt_ms,
+            "link_active": snap.link.active_link,
+            "expected_nodes": [],
+            "present_nodes": [],
+        }
+
+    def run_preflight(self, only=None):
+        report = run_checks(
+            self._preflight_state(), only=only, run_utc_ms=self.world.utc_ms
+        )
+        self.last_report = report
+        self.preflight.append(report)
+        return report
+
     def state(self) -> dict:
         """Full-detail everything, for alarms and command confirmation."""
         snap = self.world.snapshot()
@@ -291,7 +499,7 @@ class SimSource:
             "pico": payloads.pico_payload(snap.pico, DETAIL_FULL),
             "power": power,
             "sonar": sonar_sample.payload if sonar_sample else {},
-            "mission": {"state": "IDLE"},
+            "mission": self._mission_payload(),
             "link_sample": snap.link,
             "disk_free_bytes": snap.disk_free_bytes,
             "disk_total_bytes": snap.disk_total_bytes,
@@ -309,6 +517,11 @@ class SimSource:
             "state_of_charge": state["power"].get("state_of_charge"),
             "can_finish_survey": state["power"].get("can_finish_survey"),
             "recording": state["mission"].get("state") == "RECORDING",
+            "recording_error": (
+                state["mission"].get("error_message")
+                if state["mission"].get("state") == "ERROR"
+                else None
+            ),
             "disk_free_bytes": state["disk_free_bytes"],
             "sonar_expected": True,
             "sonar_connected": state["sonar"].get("connected"),
@@ -341,6 +554,69 @@ class SimSource:
                 cfg.range_setting_m, cfg.gain, cfg.ping_rate_hz
             )
             return CommandOutcome(True, "sent to the sonar")
+
+        if name == CMD_START_MISSION:
+            status = self.recorder.start(
+                str(args.get("name", "mission")),
+                self.world.utc_ms,
+                config_snapshot={
+                    "survey": {
+                        "heading_deg": self.world.cfg.survey_heading_deg,
+                        "line_length_m": self.world.cfg.survey_line_length_m,
+                        "line_spacing_m": self.world.cfg.survey_line_spacing_m,
+                        "num_lines": self.world.cfg.survey_num_lines,
+                        "sonar_side": self.world.cfg.sonar_side,
+                    },
+                    "sonar": {
+                        "range_m": self.world.cfg.sonar.range_setting_m,
+                        "gain": self.world.cfg.sonar.gain,
+                        "ping_rate_hz": self.world.cfg.sonar.ping_rate_hz,
+                        "mounting_tilt_deg": self.world.cfg.sonar.mounting_tilt_deg,
+                    },
+                    "simulated": True,
+                },
+                record_rosbag=bool(args.get("record_rosbag", False)),
+            )
+            if status.state != "RECORDING":
+                return CommandOutcome(False, status.error_message or "could not start")
+            # Before any sonar byte is written, so the trajectory brackets the
+            # stream and every ping can be interpolated.
+            self._write_trajectory(self.world.utc_ms)
+            return CommandOutcome(True, f"recording to {status.mission_dir}")
+
+        if name == CMD_STOP_MISSION:
+            if not self.recorder.recording:
+                return CommandOutcome(False, "no mission is recording")
+            self._write_trajectory(self.world.utc_ms)
+            status = self.recorder.stop(self.world.utc_ms)
+            return CommandOutcome(True, f"stopped, wrote {status.bytes_written} bytes")
+
+        if name == CMD_EXPORT_MISSION:
+            from pathlib import Path
+
+            mission = Path(str(args.get("path", "")))
+            result = export_mission(
+                mission,
+                str(args.get("destination", "")),
+                recording=self.recorder.recording,
+                allowed_destinations=self._destinations(),
+            )
+            return CommandOutcome(result.success, result.message)
+
+        if name == CMD_DELETE_MISSION:
+            if not args.get("confirm"):
+                return CommandOutcome(False, "delete requires an explicit confirmation")
+            ok, message = delete_mission(
+                str(args.get("path", "")),
+                recording_dir=self.recorder.status.mission_dir
+                if self.recorder.recording
+                else None,
+            )
+            return CommandOutcome(ok, message)
+
+        if name == CMD_RUN_SYSTEM_TEST:
+            report = self.run_preflight(only=args.get("only") or None)
+            return CommandOutcome(True, report.summary)
 
         if name == CMD_INJECT_FAULT:
             try:

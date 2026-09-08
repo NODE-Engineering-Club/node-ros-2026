@@ -94,3 +94,18 @@ def test_a_changed_message_on_the_same_key_is_re_raised():
     raised, _ = diff([Alarm("battery_low", "warn", "Battery at 24%")],
                      [Alarm("battery_low", "warn", "Battery at 13%")])
     assert len(raised) == 1
+
+
+def test_a_recorder_that_stopped_still_raises_an_alarm():
+    """The pre-emptive disk_low alarm depends on `recording`, so it goes quiet
+    the moment the recorder stops because the disk filled — at exactly the
+    moment it matters most. This one does not depend on the state it reports."""
+    stopped = {"recording": False, "recording_error": "stopped: only 8 MB left"}
+    alarms = {a.key: a for a in evaluate(stopped, T)}
+    assert "recording_stopped" in alarms
+    assert alarms["recording_stopped"].severity == "alarm"
+    assert "no longer being logged" in alarms["recording_stopped"].remedy
+
+
+def test_no_recording_alarm_when_nothing_went_wrong():
+    assert "recording_stopped" not in keys({"recording": False, "recording_error": None})

@@ -125,6 +125,20 @@ def evaluate(state: dict, thresholds: AlarmThresholds | None = None) -> list[Ala
             )
         )
 
+    # A recorder that has stopped because the disk filled is no longer
+    # "recording", so the alarm above goes quiet at the exact moment it
+    # matters most. This one does not depend on the state it is reporting on.
+    if state.get("recording_error"):
+        out.append(
+            Alarm(
+                "recording_stopped",
+                SEVERITY_ALARM,
+                f"Recording stopped: {state['recording_error']}",
+                "The survey is no longer being logged. What was recorded is "
+                "intact and listed. Free space, then start a new mission.",
+            )
+        )
+
     # -- sonar ------------------------------------------------------------
     if state.get("sonar_expected"):
         silent_s = state.get("sonar_seconds_since_data")

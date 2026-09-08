@@ -32,11 +32,14 @@ from .commands import (
     CMD_SET_MODE,
     CMD_SET_PING_PARAMETERS,
     CMD_SET_PROFILE,
+    CMD_START_MISSION,
+    CMD_STOP_MISSION,
     CommandManager,
     STATUS_FAILED,
     mode_confirmed,
     ping_parameters_confirmed,
     propulsion_cut_confirmed,
+    recording_confirmed,
 )
 from .link_profile import ProfileSelector
 from .source import DataSource
@@ -297,6 +300,11 @@ class Hub:
                 int(args.get("gain", 0)),
                 float(args.get("ping_rate_hz", 0.0)),
             )
+        elif name in (CMD_START_MISSION, CMD_STOP_MISSION):
+            # Confirmed by the recorder's own reported state, not by the call
+            # returning. "Recording" on screen has to mean bytes are landing on
+            # the disk, not that a request was accepted.
+            confirm = recording_confirmed(name == CMD_START_MISSION)
 
         cmd = self.commands.issue(name, args, now_utc, confirm=confirm, command_id=command_id)
         outcome = self.source.send_command(name, args)

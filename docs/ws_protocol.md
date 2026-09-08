@@ -84,3 +84,23 @@ navigation stack's job anyway.
 Selection is automatic from measured round-trip time and quality, with
 hysteresis — fast to degrade, slow to recover — and a manual override that is
 sticky until released. Automatic selection never overrides a human choice.
+
+## Link shaping (simulation only)
+
+`--shape-link` throttles the outbound socket to whatever the simulated bearer
+currently is: serialisation delay from its capacity, half its round-trip time as
+latency, and a loss rate derived from its quality.
+
+Without it, a "degraded link" in sim means only that fewer streams are
+subscribed while the wire stays a gigabit loopback — so the thing the whole
+design exists to survive is never once exercised before Namibia. With it, an
+LTE-M link really is 1 kB/s at 900 ms, and the beacon profile really does have
+to fit inside it.
+
+Shaping happens in the writer, not the hub: the hub keeps producing at the
+negotiated rate, the client's bounded outbox fills, and the oldest frames are
+discarded — which is what a real narrow link does to a stream nobody is
+throttling. When it is on, the `link` payload carries a `shaping` object, so a
+demonstration cannot be mistaken for reality.
+
+It is off by default and `RosSource` never turns it on.

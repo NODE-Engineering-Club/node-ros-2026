@@ -25,6 +25,11 @@ thresholds:
 # How often the server measures each client's round trip.
 ping_interval_s: 2.0
 
+# Simulation only. Throttles the outbound socket to the simulated bearer's
+# capacity, latency and loss, so a degraded link in sim is genuinely degraded
+# rather than merely described as such. Never enabled against real hardware.
+shape_link: false
+
 server:
   host: "0.0.0.0"
   port: 8080

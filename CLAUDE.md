@@ -54,7 +54,8 @@ dependencies.
 pytest                                          # whole suite, no ROS needed
 python3 -m flake8 --max-line-length=100 src/    # lint
 cd src/asket_gui && npm install && npm run build
-python3 -m gui_backend.core.app --sim --port 8080   # the GUI, no ROS, no hardware
+python3 -m gui_backend.core.app --sim                # the GUI, no ROS, no hardware
+python3 -m gui_backend.core.app --sim --shape-link   # ...on a genuinely narrow link
 ```
 
 ## Boundaries
@@ -91,11 +92,28 @@ python3 -m gui_backend.core.app --sim --port 8080   # the GUI, no ROS, no hardwa
 | 3 | Lidar, power, sonar health panels | done |
 | 4 | Recording, coverage, diagnostics, export | done |
 | 5 | Degraded link handling | done |
-| — | Motor active test, obstacle tracking, survey planner, NMEA out, RTK | not started |
+| — | Motor active test **wired to the Pico** (the gate exists and is tested; connecting it is deliberately left for when somebody is standing next to the boat), obstacle tracking, survey planner, NMEA out, RTK | not started |
 
 ## Open questions
 
-Six were listed in the architecture brief; they are tracked, with the
-provisional values used in the meantime, in `docs/open_questions.md`. Anything
-implemented against a provisional value is marked `PROVISIONAL` in the config
-file that holds it, so it is greppable.
+Six were listed in the architecture brief; three more surfaced during
+implementation. All nine are tracked, with the provisional values used in the
+meantime, in `docs/open_questions.md`. Anything implemented against a
+provisional value is marked `PROVISIONAL` in the config file that holds it, so
+it is greppable:
+
+```bash
+grep -rn PROVISIONAL src/
+```
+
+The one to read first is **Q8**: the `OS3D_POINT_SET` payload layout is
+transcribed from the brief, not from Cerulean documentation, and must be
+validated against their sample data before the first field deployment. The
+parser cross-checks the declared point count against the payload length so a
+wrong assumption fails loudly rather than producing a plausible cloud of
+nonsense — but it is still an assumption.
+
+## Handoff
+
+`CONTEXT_PROJET_NJORD.md` at the repo root is the GUI section of the project
+handoff document, meant to be merged into `node-ros-2026`'s copy.

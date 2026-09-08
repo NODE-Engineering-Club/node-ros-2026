@@ -37,6 +37,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .hub import ClientSession, Hub
+from .shaper import LinkShaper
 from .tiles import MBTiles
 
 #: How often the server measures each client's round trip. This is the number
@@ -50,6 +51,7 @@ def create_app(
     static_dir: str | Path | None = None,
     tiles_path: str | Path | None = None,
     ping_interval_s: float = PING_INTERVAL_S,
+    shape_link: bool = False,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -107,6 +109,7 @@ def create_app(
         session = ClientSession(
             uuid.uuid4().hex[:8],
             remote=f"{ws.client.host}:{ws.client.port}" if ws.client else "",
+            shaper=LinkShaper(enabled=shape_link),
         )
         await ws.send_json(hub.add_client(session))
 
@@ -158,10 +161,29 @@ async def _writer(ws: WebSocket, session: ClientSession) -> None:
     Separate from the reader so that a client which stops reading cannot block
     the hub, and separate from the hub so that a slow socket cannot slow the
     simulation or the telemetry.
+
+    When link shaping is on (sim only), frames are delayed and dropped here to
+    match the simulated bearer. Delaying in the writer rather than in the hub is
+    deliberate: the hub keeps producing at the negotiated rate, the outbox fills,
+    and the oldest frames are discarded — which is exactly what a real narrow
+    link does to a stream nobody is throttling.
     """
+    import json
+
     try:
         while True:
             message = await session.outbox.get()
+
+            if session.shaper.enabled:
+                if session.shaper.should_drop():
+                    continue
+                encoded = json.dumps(message)
+                delay = session.shaper.delay_for(len(encoded.encode("utf-8")))
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                await ws.send_text(encoded)
+                continue
+
             await ws.send_json(message)
     except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
         pass

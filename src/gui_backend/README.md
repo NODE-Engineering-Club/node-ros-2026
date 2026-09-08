@@ -69,6 +69,28 @@ the backend at it must be a config change plus at most one adapter function.
 `config/link_profiles.yaml` holds the profile thresholds and the server's own
 settings, including the path to the offline tile file.
 
+## Degraded links
+
+```bash
+python3 -m gui_backend.core.app --sim --shape-link
+```
+
+`--shape-link` throttles the outbound socket to the simulated bearer — capacity,
+latency and loss. Without it, "degraded link" in sim only means a smaller
+subscription set on a gigabit loopback, and the case the whole design exists to
+survive never gets exercised.
+
+Drive it from the GUI's fault controls, or:
+
+```bash
+ros2 topic pub --once /sim/inject_fault std_msgs/String '{data: "link_degraded"}'
+ros2 topic pub --once /sim/inject_fault std_msgs/String '{data: "link_loss"}'
+```
+
+On the beacon profile the whole subscription set costs well under 200 B/s
+against a 1 kB/s budget, position keeps arriving, and everything not carried is
+labelled as not carried rather than left blank.
+
 ## Testing in sim
 
 ```bash

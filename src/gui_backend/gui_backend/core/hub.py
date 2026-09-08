@@ -42,6 +42,7 @@ from .commands import (
     recording_confirmed,
 )
 from .link_profile import ProfileSelector
+from .shaper import LinkShaper
 from .source import DataSource
 from .streams import (
     PROFILE_ORDER,
@@ -85,9 +86,12 @@ class ClientSession:
     #: eventually see older.
     QUEUE_LIMIT = 64
 
-    def __init__(self, client_id: str, remote: str = "") -> None:
+    def __init__(self, client_id: str, remote: str = "", shaper: LinkShaper | None = None) -> None:
         self.id = client_id
         self.remote = remote
+        #: Outbound shaping. Off unless the backend was started in sim with
+        #: shaping enabled; RosSource never turns it on.
+        self.shaper = shaper or LinkShaper(enabled=False)
         self.subscriptions: dict[str, Subscription] = {}
         self.outbox: asyncio.Queue[dict] = asyncio.Queue(maxsize=self.QUEUE_LIMIT)
         self.dropped = 0
@@ -256,6 +260,17 @@ class Hub:
         link = state.get("link_sample")
         if link is None:
             return
+
+        # Shape the wire to whatever the simulated bearer currently is, so the
+        # link genuinely narrows as the vessel goes offshore rather than merely
+        # being described as narrow.
+        for session in self.clients.values():
+            if session.shaper.enabled:
+                session.shaper.update(
+                    capacity_bytes_per_s=link.capacity_bytes_per_s,
+                    rtt_ms=link.rtt_ms,
+                    loss_ratio=max(0.0, 0.15 * (1.0 - link.quality)),
+                )
         # Prefer a measured client round trip over the simulated bearer figure:
         # what the operator's laptop experiences is the thing that matters.
         rtts = [c.rtt_ms for c in self.clients.values() if c.rtt_ms is not None]
@@ -437,7 +452,7 @@ class Hub:
 
     def _link_context(self, session: ClientSession) -> dict:
         """Server-side facts the source cannot know."""
-        return {
+        context = {
             "profile": self.selector.profile,
             "profile_manual": self.selector.manual,
             "connected_clients": len(self.clients),
@@ -445,6 +460,9 @@ class Hub:
                 sum(c.bytes_estimate_per_s for c in self.clients.values())
             ),
         }
+        if session.shaper.enabled:
+            context["shaping"] = session.shaper.to_dict()
+        return context
 
     def broadcast(self, message: dict) -> None:
         for session in self.clients.values():

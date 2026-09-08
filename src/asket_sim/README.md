@@ -62,7 +62,7 @@ ros2 topic echo /sim/faults
 
 | Fault | What it proves |
 |---|---|
-| `link_loss`, `link_degraded` | The GUI stays usable and honest about data age on a bad link |
+| `link_loss`, `link_degraded` | The GUI stays usable and honest about data age on a bad link. With `--shape-link` the wire itself narrows, so this is a real test rather than a relabelling |
 | `sonar_dropout`, `sonar_packet_loss` | Sonar health panel and alarms react |
 | `clock_drift` | The operator is warned **during** the mission, before a whole dataset is quietly ruined |
 | `heading_invalid` | Warning raised, and the compromised window is recorded per sample |

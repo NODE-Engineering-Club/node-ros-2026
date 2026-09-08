@@ -30,6 +30,7 @@ def build_app(
     static_dir: str | None = None,
     heading_source: str = "magnetometer",
     seed: int = 1,
+    shape_link: bool = False,
 ):
     cfg = WorldConfig(seed=seed)
     cfg.vessel.heading_source = heading_source
@@ -39,6 +40,7 @@ def build_app(
         hub,
         static_dir=static_dir or DEFAULT_STATIC,
         tiles_path=tiles_path,
+        shape_link=shape_link,
     )
 
 
@@ -54,6 +56,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--heading-source", default="magnetometer",
                     choices=["magnetometer", "gnss_compass"])
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument(
+        "--shape-link",
+        action="store_true",
+        help=(
+            "Throttle the outbound WebSocket to the simulated bearer's latency, "
+            "capacity and loss. Without it a 'degraded link' in sim is only a "
+            "smaller subscription set on a gigabit loopback."
+        ),
+    )
     args = ap.parse_args(argv)
 
     app = build_app(
@@ -62,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         static_dir=args.static,
         heading_source=args.heading_source,
         seed=args.seed,
+        shape_link=args.shape_link,
     )
     print(f"Asket mission GUI (simulated) on http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

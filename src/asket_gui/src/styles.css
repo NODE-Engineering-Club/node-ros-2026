@@ -1,30 +1,49 @@
 /*
- * Designed for a laptop screen outdoors in bright sunlight: high contrast,
- * large type for the values that matter, and no low-contrast greys used to
- * carry meaning.
+ * A single light theme. There is no dark mode and no toggle.
+ *
+ * This is used on a laptop on a Namibian beach at midday. A dark screen in
+ * strong sun stops being a screen and becomes a mirror — you see yourself, not
+ * the vessel. So: white ground, black ink, hairline rules, and no chrome that
+ * is not carrying information.
+ *
+ * The one rule that shapes everything below: **lightness is not used to carry
+ * meaning.** A mid-grey label on white is the first thing sunlight destroys, so
+ * de-emphasis is done with size and weight instead. Grey appears in exactly two
+ * places, both of them saying "this is not a live value": a value that was
+ * never sent, and the map graticule.
+ *
+ * Colour is reserved for the things that must survive a glance:
+ *   red    — alarms, failures, ESTOP, Cut propulsion
+ *   amber  — warnings and stale data
+ *   green  — a confirmed-good status dot, never text
+ *   purple — mock mode, which must be unmissable
  */
 
 :root {
-  --bg: #0d1117;
-  --panel: #161b22;
-  --panel-edge: #2b3440;
-  --ink: #e8eef5;
-  --ink-dim: #93a3b5;
-  --accent: #4aa3ff;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --line: #000000;
+  --ink: #000000;
+  /* The only grey, and it means "not a live value" — never "less important". */
+  --absent: #767676;
 
-  --ok: #35c46a;
-  --warn: #f2b134;
-  --alarm: #ff4d4d;
-  --pending: #b98cff;
+  /* Chosen dark enough to hold their meaning as text on white in sunlight. */
+  --ok: #00702e;
+  --warn: #a25a00;
+  --alarm: #c00000;
+  --pending: #5b21b6;
 
-  --mode-manual: #f2b134;
-  --mode-autonomous: #4aa3ff;
-  --mode-estop: #ff4d4d;
+  --warn-fill: #ffc400;
+  --alarm-fill: #c00000;
+  --info-fill: #0b57d0;
 
-  --radius: 6px;
-  --gap: 10px;
+  --mock: #6b21a8;
+  --mock-tint: #f6f0fd;
 
-  color-scheme: dark;
+  --radius: 2px;
+  --gap: 8px;
+
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -38,11 +57,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* -- layout: map first, vessel state always visible ---------------------- */
+/* -- layout --------------------------------------------------------------
+ *
+ * The map used to take 60% of the width to show a vessel and a coverage ribbon
+ * that between them occupied a couple of hundred pixels, while Power, Sonar,
+ * Recording, Pre-flight and Link all sat below the fold. The map needs enough
+ * width to judge coverage; it does not need most of the screen. So the cockpit
+ * gets the larger share and splits into two columns when there is room.
+ */
 
 .app {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: minmax(360px, 1fr) 760px;
   grid-template-rows: auto 1fr;
   height: 100%;
 }
@@ -50,178 +76,263 @@ body {
 /* Mock mode adds a third column rather than floating the dev panel over the
    cockpit — the panels it exists to exercise have to stay visible while you
    use it. */
-.app.with-mock { grid-template-columns: 1fr 380px 300px; }
-.app.with-mock-collapsed { grid-template-columns: 1fr 380px 34px; }
+.app.with-mock { grid-template-columns: minmax(320px, 1fr) 760px 280px; }
+.app.with-mock-collapsed { grid-template-columns: minmax(320px, 1fr) 760px 30px; }
 
 .topbar {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--gap);
-  padding: 8px 12px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--panel-edge);
+  padding: 6px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
 
-.map-area { position: relative; min-width: 0; }
+.map-area { position: relative; min-width: 0; border-right: 1px solid var(--line); }
 
 .sidebar {
   overflow-y: auto;
   padding: var(--gap);
+  background: var(--bg);
+  /* Two columns, so twice as much is above the fold. Explicit flex columns
+     rather than `column-count`: multi-column inside a vertically-scrolling box
+     overflows sideways, and the panels that land there cannot be reached at
+     all. */
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap);
+}
+
+.sidebar-col {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--gap);
-  background: var(--bg);
-  border-left: 1px solid var(--panel-edge);
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1600px) {
+  .app { grid-template-columns: minmax(300px, 1fr) 640px; }
+  .app.with-mock { grid-template-columns: minmax(260px, 1fr) 640px 280px; }
+  .app.with-mock-collapsed { grid-template-columns: minmax(260px, 1fr) 640px 30px; }
+}
+
+@media (max-width: 1280px) {
+  .app,
   .app.with-mock,
-  .app.with-mock-collapsed { grid-template-columns: 1fr 340px 34px; }
-  .app.with-mock .mock-body { position: absolute; right: 34px; width: 300px; height: 100%; }
+  .app.with-mock-collapsed { grid-template-columns: minmax(240px, 1fr) 420px; }
+  .sidebar { flex-direction: column; }
+  .app.with-mock .mock-body { position: absolute; right: 30px; width: 280px; height: 100%; }
+  .app.with-mock, .app.with-mock-collapsed {
+    grid-template-columns: minmax(240px, 1fr) 420px 30px;
+  }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .app,
   .app.with-mock,
   .app.with-mock-collapsed {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 55vh 1fr auto;
+    grid-template-rows: auto 45vh 1fr auto;
   }
-  .sidebar { border-left: none; border-top: 1px solid var(--panel-edge); }
+  .map-area { border-right: none; border-bottom: 1px solid var(--line); }
 }
+
+/* -- the always-visible status strip -------------------------------------
+ *
+ * Battery, recording and link, in the top bar so they survive any scroll
+ * position. A summary of three panels, never a second source for them.
+ */
+
+.status-strip { display: flex; gap: 0; margin-left: 4px; }
+
+.strip-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-right-width: 0;
+  white-space: nowrap;
+}
+.strip-item:last-child { border-right-width: 1px; }
+
+.strip-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.strip-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.strip-detail { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.strip-item.ok { border-color: var(--line); }
+.strip-item.warn { background: var(--warn-fill); }
+.strip-item.alarm { background: var(--alarm-fill); color: #fff; }
+/* Recording is a state worth seeing from across a beach, not a warning. */
+.strip-item.rec { background: var(--info-fill); color: #fff; }
+
+.strip-item.stale .strip-value { color: var(--warn); }
+.strip-item.very-stale .strip-value { color: var(--alarm); text-decoration: line-through; }
+.strip-item.missing .strip-value { color: var(--absent); font-weight: 400; }
+.strip-item.alarm.stale .strip-value,
+.strip-item.rec.stale .strip-value { color: #fff; }
 
 /* -- panels -------------------------------------------------------------- */
 
 .panel {
   background: var(--panel);
-  border: 1px solid var(--panel-edge);
-  border-radius: var(--radius);
-  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px 10px;
 }
 
 .panel h2 {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--ink-dim);
+  color: var(--ink);
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
 }
 
-.rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
-.rows dt { color: var(--ink-dim); font-size: 12px; }
-.rows dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+/* Labels are de-emphasised by size and weight, never by lightness: a mid-grey
+   label is the first thing to disappear in sunlight, and these are the words
+   that say what the number means. */
+.rows { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; align-items: baseline; }
+.rows dt { font-size: 12px; font-weight: 400; color: var(--ink); }
+.rows dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-weight: 600;
+}
 
-.big { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .mono { font-variant-numeric: tabular-nums; }
 
 /* -- data age ------------------------------------------------------------ */
 
 .value { display: inline-flex; align-items: baseline; gap: 6px; }
 
-.age {
-  font-size: 11px;
-  color: var(--ink-dim);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
+.age { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Stale values are degraded loudly. "Slightly greyer" is not a signal anyone
-   notices in sunlight. */
-.stale > .value-text { color: var(--warn); }
-.stale > .age { color: var(--warn); }
+   notices in sunlight — and on white it is not a signal at all. */
+.stale > .value-text, .stale > .age, .age.stale { color: var(--warn); font-weight: 700; }
 
 .very-stale > .value-text {
   color: var(--alarm);
   text-decoration: line-through;
-  text-decoration-thickness: 1px;
+  text-decoration-thickness: 2px;
 }
-.very-stale > .age { color: var(--alarm); font-weight: 600; }
+.very-stale > .age, .age.very-stale { color: var(--alarm); font-weight: 700; }
 
-.missing > .value-text { color: var(--ink-dim); }
+/* The one legitimate grey: a value that was never sent is not a live value. */
+.missing > .value-text, .age.missing, .dim-value { color: var(--absent); font-weight: 400; }
+.raw-code { font-size: 11px; color: var(--absent); font-variant-numeric: tabular-nums; }
 
 /* -- mode ---------------------------------------------------------------- */
 
 .mode-badge {
   display: inline-block;
-  padding: 4px 12px;
-  border-radius: var(--radius);
+  padding: 3px 10px;
+  border: 1px solid var(--line);
   font-weight: 700;
   letter-spacing: 0.06em;
   font-size: 15px;
 }
-.mode-MANUAL { background: var(--mode-manual); color: #1a1300; }
-.mode-AUTONOMOUS { background: var(--mode-autonomous); color: #001528; }
-.mode-ESTOP { background: var(--mode-estop); color: #240000; }
-.mode-UNKNOWN { background: #3a4350; color: var(--ink); }
+.mode-MANUAL { background: var(--warn-fill); color: #000; }
+.mode-AUTONOMOUS { background: var(--info-fill); color: #fff; }
+/* The loudest thing the interface can render. */
+.mode-ESTOP { background: var(--alarm-fill); color: #fff; border-color: var(--alarm-fill); }
+.mode-UNKNOWN { background: #fff; color: var(--absent); }
 
 /* -- buttons ------------------------------------------------------------- */
 
 button {
   font: inherit;
   color: var(--ink);
-  background: #22303f;
-  border: 1px solid var(--panel-edge);
+  background: #fff;
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 8px 12px;
+  padding: 6px 10px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: #2c3d50; }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:hover:not(:disabled) { background: #eeeeee; }
+button:disabled { color: var(--absent); border-color: var(--absent); cursor: not-allowed; }
 
-button.danger { background: #4a1414; border-color: #7a2020; }
-button.danger:hover:not(:disabled) { background: #632020; }
+/* Solid red, white text: the most visually dominant control on the screen,
+   which is what a propulsion cut has to be. */
+button.danger {
+  background: var(--alarm-fill);
+  border-color: var(--alarm-fill);
+  color: #fff;
+  font-weight: 700;
+}
+button.danger:hover:not(:disabled) { background: #9d0000; }
 
 /* A command in flight is outlined and pulsing: visibly not the same thing as
    a confirmed state. */
 button.pending {
-  background: transparent;
+  background: #fff;
   border: 2px dashed var(--pending);
   color: var(--pending);
+  font-weight: 700;
   animation: pulse 1.1s ease-in-out infinite;
 }
-@keyframes pulse { 50% { opacity: 0.55; } }
+@keyframes pulse { 50% { opacity: 0.45; } }
 
-.button-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.button-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .button-row button { flex: 1 1 auto; }
+
+input[type="text"], input:not([type]) {
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  width: 100%;
+}
+
+input[type="range"] { accent-color: var(--info-fill); }
 
 /* -- alarms -------------------------------------------------------------- */
 
-.alarm-list { display: flex; flex-direction: column; gap: 6px; }
+.alarm-list { display: flex; flex-direction: column; gap: 5px; }
 
 .alarm-item {
-  border-left: 4px solid var(--warn);
-  background: #241d09;
-  padding: 6px 10px;
-  border-radius: 0 var(--radius) var(--radius) 0;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--warn-fill);
+  padding: 5px 8px;
 }
-.alarm-item.alarm { border-left-color: var(--alarm); background: #2a0f0f; }
-.alarm-item .message { font-weight: 600; }
-.alarm-item .remedy { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
+.alarm-item.alarm { border-left-color: var(--alarm-fill); }
+.alarm-item .message { font-weight: 700; }
+.alarm-item.alarm .message { color: var(--alarm); }
+.alarm-item .remedy { font-size: 12px; margin-top: 2px; }
 
 /* -- status chips -------------------------------------------------------- */
 
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: #22303f;
+  background: #fff;
   font-size: 12px;
   white-space: nowrap;
 }
-.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--absent); }
 .chip.ok .dot { background: var(--ok); }
-.chip.warn .dot { background: var(--warn); }
-.chip.alarm .dot { background: var(--alarm); }
-.chip.alarm { background: #2a0f0f; }
+.chip.warn .dot { background: var(--warn-fill); }
+.chip.alarm { background: var(--alarm-fill); color: #fff; border-color: var(--alarm-fill); font-weight: 700; }
+.chip.alarm .dot { background: #fff; }
 
 .spacer { flex: 1; }
 
@@ -231,38 +342,60 @@ button.pending {
 
 .map-note {
   position: absolute;
-  left: 10px;
-  bottom: 10px;
-  max-width: 460px;
-  background: rgba(22, 27, 34, 0.94);
-  border: 1px solid var(--panel-edge);
-  border-radius: var(--radius);
-  padding: 8px 10px;
+  left: 8px;
+  bottom: 8px;
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 6px 8px;
   font-size: 12px;
 }
 
 .map-overlay {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 8px;
+  left: 8px;
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
+  z-index: 1;
 }
+.map-overlay button { background: #fff; }
+
+/* The map legend. Coverage on one side only is the whole reason this map
+   exists, and an operator who cannot name the colours cannot read it. */
+.map-legend {
+  position: absolute;
+  right: 8px;
+  bottom: 34px;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  font-size: 11px;
+  display: grid;
+  gap: 3px;
+  z-index: 1;
+}
+.map-legend div { display: flex; align-items: center; gap: 6px; }
+.map-legend .swatch { width: 16px; height: 3px; flex: none; }
+.map-legend .swatch.fill { height: 10px; }
 
 /* -- misc ---------------------------------------------------------------- */
 
-.hint { font-size: 12px; color: var(--ink-dim); }
-.warnline { font-size: 12px; color: var(--warn); }
-.errline { font-size: 12px; color: var(--alarm); }
+.hint { font-size: 12px; color: var(--ink); }
+.warnline { font-size: 12px; color: var(--warn); font-weight: 700; }
+.errline { font-size: 12px; color: var(--alarm); font-weight: 700; }
 
-details.debug summary { cursor: pointer; color: var(--ink-dim); font-size: 12px; }
+details.debug summary,
+details.advanced summary { cursor: pointer; font-size: 12px; margin-top: 6px; }
+details.advanced { border-top: 1px solid var(--line); margin-top: 6px; }
 
 /* -- mock mode dev panel -------------------------------------------------
  *
  * Deliberately styled to look like a tool rather than part of the cockpit: it
  * must never be mistaken for an operator control, and it never renders against
- * a real backend.
+ * a real backend. On white that means a purple edge and tint that no cockpit
+ * panel uses.
  */
 
 .mock-panel {
@@ -275,10 +408,11 @@ details.debug summary { cursor: pointer; color: var(--ink-dim); font-size: 12px;
 
 .mock-panel .mock-handle {
   writing-mode: vertical-rl;
-  padding: 10px 4px;
-  border-radius: var(--radius) 0 0 var(--radius);
-  background: #3a2a5c;
-  border-color: #55407f;
+  padding: 10px 3px;
+  border-radius: 0;
+  background: var(--mock);
+  border-color: var(--mock);
+  color: #fff;
   font-size: 12px;
   letter-spacing: 0.06em;
 }
@@ -288,32 +422,42 @@ details.debug summary { cursor: pointer; color: var(--ink-dim); font-size: 12px;
   min-width: 0;
   height: 100%;
   overflow-y: auto;
-  padding: 10px 12px;
-  background: #1a1426;
-  border-left: 2px solid #55407f;
+  padding: 8px 10px;
+  background: var(--mock-tint);
+  border-left: 3px solid var(--mock);
 }
 
-.mock-group { margin-bottom: 10px; }
+.mock-group { margin-bottom: 8px; }
 
 .mock-group h3 {
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #b9a3e0;
+  color: var(--mock);
+  font-weight: 700;
 }
 
-.mock-panel button { font-size: 12px; padding: 5px 8px; }
+.mock-panel button { font-size: 12px; padding: 4px 6px; background: #fff; }
 .mock-panel button.mock-on {
-  background: #55407f;
-  border-color: #8a6fd0;
+  background: var(--mock);
+  border-color: var(--mock);
   color: #fff;
+  font-weight: 700;
 }
 
 .mock-explain {
-  margin-top: 10px;
-  padding: 8px;
-  border-radius: var(--radius);
-  background: #241c33;
-  border: 1px solid #3a2a5c;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid var(--mock);
 }
+
+/* The banner that says none of this is real. Solid, not a tint. */
+.chip.mock-banner {
+  background: var(--mock);
+  border-color: var(--mock);
+  color: #fff;
+  font-weight: 700;
+}
+.chip.mock-banner .dot { background: #fff; }

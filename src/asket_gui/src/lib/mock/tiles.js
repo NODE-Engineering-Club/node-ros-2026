@@ -34,12 +34,14 @@ function drawTile(z, x, y) {
   canvas.height = TILE_SIZE;
   const ctx = canvas.getContext('2d');
 
-  // A sea-ish ground that shades with latitude, so panning is visibly moving.
-  const shade = 24 + ((x * 7 + y * 13) % 10);
-  ctx.fillStyle = `rgb(${shade - 6}, ${shade + 6}, ${shade + 22})`;
+  // A pale sea-ish ground that shades slightly per tile, so panning is
+  // visibly moving. Light, because the overlays drawn on top of it — coverage,
+  // track, plan — are what has to be readable, not the basemap.
+  const shade = 236 + ((x * 7 + y * 13) % 8);
+  ctx.fillStyle = `rgb(${shade - 12}, ${shade - 4}, ${shade})`;
   ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-  ctx.strokeStyle = 'rgba(140, 170, 200, 0.25)';
+  ctx.strokeStyle = 'rgba(70, 100, 130, 0.22)';
   ctx.lineWidth = 1;
   for (let i = 64; i < TILE_SIZE; i += 64) {
     ctx.beginPath();
@@ -50,10 +52,10 @@ function drawTile(z, x, y) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = 'rgba(140, 170, 200, 0.5)';
+  ctx.strokeStyle = 'rgba(70, 100, 130, 0.45)';
   ctx.strokeRect(0.5, 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
 
-  ctx.fillStyle = 'rgba(160, 190, 220, 0.7)';
+  ctx.fillStyle = 'rgba(40, 65, 95, 0.85)';
   ctx.font = '11px ui-monospace, monospace';
   ctx.fillText(`${z}/${x}/${y}`, 8, 18);
   ctx.fillText(`${tileNorth(z, y).toFixed(4)}°`, 8, 34);

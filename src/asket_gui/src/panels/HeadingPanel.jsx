@@ -11,15 +11,33 @@ import { HEADING_SOURCE_LABELS } from '../lib/labels.js';
  * 90 cm of seabed position error per degree at 50 m range — so this gets its
  * own panel rather than a line in the vessel panel.
  *
+ * It is also the *only* place heading is displayed. It used to appear here and
+ * in the vessel panel, from two streams sampled at two rates, so the two rows
+ * disagreed by a degree — and an operator seeing that has no way to know which
+ * one to trust, so they stop trusting both.
+ *
  * The row that earns its place is **heading vs course over ground**. In a
  * straight line on calm water they should agree; a persistent divergence is
  * either a strong current or a bad heading, and either way the operator wants
  * to know before the survey is finished rather than after.
  */
 export function HeadingPanel({ state }) {
-  const heading = streamPayload(state, 'heading');
-  const ageMs = streamAgeMs(state, 'heading');
-  const rateHz = state.subscriptions.heading?.rate_hz;
+  const full = streamPayload(state, 'heading');
+  const vessel = streamPayload(state, 'vessel');
+
+  // On the beacon profile the heading stream is not carried at all, but the
+  // vessel stream still carries a heading. Falling back to it keeps the number
+  // on screen when the link is at its worst — which is when knowing which way
+  // the boat is pointing matters most — and the panel says where it came from,
+  // because a bearing with no accuracy figure is worth much less than one with.
+  const fallback = !full && vessel?.heading_deg !== undefined;
+  const heading = full ?? (fallback
+    ? { heading_deg: vessel.heading_deg, valid: vessel.heading_valid, source: vessel.heading_source }
+    : null);
+
+  const stream = full ? 'heading' : 'vessel';
+  const ageMs = streamAgeMs(state, stream);
+  const rateHz = state.subscriptions[stream]?.rate_hz;
 
   const valid = heading?.valid;
   const divergence = heading?.divergence_deg;
@@ -81,6 +99,12 @@ export function HeadingPanel({ state }) {
         <p className="errline" style={{ marginBottom: 0 }}>
           Sonar data recorded while heading is invalid is compromised. Note the time
           and re-run these lines.
+        </p>
+      )}
+      {fallback && (
+        <p className="warnline" style={{ marginBottom: 0 }}>
+          From the vessel stream — the heading stream is not carried on this link
+          profile, so there is no accuracy figure and no comparison with course.
         </p>
       )}
       {heading?.source === 'magnetometer' && (

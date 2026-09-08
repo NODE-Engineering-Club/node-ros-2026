@@ -142,6 +142,55 @@ The one thing that does grow with mission length is the **initial** resync a
 newly connected client receives. At `reduced` detail a three-hour survey is
 roughly 160 kB, which is about a second and a half of 4G.
 
+## Why it is white
+
+A single light theme, no dark mode, no toggle. This runs on a laptop on a
+Namibian beach at midday, and in strong sun a dark screen stops being a screen
+and becomes a mirror.
+
+The rule the stylesheet is built on: **lightness never carries meaning.** A
+mid-grey label on white is the first thing sunlight takes, and labels are the
+words that say what a number means. De-emphasis is done with size and weight
+instead. Grey appears in exactly two places, both saying *this is not a live
+value* — a field that was never sent, and the map graticule.
+
+Colour is spent only where it has to survive a glance: red for alarms,
+failures, ESTOP and Cut propulsion; amber for warnings and stale data; green
+for a status dot, never for text; purple for mock mode, which has to be
+unmissable. Borders are 1px black hairlines, and there are no gradients,
+shadows or decorative rounding.
+
+Map layer colours are declared once in `panels/MissionMap.jsx` and read by both
+the layer paint and the legend, so the legend cannot drift from what is drawn.
+
+## Layout
+
+Three columns: map, cockpit, and — in mock mode only — the dev panel.
+
+The cockpit is the larger share. The map needs enough width to judge coverage;
+it does not need most of the screen, and it used to take 60% of it to show a
+vessel and a coverage ribbon a couple of hundred pixels across while Power,
+Sonar, Recording, Pre-flight and Link all sat below the fold.
+
+Three values must never require scrolling, so they live in the top bar and stay
+there whatever the scroll position: **battery** (charge and endurance),
+**recording** (state and elapsed) and **link** (bearer and profile). That strip
+is a summary, not a second source — every value in it reads the same payload as
+the panel that owns it, and `test_gui_single_source.py` fails if that stops
+being true.
+
+## One value, one place
+
+Heading used to appear in both the vessel panel and the heading panel, read
+from two streams at two rates. The two rows sat next to each other reading 029°
+and 028°. An operator cannot tell which to believe, so they stop believing
+both — worse than either number being slightly off.
+
+Heading now lives only in its own panel, which falls back to the `vessel`
+stream on the beacon profile (where the `heading` stream is not carried at all)
+and says on screen that it has done so. Hull roll/pitch and **transducer**
+pitch/roll are different sensors and are labelled apart for the same reason.
+
 ## Data age
 
 Every live value carries its age. Age is computed against an estimate of the

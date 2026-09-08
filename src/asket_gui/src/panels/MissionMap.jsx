@@ -23,6 +23,11 @@ export function MissionMap({ state, connection, follow, onFollowChange, showRawL
   const map = useRef(null);
   const [tiles, setTiles] = useState(null);
   const [ready, setReady] = useState(false);
+  //: The survey box is framed once, when the plan first arrives. Opening on a
+  //: fixed zoom put a 300 m survey on screen as a 30 px smudge, which is not a
+  //: map anyone can judge coverage from. Once only: re-framing under an
+  //: operator who has zoomed in to look at a gap would be worse than the smudge.
+  const framed = useRef(false);
 
   const vessel = streamPayload(state, 'vessel');
   const track = streamPayload(state, 'track');
@@ -149,7 +154,18 @@ export function MissionMap({ state, connection, follow, onFollowChange, showRawL
     if (follow && vessel?.lat) {
       instance.easeTo({ center: [vessel.lon, vessel.lat], duration: 400 });
     }
-  }, [ready, vessel, track, plan, coverage, lidar, follow, showRawLidar]);
+    if (!framed.current && plan?.lines?.length) {
+      framed.current = true;
+      // Open on the whole job. Following is switched off for the same reason
+      // the Fit survey button switches it off: centred on the vessel at survey
+      // zoom, half the box is off screen, and judging coverage is the thing
+      // this map is for. One press of Following vessel gets it back.
+      onFollowChange(false);
+      // Instant, not animated: the follow ease runs on every vessel sample and
+      // cancels an in-flight fitBounds, leaving the survey a smudge.
+      fitSurvey(instance, plan, coverage, 0);
+    }
+  }, [ready, vessel, track, plan, coverage, lidar, follow, showRawLidar, onFollowChange]);
 
   // -- graticule --------------------------------------------------------
 
@@ -183,6 +199,20 @@ export function MissionMap({ state, connection, follow, onFollowChange, showRawL
           Fit survey
         </button>
       </div>
+      {/* Five overlays in five colours is four too many to hold in your head at
+          06:00. The legend is small, permanent, and uses the same colours the
+          layers are painted with — they are declared once, below. */}
+      <div className="map-legend">
+        {LEGEND.map((item) => (
+          <div key={item.label}>
+            <span
+              className={`swatch ${item.fill ? 'fill' : ''}`}
+              style={{ background: item.color, opacity: item.opacity ?? 1 }}
+            />
+            {item.label}
+          </div>
+        ))}
+      </div>
       {tiles && !tiles.available && (
         <div className="map-note">
           <strong className="warnline">No offline map tiles.</strong> Showing a coordinate
@@ -201,9 +231,10 @@ export function MissionMap({ state, connection, follow, onFollowChange, showRawL
 }
 
 /** Zoom to the planned survey box plus whatever has been covered so far. */
-function fitSurvey(map, plan, coverage) {
+function fitSurvey(map, plan, coverage, duration = 600) {
   if (!map || !plan?.lines?.length) return;
   const points = plan.lines.flatMap((line) => line.coords);
+  points.push(...(plan.geofence || []));
   for (const segment of coverage?.segments || []) {
     if (segment) points.push([segment[1], segment[0]]);
   }
@@ -216,7 +247,7 @@ function fitSurvey(map, plan, coverage) {
       [Math.min(...lons), Math.min(...lats)],
       [Math.max(...lons), Math.max(...lats)],
     ],
-    { padding: 48, duration: 600 },
+    { padding: 48, duration },
   );
 }
 
@@ -234,6 +265,25 @@ function empty() {
   return { type: 'FeatureCollection', features: [] };
 }
 
+//: The map's palette, declared once. `addLayers` paints from it and the legend
+//: reads from it, so a colour cannot be changed in one place and not the other.
+const COLOURS = {
+  coverage: '#00a651',
+  plan: '#0b57d0',
+  geofence: '#a25a00',
+  track: '#000000',
+  lidar: '#d34500',
+  graticule: '#aeaeae',
+};
+
+const LEGEND = [
+  { label: 'Covered', color: COLOURS.coverage, fill: true, opacity: 0.42 },
+  { label: 'Planned line', color: COLOURS.plan },
+  { label: 'Track', color: COLOURS.track },
+  { label: 'Geofence', color: COLOURS.geofence },
+  { label: 'Obstacle', color: COLOURS.lidar, fill: true },
+];
+
 function addLayers(map, withGraticule) {
   for (const id of ['graticule', 'geofence', 'plan', 'coverage', 'track', 'lidar', 'vessel']) {
     map.addSource(id, { type: 'geojson', data: empty() });
@@ -244,56 +294,59 @@ function addLayers(map, withGraticule) {
       id: 'graticule',
       type: 'line',
       source: 'graticule',
-      paint: { 'line-color': '#2b3440', 'line-width': 1 },
+      // Grey on purpose: the graticule is a reference frame, not data, and it
+      // must not compete with the track drawn on top of it.
+      paint: { 'line-color': COLOURS.graticule, 'line-width': 1 },
     });
   }
 
   // Coverage sits under everything else, but it is not background: with a
   // single sonar covering one side only, spotting a gap is the whole reason
-  // this map exists, and a 28%-opacity green on a near-black basemap is
-  // effectively invisible in sunlight. Opaque enough to read at a glance,
-  // still translucent enough that overlapping passes show as a brighter band —
-  // which is how an operator spots a line flown twice.
+  // this map exists. On white it has to be a saturated green rather than a
+  // pale wash — and translucent enough that overlapping passes darken into a
+  // deeper band, which is how an operator spots a line flown twice.
   map.addLayer({
     id: 'coverage',
     type: 'fill',
     source: 'coverage',
-    paint: { 'fill-color': '#2fd07a', 'fill-opacity': 0.55 },
+    paint: { 'fill-color': COLOURS.coverage, 'fill-opacity': 0.42 },
   });
 
   map.addLayer({
     id: 'plan',
     type: 'line',
     source: 'plan',
-    paint: { 'line-color': '#4aa3ff', 'line-width': 2, 'line-dasharray': [3, 2], 'line-opacity': 0.8 },
+    paint: { 'line-color': COLOURS.plan, 'line-width': 2, 'line-dasharray': [3, 2] },
   });
 
   map.addLayer({
     id: 'geofence',
     type: 'line',
     source: 'geofence',
-    paint: { 'line-color': '#f2b134', 'line-width': 2, 'line-dasharray': [1, 2] },
+    paint: { 'line-color': COLOURS.geofence, 'line-width': 2, 'line-dasharray': [1, 2] },
   });
 
   map.addLayer({
     id: 'track',
     type: 'line',
     source: 'track',
-    paint: { 'line-color': '#e8eef5', 'line-width': 1.6, 'line-opacity': 0.75 },
+    // Where the boat actually went, in black: it must read over coverage,
+    // over the plan, and over the graticule, at any zoom.
+    paint: { 'line-color': COLOURS.track, 'line-width': 1.6 },
   });
 
   map.addLayer({
     id: 'lidar',
     type: 'circle',
     source: 'lidar',
-    paint: { 'circle-radius': 2.5, 'circle-color': '#ff8a4a', 'circle-opacity': 0.85 },
+    paint: { 'circle-radius': 2.5, 'circle-color': COLOURS.lidar },
   });
 
   map.addLayer({
     id: 'vessel-halo',
     type: 'circle',
     source: 'vessel',
-    paint: { 'circle-radius': 9, 'circle-color': '#4aa3ff', 'circle-opacity': 0.25 },
+    paint: { 'circle-radius': 9, 'circle-color': COLOURS.plan, 'circle-opacity': 0.2 },
   });
 
   // The heading arrow is drawn as a triangle rotated by heading. When heading
@@ -331,7 +384,9 @@ function arrowImage() {
     const halfWidth = ((y - 4) / 24) * 9;
     for (let x = Math.round(16 - halfWidth); x <= Math.round(16 + halfWidth); x += 1) {
       const edge = Math.abs(x - 16) > halfWidth - 2 || y > 25;
-      put(x, y, edge ? 13 : 74, edge ? 17 : 163, edge ? 23 : 255, 255);
+      // Black outline, blue body — legible on white, on the green coverage
+      // ribbon, and on a satellite tile alike.
+      put(x, y, edge ? 0 : 11, edge ? 0 : 87, edge ? 0 : 208, 255);
     }
   }
   return { width: size, height: size, data };

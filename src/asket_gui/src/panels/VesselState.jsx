@@ -1,7 +1,8 @@
 import { Panel, Row, Rows, Chip } from '../components/Panel.jsx';
 import { PanelAge, Value } from '../components/Value.jsx';
 import { streamAgeMs, streamPayload } from '../lib/connection.js';
-import { bearing, coordinate, int, num } from '../lib/format.js';
+import { coordinate, int, num } from '../lib/format.js';
+import { hullSummary } from '../lib/hull.js';
 import { MODE_LABELS } from '../lib/labels.js';
 
 /**
@@ -10,6 +11,12 @@ import { MODE_LABELS } from '../lib/labels.js';
  * Every value here comes from the Pico or from the GNSS, and every one carries
  * its age. Nothing in this panel ever reflects a command that was sent
  * (safety rule 4) — the mode shown is the mode the Pico reports, full stop.
+ *
+ * **Heading is deliberately not here.** It has its own panel, and it used to
+ * appear in both — sampled from two streams at two rates, so the two rows
+ * disagreed by a degree and an operator had no way to tell which to believe.
+ * A value shown in two places is a value that will eventually contradict
+ * itself. One source, one place.
  */
 export function VesselState({ state }) {
   const vessel = streamPayload(state, 'vessel');
@@ -20,6 +27,7 @@ export function VesselState({ state }) {
   const picoRate = state.subscriptions.pico?.rate_hz;
 
   const mode = pico?.mode ?? 'UNKNOWN';
+  const hull = hullSummary(pico);
 
   return (
     <Panel title="Vessel" aside={<PanelAge ageMs={vesselAge} rateHz={vesselRate} />}>
@@ -44,15 +52,10 @@ export function VesselState({ state }) {
             {num(vessel?.sog_ms, 2, ' m/s')}
           </Value>
         </Row>
-        <Row label="Heading">
-          <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>
-            {vessel?.heading_valid === false ? (
-              <span className="errline">invalid</span>
-            ) : (
-              bearing(vessel?.heading_deg)
-            )}
-          </Value>
-        </Row>
+        {/* Hull attitude from the IMU. The sonar panel shows the
+            *transducer's* attitude, which is a different sensor and is
+            labelled as such — two rows reading "roll / pitch" with different
+            numbers is an inconsistency an operator cannot resolve. */}
         <Row label="Roll / pitch">
           <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>
             {num(vessel?.roll_deg, 1, '°')} / {num(vessel?.pitch_deg, 1, '°')}
@@ -86,19 +89,46 @@ export function VesselState({ state }) {
         {pico?.hardware_killswitch_engaged && <Chip level="alarm">Killswitch engaged</Chip>}
       </div>
 
-      {pico?.relay_states?.length > 0 && (
-        <Rows>
-          <Row label="Relays">
-            <span className="mono">
-              {pico.relay_states.map((on, i) => (on ? `${i + 1}` : '·')).join(' ')}
-            </span>
-          </Row>
-          <Row label="ESCs">
-            <span className="mono">
-              {pico.esc_status.map((s) => (s === 0 ? 'ok' : `e${s}`)).join(' ')}
-            </span>
-          </Row>
-        </Rows>
+      {/* A fault is never hidden behind a disclosure triangle. Anything
+          off-nominal is promoted out of the collapse; the rest stays folded
+          away, because relay positions are debugging detail on a normal day. */}
+      {hull.alert && (
+        <p className="errline" style={{ marginBottom: 0, marginTop: 8 }}>
+          {hull.alert}
+        </p>
+      )}
+
+      {hull.relays.length > 0 && (
+        <details className="advanced">
+          <summary>Advanced — {hull.summary}</summary>
+          <Rows>
+            {hull.relays.map((r) => (
+              <Row key={`r${r.index}`} label={r.name}>
+                <span className={r.closed ? '' : 'dim-value'}>{r.text}</span>
+              </Row>
+            ))}
+            {hull.escs.map((e) => (
+              <Row key={`e${e.index}`} label={e.name}>
+                <span
+                  className={e.ok ? '' : e.unknown ? 'warnline' : 'errline'}
+                  title={
+                    e.unknown
+                      ? 'This status code is hull-specific and not documented here (open question Q7). It is reported, not interpreted.'
+                      : ''
+                  }
+                >
+                  {e.text}
+                </span>
+                <span className="raw-code"> ({e.code})</span>
+              </Row>
+            ))}
+          </Rows>
+          <p className="hint" style={{ marginBottom: 0 }}>
+            Which load each relay drives is not confirmed here — see
+            docs/open_questions.md Q7. The states are real; the names are not
+            claimed.
+          </p>
+        </details>
       )}
     </Panel>
   );

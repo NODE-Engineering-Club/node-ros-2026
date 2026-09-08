@@ -21,7 +21,7 @@ export function rasterStyle(tileUrl) {
       },
     },
     layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#0d1117' } },
+      { id: 'background', type: 'background', paint: { 'background-color': '#ffffff' } },
       { id: 'offline', type: 'raster', source: 'offline', paint: { 'raster-opacity': 1 } },
     ],
   };
@@ -32,7 +32,7 @@ export function blankStyle() {
     version: 8,
     sources: {},
     layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#0d1117' } },
+      { id: 'background', type: 'background', paint: { 'background-color': '#ffffff' } },
     ],
   };
 }

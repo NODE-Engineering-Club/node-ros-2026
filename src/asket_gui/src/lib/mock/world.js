@@ -60,6 +60,8 @@ export const DEFAULTS = {
   lineSpacingM: 20,
   numLines: 6,
   sonarSide: 'starboard',
+  //: How far outside the survey box the geofence sits.
+  geofenceMarginM: 40,
 
   surveySpeedMs: 1.5,
   turnSpeedMs: 0.8,
@@ -495,6 +497,7 @@ export class MockWorld {
 
   /** The survey lines and geofence, for the map. */
   planGeoJson() {
+    const rad = (this.cfg.surveyHeadingDeg * Math.PI) / 180;
     const lines = [];
     for (let i = 0; i + 1 < this.plan.length; i += 2) {
       const a = this.plan[i];
@@ -504,12 +507,31 @@ export class MockWorld {
         coords: [this.#toLonLat(a), this.#toLonLat(b)],
       });
     }
+    // A geofence around the survey with a margin. The real one comes from the
+    // mission plan; this exists so the layer is exercised rather than shipped
+    // untested — an overlay nobody has ever seen render is an overlay that does
+    // not work.
+    const margin = this.cfg.geofenceMarginM;
+    const along = { e: Math.sin(rad), n: Math.cos(rad) };
+    const across = { e: Math.sin(rad + Math.PI / 2), n: Math.cos(rad + Math.PI / 2) };
+    const width = (this.cfg.numLines - 1) * this.cfg.lineSpacingM;
+    const corner = (u, v) => this.#toLonLat({
+      e: along.e * u + across.e * v,
+      n: along.n * u + across.n * v,
+    });
+    const geofence = [
+      corner(-margin, -margin),
+      corner(this.cfg.lineLengthM + margin, -margin),
+      corner(this.cfg.lineLengthM + margin, width + margin),
+      corner(-margin, width + margin),
+    ];
+
     return {
       lines,
       sonar_side: this.cfg.sonarSide,
       line_spacing_m: this.cfg.lineSpacingM,
       total_survey_distance_m: this.cfg.lineLengthM * this.cfg.numLines,
-      geofence: [],
+      geofence,
     };
   }
 

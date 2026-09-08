@@ -13,6 +13,7 @@ import { SonarPanel } from './panels/SonarPanel.jsx';
 import { VesselState } from './panels/VesselState.jsx';
 import { Chip } from './components/Panel.jsx';
 import { MockControls } from './components/MockControls.jsx';
+import { StatusStrip } from './components/StatusStrip.jsx';
 import { streamPayload } from './lib/connection.js';
 import { useStore } from './lib/useStore.js';
 import { MODE_LABELS } from './lib/labels.js';
@@ -105,15 +106,20 @@ export function App({ connection }) {
         <Chip level={worstAlarm}>
           {state.alarms?.length ? `${state.alarms.length} alarm(s)` : 'No alarms'}
         </Chip>
+
+        {/* Battery, recording and link, in the horizontal space that was empty.
+            These three answer questions nobody should have to scroll for. */}
+        <StatusStrip state={state} />
+
         <div className="spacer" />
         {state.hello?.source?.mode === 'sim' && (
-          <Chip level="warn" title="Every value on this screen is simulated.">
+          <Chip level="mock-banner" title="Every value on this screen is simulated.">
             Simulation
           </Chip>
         )}
         {connection.isMock && (
           <Chip
-            level="warn"
+            level="mock-banner"
             title="No backend and no vessel. Every value is generated in this browser."
           >
             Mock data — browser only
@@ -129,21 +135,33 @@ export function App({ connection }) {
         showRawLidar={showRawLidar}
       />
 
+      {/* Two explicit columns rather than a CSS multi-column: inside a
+          vertically-scrolling box, `column-count` overflows sideways, where
+          nothing can scroll to it.
+
+          The split is by what you need first. Everything a headline can carry
+          — battery, recording, link — is in the status strip, so the columns
+          are ordered by what needs the detail: what the boat is doing on the
+          left, what the payload and the mission are doing on the right. */}
       <aside className="sidebar">
-        <AlarmPanel state={state} />
-        <VesselState state={state} />
-        <ModeCommands state={state} connection={connection} />
-        <HeadingPanel state={state} />
-        <LidarPanel
-          state={state}
-          showRaw={showRawLidar}
-          onShowRawChange={setShowRawLidar}
-        />
-        <PowerPanel state={state} />
-        <SonarPanel state={state} connection={connection} />
-        <MissionPanel state={state} connection={connection} />
-        <DiagnosticsPanel state={state} connection={connection} />
-        <LinkStatus state={state} connection={connection} />
+        <div className="sidebar-col">
+          <AlarmPanel state={state} />
+          <VesselState state={state} />
+          <ModeCommands state={state} connection={connection} />
+          <HeadingPanel state={state} />
+          <LidarPanel
+            state={state}
+            showRaw={showRawLidar}
+            onShowRawChange={setShowRawLidar}
+          />
+        </div>
+        <div className="sidebar-col">
+          <PowerPanel state={state} />
+          <SonarPanel state={state} connection={connection} />
+          <DiagnosticsPanel state={state} connection={connection} />
+          <MissionPanel state={state} connection={connection} />
+          <LinkStatus state={state} connection={connection} />
+        </div>
       </aside>
 
       {connection.isMock && (

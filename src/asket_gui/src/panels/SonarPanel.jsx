@@ -87,7 +87,10 @@ export function SonarPanel({ state, connection }) {
             {pct(sonar?.packet_loss_ratio, 1)}
           </span>
         </Row>
-        <Row label="Pitch / roll">
+        {/* The transducer's own attitude, from the sonar's ATTITUDE_REPORT —
+            a different sensor from the hull IMU in the vessel panel. Labelled
+            so the two are never read as the same number disagreeing. */}
+        <Row label="Transducer pitch / roll">
           {num(sonar?.pitch_deg, 1, '°')} / {num(sonar?.roll_deg, 1, '°')}
         </Row>
         <Row label="Framing errors">

@@ -1,6 +1,7 @@
 """Export: blocked while recording, verified after copying, explained when not
 available."""
 
+import os
 import shutil
 from pathlib import Path
 
@@ -125,6 +126,10 @@ def test_the_jetsons_own_disk_is_never_offered_as_a_destination(tmp_path):
     found = detect_destinations(
         globs=[str(media / "*")],
         exclude_roots=[str(media / "internal")],
+        # Both are mounts here; the point of the test is the exclusion, and
+        # that the drive is on a different file system from the excluded root.
+        is_mount=lambda path: True,
+        device_of=lambda path: 2 if path.endswith("usb1") else 1,
     )
     assert [d.label for d in found] == ["usb1"]
 
@@ -145,3 +150,113 @@ def test_deleting_a_finished_mission_works(mission):
     ok, message = delete_mission(mission, recording_dir=None)
     assert ok
     assert not mission.exists()
+
+
+# -- destination detection on a headless machine ---------------------------
+
+
+def test_a_directory_that_is_not_a_mount_point_is_refused(tmp_path):
+    """A headless Jetson has no desktop session, so /media/usb left behind by a
+    previous mount is an empty folder on the eMMC. Copying a mission there
+    fills the disk the missions already live on and stops the next recording."""
+    from mission_recorder.core.export import inspect_destinations
+
+    (tmp_path / "media" / "usb1").mkdir(parents=True)
+    (tmp_path / "data").mkdir()
+
+    accepted, rejected = inspect_destinations(
+        globs=[str(tmp_path / "media" / "*")],
+        exclude_roots=[str(tmp_path / "data")],
+    )
+    assert accepted == []
+    assert len(rejected) == 1
+    assert "not a mount point" in rejected[0].reason
+    assert "SETUP.md" in rejected[0].reason
+
+
+def test_a_real_mount_on_its_own_file_system_is_accepted(tmp_path):
+    from mission_recorder.core.export import inspect_destinations
+
+    drive = tmp_path / "media" / "ASKET"
+    drive.mkdir(parents=True)
+    (tmp_path / "data").mkdir()
+
+    accepted, rejected = inspect_destinations(
+        globs=[str(tmp_path / "media" / "*")],
+        exclude_roots=[str(tmp_path / "data")],
+        # Pretend it is a mount; the file system check below is the real one.
+        is_mount=lambda path: path == str(drive.resolve()),
+    )
+    # Same tmpfs as the missions root, so it must still be refused — on the
+    # right grounds.
+    assert accepted == []
+    assert "same file system" in rejected[0].reason
+
+
+def test_a_mount_point_on_a_different_file_system_is_offered(tmp_path):
+    from mission_recorder.core.export import inspect_destinations
+
+    drive = tmp_path / "media" / "ASKET"
+    drive.mkdir(parents=True)
+    (tmp_path / "data").mkdir()
+
+    accepted, rejected = inspect_destinations(
+        globs=[str(tmp_path / "media" / "*")],
+        exclude_roots=[str(tmp_path / "data")],
+        is_mount=lambda path: path == str(drive.resolve()),
+        # A separate file system, which is the whole point of a USB drive.
+        device_of=lambda path: 2 if path == str(drive.resolve()) else 1,
+    )
+    assert [d.label for d in accepted] == ["ASKET"], rejected
+
+
+@pytest.mark.skipif(
+    os.geteuid() == 0,
+    reason="root ignores permission bits, so a read-only directory is still writable",
+)
+def test_a_read_only_drive_is_refused_before_gigabytes_are_copied(tmp_path):
+    """A read-only mount and a full file system both pass a permission-bit
+    check and both fail the copy — after the transfer. So the probe writes."""
+    from mission_recorder.core.export import inspect_destinations
+
+    drive = tmp_path / "media" / "READONLY"
+    drive.mkdir(parents=True)
+    os.chmod(drive, 0o555)
+    try:
+        accepted, rejected = inspect_destinations(
+            globs=[str(tmp_path / "media" / "*")],
+            exclude_roots=[],
+            is_mount=lambda path: True,
+            device_of=lambda path: 2,
+        )
+        assert accepted == []
+        assert "not writable" in rejected[0].reason
+    finally:
+        os.chmod(drive, 0o755)
+
+
+def test_the_write_probe_actually_writes(tmp_path):
+    """The check that the skipped test above would otherwise cover: the probe
+    is a real write, not an inspection of permission bits."""
+    from mission_recorder.core.export import _test_writable
+
+    writable, reason = _test_writable(tmp_path)
+    assert writable and reason == ""
+
+    missing = tmp_path / "not" / "there"
+    writable, reason = _test_writable(missing)
+    assert not writable
+    assert "not writable" in reason
+
+
+def test_the_write_probe_leaves_nothing_behind(tmp_path):
+    from mission_recorder.core.export import inspect_destinations
+
+    drive = tmp_path / "media" / "ASKET"
+    drive.mkdir(parents=True)
+    inspect_destinations(
+        globs=[str(tmp_path / "media" / "*")],
+        exclude_roots=[],
+        is_mount=lambda path: True,
+    )
+    assert list(drive.iterdir()) == []

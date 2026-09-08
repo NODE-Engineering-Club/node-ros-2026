@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             "mission_recorder_node = mission_recorder.mission_recorder_node:main",
             "merge_svlog = mission_recorder.merge_svlog:main",
+            "check_export_paths = mission_recorder.check_export_paths:main",
         ],
     },
 )

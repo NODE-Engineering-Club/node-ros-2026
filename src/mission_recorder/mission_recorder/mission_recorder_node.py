@@ -69,6 +69,10 @@ class MissionRecorderNode(Node):
         self.declare_parameter("write_live_svlog", False)
         self.declare_parameter("fast_path_globs", ["/media/*", "/mnt/usb*"])
         self.declare_parameter("exclude_roots", ["/data", "/"])
+        # A directory that exists but is not a mount point is a folder on the
+        # Jetson's own disk. Offering it would fill the disk the missions live
+        # on. Only turn this off for testing.
+        self.declare_parameter("require_mount", True)
 
         self.recorder = MissionRecorder(
             RecorderConfig(
@@ -319,6 +323,7 @@ class MissionRecorderNode(Node):
         return detect_destinations(
             globs=list(self.get_parameter("fast_path_globs").value),
             exclude_roots=list(self.get_parameter("exclude_roots").value),
+            require_mount=bool(self.get_parameter("require_mount").value),
         )
 
     def destroy_node(self) -> bool:

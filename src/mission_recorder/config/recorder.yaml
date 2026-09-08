@@ -26,16 +26,20 @@ mission_recorder:
     write_live_svlog: false
 
     export:
-      # PROVISIONAL (Q9): which mount points count as a removable fast path.
-      # Full mission data is 2-5 GB per hour and never goes over the wireless
-      # link, so export needs a USB drive or a wired client.
+      # A headless Jetson has no desktop session, so NOTHING auto-mounts a USB
+      # drive and these paths stay empty until the udev rule or mount unit in
+      # deploy/ is installed. See docs/SETUP.md.
       fast_path_globs:
+        - "/media/asket/*"
         - "/media/*"
         - "/media/*/*"
         - "/mnt/usb*"
         - "/run/media/*/*"
-      # Never offer the Jetson's own storage: copying a mission onto the disk
-      # it already lives on fills that disk and stops the next recording.
+      # A directory that exists but is not a mount point is a folder on the
+      # Jetson's own disk. Copying a mission there fills the disk the missions
+      # already live on and stops the next recording.
+      require_mount: true
+      # Never offer the Jetson's own storage, even if it is a mount point.
       exclude_roots:
         - "/data"
         - "/"

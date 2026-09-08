@@ -34,15 +34,28 @@ A headless Jetson has no desktop session, so **nothing auto-mounts a USB
 drive** and `/media/*` stays empty. Export would simply never offer a
 destination.
 
-Install the rule and unit shipped in `deploy/`:
+`deploy/` ships two ways to fix that. **Pick one** — they overlap, and
+installing both means two mechanisms racing for the same device.
+
+**Preferred — one dedicated drive.** Format it ext4, label it `ASKET`, and the
+mount point is `/media/asket` every time, whichever port it is in:
 
 ```bash
-sudo cp deploy/99-asket-usb.rules /etc/udev/rules.d/
 sudo cp deploy/media-asket.mount deploy/media-asket.automount /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now media-asket.automount
+```
+
+**Fallback — any stick somebody hands you.** The udev rule mounts whatever
+appears under `/media/asket/<label or device>`:
+
+```bash
+sudo cp deploy/99-asket-usb.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 ```
+
+Format the drive **ext4**. Mission files exceed FAT32's 4 GB single-file limit
+within about ninety minutes of survey.
 
 Then check it:
 

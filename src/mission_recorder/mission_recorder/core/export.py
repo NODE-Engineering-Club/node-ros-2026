@@ -19,15 +19,22 @@ Three rules, all of them here:
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .mission import CHECKSUMS_NAME, verify_mission
 
-#: Where a USB drive is expected to appear. Configurable — which mount points
-#: count as removable is Q9 in docs/open_questions.md.
-DEFAULT_FAST_PATH_GLOBS = ["/media/*", "/media/*/*", "/mnt/usb*", "/run/media/*/*"]
+#: Where a USB drive is expected to appear.
+#:
+#: On a **headless** Jetson nothing auto-mounts these: there is no desktop
+#: session to do it, so without the udev rule and mount unit in ``deploy/``
+#: these directories stay empty and export never offers a destination. See
+#: docs/SETUP.md.
+DEFAULT_FAST_PATH_GLOBS = [
+    "/media/asket/*", "/media/*", "/media/*/*", "/mnt/usb*", "/run/media/*/*"
+]
 
 NO_FAST_PATH_MESSAGE = (
     "Transfer unavailable — connect a USB drive or an Ethernet cable. "
@@ -55,6 +62,21 @@ class Destination:
 
 
 @dataclass
+class Rejection:
+    """A candidate path and why it is not offered.
+
+    Kept rather than silently dropped: "no destinations" on a beach is a
+    question, and this is the answer to it.
+    """
+
+    path: str
+    reason: str
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "reason": self.reason}
+
+
+@dataclass
 class ExportResult:
     success: bool
     message: str
@@ -75,47 +97,137 @@ class ExportResult:
         }
 
 
-def detect_destinations(
+def inspect_destinations(
     globs: list[str] | None = None,
     disk_usage=None,
     exclude_roots: list[str] | None = None,
-) -> list[Destination]:
-    """Find writable fast paths.
+    require_mount: bool = True,
+    require_writable: bool = True,
+    is_mount=None,
+    device_of=None,
+) -> tuple[list[Destination], list[Rejection]]:
+    """Find writable fast paths, and say why the others were rejected.
 
-    Only mount points that are actually separate file systems are offered.
-    Offering the Jetson's own eMMC as a "USB drive" would copy the mission onto
-    the disk it already lives on, fill it, and stop the next recording.
+    A candidate has to be a **real mount point on a different file system from
+    the missions directory**, and it has to be writable. Testing the directory's
+    existence is not enough on a Jetson: ``/media/usb`` left behind by a
+    previous mount is an empty folder on the eMMC, and copying a mission there
+    fills the disk the missions already live on and stops the next recording.
+
+    Writability is tested by writing, not by inspecting permission bits. A
+    read-only mount and a full file system both pass a permissions check and
+    both fail the copy — after gigabytes have been transferred.
     """
     from glob import glob
 
     disk_usage = disk_usage or shutil.disk_usage
+    is_mount = is_mount or os.path.ismount
+    #: Which file system a path is on. Injectable so the "same disk as the
+    #: missions" rule can be tested without two real file systems.
+    device_of = device_of or (lambda path: os.stat(path).st_dev)
     excluded = {Path(p).resolve() for p in (exclude_roots or [])}
+    excluded_devices = set()
+    for root in excluded:
+        try:
+            excluded_devices.add(device_of(str(root)))
+        except OSError:
+            pass
+
     found: dict[str, Destination] = {}
+    rejected: dict[str, Rejection] = {}
+
+    def reject(path: str, reason: str) -> None:
+        rejected.setdefault(path, Rejection(path, reason))
 
     for pattern in globs or DEFAULT_FAST_PATH_GLOBS:
-        for match in glob(pattern):
+        for match in sorted(glob(pattern)):
             path = Path(match)
             if not path.is_dir():
                 continue
             try:
                 resolved = path.resolve()
-            except OSError:
+            except OSError as exc:
+                reject(match, f"cannot resolve: {exc}")
                 continue
+            if str(resolved) in found:
+                continue
+
             if any(resolved == e or e in resolved.parents for e in excluded):
+                reject(str(resolved), "inside the missions directory")
                 continue
+
+            if require_mount and not is_mount(str(resolved)):
+                reject(
+                    str(resolved),
+                    "not a mount point — an empty folder on the Jetson's own "
+                    "disk, not a drive. Is anything actually plugged in, and is "
+                    "the automount unit installed? See docs/SETUP.md",
+                )
+                continue
+
             try:
-                usage = disk_usage(str(path))
-            except OSError:
+                if device_of(str(resolved)) in excluded_devices:
+                    reject(
+                        str(resolved),
+                        "same file system as the missions directory — copying "
+                        "here would fill the disk the missions live on",
+                    )
+                    continue
+            except OSError as exc:
+                reject(str(resolved), f"cannot stat: {exc}")
                 continue
+
+            if require_writable:
+                writable, why = _test_writable(resolved)
+                if not writable:
+                    reject(str(resolved), why)
+                    continue
+
+            try:
+                usage = disk_usage(str(resolved))
+            except OSError as exc:
+                reject(str(resolved), f"cannot read free space: {exc}")
+                continue
+
             found[str(resolved)] = Destination(
                 path=str(resolved),
                 kind="usb",
-                label=path.name,
+                label=resolved.name,
                 free_bytes=int(usage.free),
                 total_bytes=int(usage.total),
             )
 
-    return sorted(found.values(), key=lambda d: d.path)
+    return (
+        sorted(found.values(), key=lambda d: d.path),
+        sorted(rejected.values(), key=lambda r: r.path),
+    )
+
+
+def detect_destinations(*args, **kwargs) -> list[Destination]:
+    """The accepted destinations only. See :func:`inspect_destinations`."""
+    return inspect_destinations(*args, **kwargs)[0]
+
+
+def _test_writable(path: Path) -> tuple[bool, str]:
+    """Write a byte and delete it.
+
+    A read-only mount and a full file system both pass a permission-bit check
+    and both fail the copy — after gigabytes have been transferred.
+    """
+    probe = path / ".asket-write-test"
+    try:
+        with probe.open("wb") as handle:
+            handle.write(b"\0")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as exc:
+        return False, f"not writable: {exc}"
+    finally:
+        try:
+            probe.unlink()
+        except OSError:
+            pass
+    return True, ""
 
 
 def export_mission(

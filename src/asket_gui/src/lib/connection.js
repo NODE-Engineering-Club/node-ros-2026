@@ -19,6 +19,12 @@
 //    and therefore the best estimate of true skew.
 //
 // 3. Never fabricate. A stream with no data has no data; it does not have zero.
+//
+// The socket itself is pluggable. `transport` defaults to a real WebSocket; the
+// mock mode supplies one that speaks the same protocol from inside the browser.
+// Everything above the socket — accumulation of the append-only streams, clock
+// skew, the command lifecycle, reconnection — is therefore shared, and the mock
+// exercises the real client rather than a parallel one.
 
 const RECONNECT_BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 15000];
 const SKEW_WINDOW = 32;
@@ -38,6 +44,9 @@ function initialState() {
     commands: {},
     skewMs: 0,
     lastMessageAt: null,
+    // Bumped when the answer to "are there offline tiles" changes, so the map
+    // re-asks. Only the mock has cause to change it.
+    tileGeneration: 0,
     // Bumped four times a second so that the store snapshot changes even when
     // no data is arriving. Without it, useSyncExternalStore sees the same
     // object reference, skips the render, and every "N s ago" label freezes at
@@ -48,10 +57,18 @@ function initialState() {
 }
 
 export class Connection {
-  constructor(url) {
+  constructor(url, { transport, isMock = false, tileInfo = null } = {}) {
     this.url =
       url ||
       `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+    this.openTransport = transport || ((target) => new WebSocket(target));
+    //: True only in mock mode. The dev control panel keys off this, and it is
+    //: the one thing components are allowed to branch on.
+    this.isMock = isMock;
+    //: In mock mode there is no backend to answer /api/tiles/info, so the
+    //: answer is supplied instead of fetched. Keeping this on the connection
+    //: means the map component asks one place in both modes.
+    this.tileInfo = tileInfo;
     this.state = initialState();
     this.listeners = new Set();
     this.desired = [];
@@ -98,7 +115,7 @@ export class Connection {
     this.#set({ connecting: true });
     let ws;
     try {
-      ws = new WebSocket(this.url);
+      ws = this.openTransport(this.url);
     } catch (error) {
       this.#scheduleReconnect(error.message);
       return;
@@ -300,6 +317,32 @@ export class Connection {
   // The server's current time, as best we can estimate it.
   serverNow() {
     return Date.now() + this.state.skewMs;
+  }
+
+  /**
+   * Whether there is a usable offline map, and if not, why not.
+   *
+   * Asked of the connection rather than fetched directly by the map, so that
+   * the map component is identical in both modes: in mock mode there is no
+   * backend to answer, and a failed fetch would otherwise render as
+   * "could not ask the backend", which is true but useless.
+   */
+  /** Tell the map to re-ask whether offline tiles are available. */
+  notifyTilesChanged() {
+    this.#set({ tileGeneration: this.state.tileGeneration + 1 });
+  }
+
+  async fetchTileInfo() {
+    if (this.tileInfo) return this.tileInfo();
+    try {
+      const response = await fetch('/api/tiles/info');
+      return await response.json();
+    } catch {
+      return {
+        available: false,
+        message: 'Could not ask the backend about map tiles.',
+      };
+    }
   }
 }
 

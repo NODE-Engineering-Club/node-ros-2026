@@ -5,9 +5,82 @@ The mission cockpit. React + MapLibre GL, built with Vite, served by
 
 ```bash
 npm install
+npm run dev:mock  # the whole GUI, on a laptop, with nothing else installed
+npm run dev       # against a real backend on :8080
 npm run build     # output goes straight into gui_backend/gui_backend/static/
-npm run dev       # dev server on :5173, proxying to the backend on :8080
 ```
+
+## Mock mode — run the GUI with no ROS 2, no Python and no boat
+
+```bash
+cd src/asket_gui
+npm install
+npm run dev:mock          # http://localhost:5173
+```
+
+That is the whole setup. No ROS 2, no backend process, no Jetson, no hardware,
+no internet. Everything on screen is generated in the browser.
+
+**Mock mode is permanent, not a throwaway.** It is how the interface gets
+developed and reviewed without taking the vessel out.
+
+### How it avoids being a fake
+
+A mock that behaves differently from the real system is worse than no mock,
+because it gets reviewed and believed. Three things stop that here:
+
+* **The components are not forked.** Mock mode swaps the *socket*, not the app.
+  `Connection` takes a transport; mock mode hands it one that speaks the same
+  protocol from inside the browser. Everything above the socket — clock skew,
+  the append-only stream splicing, the command lifecycle, reconnection — is the
+  real client code.
+* **The negotiation table is generated, not transcribed.**
+  `src/lib/mock/streamPolicy.json` comes from `gui_backend/core/streams.py`, and
+  `test_mock_policy.py` fails if the two drift. Regenerate with:
+
+  ```bash
+  python3 -m gui_backend.tools.export_stream_policy \
+      --out src/asket_gui/src/lib/mock/streamPolicy.json
+  ```
+
+* **The payload shapes are checked across languages.**
+  `test_mock_payload_shapes.py` runs the JavaScript payload builders under Node
+  and compares their key sets with the Python ones, per stream and per detail
+  level — so a panel cannot come to depend on a field the vessel never sends.
+
+### The dev control panel
+
+Visible only in mock mode (`connection.isMock`, set only by the mock factory).
+Every control names the behaviour it is there to demonstrate, so somebody who
+did not write the GUI can tell whether what they are looking at is right.
+
+| Group | Triggers |
+|---|---|
+| Link | 4G link, link lost |
+| Profile | Full / Reduced / Beacon / Auto (manual override) |
+| Sensors | Sonar dropout, heading invalid, GNSS degraded, sonar clock drift, lidar stalled, RC link lost |
+| Resources | Disk full, low battery |
+| Mode commands | Confirmation slow (2.5 s), confirmation never arrives |
+| Map | Offline tiles present / absent |
+| Survey speed | 1× / 4× / 12× — speeds the *vessel*, never the clock |
+| Heading source | Magnetometer vs GNSS compass, to compare seabed error at 50 m |
+
+The time scale deliberately does not touch the clock. Timestamps stay real, so
+data age keeps meaning what it says; only the vessel moves faster.
+
+### Offline maps in mock mode
+
+Both paths are switchable, because "the map degrades honestly with no tiles" is
+a behaviour worth being able to *see* rather than take on trust:
+
+* **Tiles absent** (default) — the map falls back to a labelled coordinate
+  graticule and says why. This is what the field looks like if the `.mbtiles`
+  for the survey area is missing from the Jetson.
+* **Tiles present** — synthetic raster tiles generated in the browser through a
+  MapLibre custom protocol. Nothing is fetched and nothing is bundled. They are
+  stamped `SYNTHETIC — not a chart` so they cannot be mistaken for bathymetry;
+  they exist so the tiled rendering path can be reviewed with no file and no
+  internet.
 
 The dependency tree is deliberately small — React, MapLibre and Vite, nothing
 else. It has to build offline on arm64, and every kilobyte of it crosses the

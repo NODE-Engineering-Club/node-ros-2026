@@ -6,8 +6,11 @@
   "description": "Mission cockpit for the Asket ASV. Served by gui_backend.",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "vite --mode mock",
     "build": "vite build",
-    "preview": "vite preview"
+    "build:mock": "vite build --mode mock --outDir dist-mock --emptyOutDir",
+    "preview": "vite preview",
+    "preview:mock": "vite preview --outDir dist-mock"
   },
   "dependencies": {
     "maplibre-gl": "^5.9.0",

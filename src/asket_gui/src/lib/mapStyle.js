@@ -8,13 +8,13 @@
 // draws a coordinate graticule with labels, so an operator can still read
 // position, track and coverage against a scale — degraded, and visibly so.
 
-export function rasterStyle() {
+export function rasterStyle(tileUrl) {
   return {
     version: 8,
     sources: {
       offline: {
         type: 'raster',
-        tiles: [`${window.location.origin}/tiles/{z}/{x}/{y}.png`],
+        tiles: [tileUrl || `${window.location.origin}/tiles/{z}/{x}/{y}.png`],
         tileSize: 256,
         minzoom: 0,
         maxzoom: 20,

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { coverageRibbon, lidarPoints } from '../lib/geometry.js';
 import { blankStyle, graticule, rasterStyle } from '../lib/mapStyle.js';
+import { registerMockTileProtocol } from '../lib/mock/tiles.js';
 import { streamPayload } from '../lib/connection.js';
 
 /**
@@ -17,7 +18,7 @@ import { streamPayload } from '../lib/connection.js';
  * shows an empty rectangle, because an operator would read that as "no map
  * today" rather than "fix the tile file".
  */
-export function MissionMap({ state, follow, onFollowChange, showRawLidar = false }) {
+export function MissionMap({ state, connection, follow, onFollowChange, showRawLidar = false }) {
   const container = useRef(null);
   const map = useRef(null);
   const [tiles, setTiles] = useState(null);
@@ -33,26 +34,32 @@ export function MissionMap({ state, follow, onFollowChange, showRawLidar = false
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/tiles/info')
-      .then((r) => r.json())
+    connection
+      .fetchTileInfo()
       .then((info) => !cancelled && setTiles(info))
       .catch(() =>
         !cancelled &&
-        setTiles({ available: false, message: 'Could not ask the backend about map tiles.' }),
+        setTiles({ available: false, message: 'Could not ask about map tiles.' }),
       );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [connection, state.tileGeneration]);
 
   // -- map creation -----------------------------------------------------
 
   useEffect(() => {
     if (!container.current || tiles === null || map.current) return;
 
+    // In mock mode the tiles are generated in the browser through a custom
+    // protocol, so the tiled rendering path can be reviewed with no .mbtiles
+    // file and no internet.
+    if (connection.isMock) registerMockTileProtocol(maplibregl);
+    const tileUrl = connection.isMock ? 'mocktiles://{z}/{x}/{y}' : undefined;
+
     const instance = new maplibregl.Map({
       container: container.current,
-      style: tiles.available ? rasterStyle() : blankStyle(),
+      style: tiles.available ? rasterStyle(tileUrl) : blankStyle(),
       center: [14.5053, -22.9576],
       zoom: 14,
       attributionControl: false,
@@ -75,7 +82,7 @@ export function MissionMap({ state, follow, onFollowChange, showRawLidar = false
       map.current = null;
       setReady(false);
     };
-  }, [tiles, onFollowChange]);
+  }, [tiles, onFollowChange, connection]);
 
   // -- data into layers -------------------------------------------------
 

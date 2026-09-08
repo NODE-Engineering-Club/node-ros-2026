@@ -53,10 +53,28 @@ dependencies.
 ```bash
 pytest                                          # whole suite, no ROS needed
 python3 -m flake8 --max-line-length=100 src/    # lint
-cd src/asket_gui && npm install && npm run build
-python3 -m gui_backend.core.app --sim                # the GUI, no ROS, no hardware
+
+cd src/asket_gui && npm install
+npm run dev:mock                                # the GUI alone, nothing else installed
+npm run build                                   # into gui_backend/gui_backend/static/
+
+python3 -m gui_backend.core.app --sim                # GUI + simulated backend
 python3 -m gui_backend.core.app --sim --shape-link   # ...on a genuinely narrow link
 ```
+
+There are three ways to run this, in increasing order of what has to be
+installed:
+
+| | Needs | Use it for |
+|---|---|---|
+| `npm run dev:mock` | Node only | Developing and reviewing the interface |
+| `python3 -m gui_backend.core.app --sim` | Node + Python | The real backend against simulated sources |
+| `ros2 launch asket_bringup sim.launch.py` | the full workspace | The whole stack, still with no hardware |
+
+Mock mode is **permanent**, not scaffolding — see `src/asket_gui/README.md`. It
+swaps the socket, never the components, and two tests keep it honest: the
+negotiation table is generated from `core/streams.py`, and the payload shapes
+are compared across languages by running the JavaScript under Node.
 
 ## Boundaries
 

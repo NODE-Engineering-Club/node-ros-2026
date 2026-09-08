@@ -12,6 +12,7 @@ import { PowerPanel } from './panels/PowerPanel.jsx';
 import { SonarPanel } from './panels/SonarPanel.jsx';
 import { VesselState } from './panels/VesselState.jsx';
 import { Chip } from './components/Panel.jsx';
+import { MockControls } from './components/MockControls.jsx';
 import { streamPayload } from './lib/connection.js';
 import { useStore } from './lib/useStore.js';
 import { MODE_LABELS } from './lib/labels.js';
@@ -52,6 +53,10 @@ export function App({ connection }) {
   // One toggle drives both the lidar panel and the map overlay, so the two can
   // never disagree about which point set is being looked at.
   const [showRawLidar, setShowRawLidar] = useState(false);
+  // Lifted so the layout can give the dev panel a real column instead of
+  // floating it over the cockpit, which made the panels it exists to review
+  // impossible to see.
+  const [mockOpen, setMockOpen] = useState(true);
 
   useEffect(() => {
     connection.subscribe(SUBSCRIPTIONS);
@@ -67,8 +72,15 @@ export function App({ connection }) {
     return 'ok';
   }, [state.alarms]);
 
+  const layoutClass = [
+    'app',
+    connection.isMock ? (mockOpen ? 'with-mock' : 'with-mock-collapsed') : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className="app">
+    <div className={layoutClass}>
       <header className="topbar">
         <strong>Asket</strong>
         <Chip
@@ -99,10 +111,19 @@ export function App({ connection }) {
             Simulation
           </Chip>
         )}
+        {connection.isMock && (
+          <Chip
+            level="warn"
+            title="No backend and no vessel. Every value is generated in this browser."
+          >
+            Mock data — browser only
+          </Chip>
+        )}
       </header>
 
       <MissionMap
         state={state}
+        connection={connection}
         follow={follow}
         onFollowChange={setFollow}
         showRawLidar={showRawLidar}
@@ -124,6 +145,10 @@ export function App({ connection }) {
         <DiagnosticsPanel state={state} connection={connection} />
         <LinkStatus state={state} connection={connection} />
       </aside>
+
+      {connection.isMock && (
+        <MockControls connection={connection} open={mockOpen} onOpenChange={setMockOpen} />
+      )}
     </div>
   );
 }

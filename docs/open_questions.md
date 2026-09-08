@@ -2,9 +2,11 @@
 
 The architecture brief listed six; three more surfaced during implementation.
 
-**Most are now answered.** Q3 and Q8 changed the design and are written up
-below. What remains provisional is measurement — the survey area and the
-mounting geometry — plus the `pico_bridge` interface.
+**All nine have answers.** Q3 and Q8 changed the design and are written up
+below. Three remain open in the sense that only the hardware can close them —
+the survey area (Q1), the mounting geometry (Q2) and the `pico_bridge`
+interface (Q7) — and each is held by a config file plus a check that says so
+out loud rather than by an assumption buried in code.
 
 Anything still standing on a provisional value is marked `PROVISIONAL` in the
 config file that holds it, so it is greppable:
@@ -19,10 +21,10 @@ without a rebuild.
 | # | Question | Status | Where |
 |---|---|---|---|
 | 1 | Survey area depth and profile in Namibia (harbour vs open coast) | **Stays provisional — will be tuned on site.** 30 m sonar range, 8/15 m lidar alarm/warn radii. Sonar range, gain and rate are adjustable **at runtime from the GUI**, not only at launch. | `src/asket_bringup/config/mission_defaults.yaml`, GUI sonar panel |
-| 2 | Sonar mounting angle and lever arm from the GNSS antenna | **Must be physically measured; still unknown.** 35° down, offset (x 0.20 m aft, y 0.35 m starboard, z 0.15 m below waterline). The pre-flight check returns **WARN** while the file is still marked `PROVISIONAL`, so it cannot be deployed on defaults by accident. | `src/omniscan_bridge/config/mounting.yaml` |
+| 2 | Sonar mounting angle and lever arm from the GNSS antenna | **Must be physically measured; still unknown.** 35° down, lever arm (0.20 m aft, 0.35 m starboard, 0.15 m below the antenna). The geometry now lives in its own file carrying one line — `measured: false` — and the pre-flight check `sonar.mounting` returns **WARN** naming the file until somebody sets it true, so it cannot be deployed on defaults by accident. A file that exists but fails to load is **FAIL**, not WARN: that is the case where somebody did measure the vessel and the numbers are being silently ignored. The check reads the provenance the **bridge reported**, not the file, so editing it without restarting cannot turn the check green while the old numbers are still in use. | `src/omniscan_bridge/config/mounting.yaml` |
 | 3 | Can SonarView import an externally recorded trajectory to georeference a raw log? | **ANSWERED: no.** Position and heading must be inside the `.svlog` as `NMEA_WRAPPER` packets written at capture time; a log without them cannot be georeferenced or exported at all. Option B survives — the recorder still writes the two streams separately — and `mission_recorder.merge_svlog` merges them afterwards into a valid `.svlog` with `$GPGGA`/`$GPHDT` interleaved on `utc_msec`. Optional live interleaving is available as `write_live_svlog`. | `src/mission_recorder/core/svlog.py` |
-| 4 | UM982 purchase confirmed? Antenna baseline length? | **Purchase decision pending; 1.0 m baseline confirmed as the right assumption.** The panel reads the *reported* accuracy from MAVROS whenever one is available rather than displaying a constant. | `src/asket_bringup/config/mission_defaults.yaml` |
-| 5 | Mission duration target | **3 h confirmed** for disk sizing. Note that with a single sonar unit covering one side only, **battery endurance binds before disk does** — which is what the power panel's endurance-versus-survey comparison is for. | `src/asket_bringup/config/mission_defaults.yaml` |
+| 4 | UM982 purchase confirmed? Antenna baseline length? | **Purchase decision pending; 1.0 m baseline confirmed as the right assumption.** The panel reads the *reported* accuracy from MAVROS whenever one is available rather than displaying a constant, and marks the figure **"assumed"** when the receiver reported none — a UM982 that has lost an antenna reports a degraded accuracy, and substituting the nominal 0.2° would hide exactly that. | `src/asket_bringup/config/mission_defaults.yaml` |
+| 5 | Mission duration target | **3 h confirmed** for disk sizing. **Battery endurance binds before disk does**, by a wide margin — so the disk check reports *hours of recording* and names the battery when that is the shorter of the two, rather than letting "135 hours free" be read as an endurance. The power panel's endurance-versus-survey comparison is the other half. | `src/asket_bringup/config/mission_defaults.yaml` |
 | 6 | Shore-based or from a support vessel? | **Shore-based, confirmed.** Thresholds stay in YAML: a support-vessel deployment would have a very different link profile. | `src/gui_backend/config/link_profiles.yaml` |
 
 ## What the Cerulean documentation corrected (Q8)

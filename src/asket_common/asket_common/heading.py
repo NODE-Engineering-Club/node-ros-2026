@@ -19,10 +19,14 @@ SOURCE_MAGNETOMETER = "magnetometer"
 SOURCE_COG = "cog"
 SOURCE_NONE = "none"
 
-#: Typical accuracy by source, degrees, used when the source reports none.
+#: Typical accuracy by source, degrees, used **only** when the source reports
+#: none of its own. The device's figure always wins: a UM982 that has lost one
+#: antenna reports a degraded accuracy, and substituting the nominal 0.2 would
+#: hide exactly the failure worth seeing (docs/open_questions.md Q4).
+#:
 #: The magnetometer figure is the upper end of the 2-10 degree range the hull
-#: actually shows; the GNSS compass figure assumes a 1 m baseline (PROVISIONAL,
-#: docs/open_questions.md Q4).
+#: actually shows; the GNSS compass figure assumes the 1 m baseline
+#: (PROVISIONAL, docs/open_questions.md Q4).
 NOMINAL_ACCURACY_DEG = {
     SOURCE_GNSS_COMPASS: 0.2,
     SOURCE_MAGNETOMETER: 10.0,
@@ -49,6 +53,10 @@ class HeadingEstimate:
     sog_ms: float
     divergence_deg: float
     divergence_meaningful: bool
+    #: True when ``accuracy_deg`` came from the device. False means it is the
+    #: nominal figure for the source — a guess about this class of hardware,
+    #: not a measurement of this one, and the GUI labels it as such.
+    accuracy_reported: bool = False
 
     @property
     def divergence_suspicious(self) -> bool:
@@ -81,7 +89,10 @@ def evaluate_heading(
     hdg = heading_deg if heading_deg is not None else float("nan")
 
     accuracy = reported_accuracy_deg
-    if accuracy is None or (isinstance(accuracy, float) and math.isnan(accuracy)):
+    reported = accuracy is not None and not (
+        isinstance(accuracy, float) and math.isnan(accuracy)
+    )
+    if not reported:
         accuracy = NOMINAL_ACCURACY_DEG.get(source, float("nan"))
 
     meaningful = valid and sog_ms >= MIN_SPEED_FOR_DIVERGENCE_MS
@@ -96,4 +107,5 @@ def evaluate_heading(
         sog_ms=sog_ms,
         divergence_deg=divergence,
         divergence_meaningful=meaningful,
+        accuracy_reported=bool(reported and valid),
     )

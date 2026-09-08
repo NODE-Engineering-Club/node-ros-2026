@@ -115,28 +115,34 @@ are compared across languages by running the JavaScript under Node.
 ## Open questions
 
 Six were listed in the architecture brief; three more surfaced during
-implementation. All nine are tracked, with the provisional values used in the
-meantime, in `docs/open_questions.md`. Anything implemented against a
-provisional value is marked `PROVISIONAL` in the config file that holds it, so
-it is greppable:
+implementation. All nine now have answers in `docs/open_questions.md`. Three
+can only be closed by the hardware — the survey area (Q1), the mounting
+geometry (Q2) and the `pico_bridge` interface (Q7) — and each is held by a
+config file plus a pre-flight check that says so out loud, rather than by an
+assumption buried in code. `README.md` lists what blocks the first deployment.
+
+Anything implemented against a provisional value is marked `PROVISIONAL` in the
+config file that holds it, so it is greppable:
 
 ```bash
 grep -rn PROVISIONAL src/
 ```
 
-Most are now answered. **Q8 is closed**: every packet layout is taken from
-Cerulean's published documentation, and several of the earlier transcriptions
-were wrong — including one message (`SET_NTP_URL`) that does not exist. What
-changed is tabulated in `docs/open_questions.md`.
+**Q8 is closed**: every packet layout is taken from Cerulean's published
+documentation, and several of the earlier transcriptions were wrong — including
+one message (`SET_NTP_URL`) that does not exist. What changed is tabulated in
+`docs/open_questions.md`. It is still unvalidated against a real device, which
+is the first blocking item in `README.md`.
 
 **Q3 is closed and it changed the design**: SonarView cannot import an external
 trajectory, so `mission_recorder.merge_svlog` merges the recorded streams into a
 valid `.svlog` afterwards. Option B survives — nothing about the onboard
 recording changed.
 
-What still stands on provisional values is measurement: the survey area (Q1)
-and the mounting geometry (Q2). Both are tuned or measured on site, and the
-pre-flight check warns while the mounting file is still marked `PROVISIONAL`.
+**Q2 is answered by a check rather than by a number.** The mounting geometry
+lives in `src/omniscan_bridge/config/mounting.yaml`, whose one significant line
+is `measured:`. Until a human sets it true, the pre-flight returns an amber
+WARN naming the file, on every run.
 
 ## Before deploying
 

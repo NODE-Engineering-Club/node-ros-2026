@@ -34,7 +34,8 @@ from std_msgs.msg import UInt8MultiArray
 from std_srvs.srv import Trigger
 
 from omniscan_bridge.core import ping_protocol as pp
-from omniscan_bridge.core.geometry import SonarMounting, point_set_to_vessel_frame
+from omniscan_bridge.core.geometry import point_set_to_vessel_frame
+from omniscan_bridge.core.mounting import load_mounting
 from omniscan_bridge.core.parser import PingParser
 from omniscan_bridge.core.status import (
     CLOCK_OFFSET_ALARM_MS,
@@ -72,14 +73,11 @@ class OmniscanBridge(Node):
         self.declare_parameter("n_range_steps", 400)
         self.declare_parameter("max_publish_rate_hz", 20.0)
         self.declare_parameter("drain_rate_hz", 100.0)
-        # Mounting geometry. PROVISIONAL until measured — open question Q2.
-        self.declare_parameter("mounting.tilt_deg", 35.0)
-        self.declare_parameter("mounting.yaw_deg", 0.0)
-        self.declare_parameter("mounting.pitch_deg", 0.0)
-        self.declare_parameter("mounting.lever_x_m", -0.20)
-        self.declare_parameter("mounting.lever_y_m", -0.35)
-        self.declare_parameter("mounting.lever_z_m", -0.15)
-        self.declare_parameter("mounting.side", "starboard")
+        # Mounting geometry lives in its own file rather than in parameters,
+        # so that it carries its own provenance and so the pre-flight check can
+        # read the very same file this node loads. PROVISIONAL until somebody
+        # measures the vessel — open question Q2.
+        self.declare_parameter("mounting_path", "")
         self.declare_parameter("use_vessel_attitude", True)
         # Republish the unmodified stream for mission_recorder. This is what
         # ends up in sonar_raw.bin, and it must be the bytes as they arrived:
@@ -88,15 +86,22 @@ class OmniscanBridge(Node):
         self.declare_parameter("publish_raw", True)
 
         self.frame_id = self.get_parameter("frame_id").value
-        self.mounting = SonarMounting(
-            tilt_deg=self.get_parameter("mounting.tilt_deg").value,
-            yaw_deg=self.get_parameter("mounting.yaw_deg").value,
-            pitch_deg=self.get_parameter("mounting.pitch_deg").value,
-            lever_x_m=self.get_parameter("mounting.lever_x_m").value,
-            lever_y_m=self.get_parameter("mounting.lever_y_m").value,
-            lever_z_m=self.get_parameter("mounting.lever_z_m").value,
-            side=self.get_parameter("mounting.side").value,
+        self.mounting, self.mounting_provenance = load_mounting(
+            self.get_parameter("mounting_path").value
         )
+        # Said once, at startup, where it goes into the log next to the reason
+        # the survey later looks displaced. The pre-flight check is what keeps
+        # saying it.
+        if self.mounting_provenance.error:
+            self.get_logger().error(
+                f"mounting geometry: {self.mounting_provenance.path} could not be used "
+                f"({self.mounting_provenance.error}) — falling back to defaults"
+            )
+        elif self.mounting_provenance.provisional:
+            self.get_logger().warning(
+                "mounting geometry is PROVISIONAL: nobody has measured the tilt or the "
+                "lever arm. Every sounding carries the same unknown offset."
+            )
 
         self.parser = PingParser()
         self.health = SonarHealthTracker()
@@ -418,6 +423,21 @@ class OmniscanBridge(Node):
             KeyValue(key="realized_ping_rate_hz", value=f"{h.actual_ping_rate_hz:.2f}"),
             KeyValue(key="reconnects", value=str(self.transport.stats.reconnects)),
             KeyValue(key="rx_chunks_dropped", value=str(self.transport.stats.chunks_dropped)),
+        ]
+        # The mounting geometry actually in use, reported by the node that
+        # loaded it. The pre-flight check reads these rather than the file, so
+        # that editing mounting.yaml without restarting cannot turn the check
+        # green while this node is still applying the old numbers.
+        prov = self.mounting_provenance
+        st.values += [
+            KeyValue(key="mounting_path", value=prov.path),
+            KeyValue(key="mounting_found", value=str(prov.found)),
+            KeyValue(key="mounting_missing", value=str(prov.missing)),
+            KeyValue(key="mounting_measured", value=str(prov.measured)),
+            KeyValue(key="mounting_measured_by", value=prov.measured_by),
+            KeyValue(key="mounting_measured_utc", value=prov.measured_utc),
+            KeyValue(key="mounting_error", value=prov.error),
+            KeyValue(key="mounting_unknown_fields", value=",".join(prov.unknown_fields)),
         ]
         arr.status.append(st)
         return arr

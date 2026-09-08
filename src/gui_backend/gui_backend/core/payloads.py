@@ -100,6 +100,10 @@ def heading_payload(estimate: HeadingEstimate, detail: str = DETAIL_FULL) -> dic
     }
     if detail == DETAIL_FULL:
         out["accuracy_deg"] = _f(estimate.accuracy_deg, 2)
+        # Whether the device said so or we assumed it for the class of device.
+        # Shown identically otherwise, the two would be indistinguishable, and
+        # a compass reporting a degraded accuracy is the case worth seeing.
+        out["accuracy_reported"] = bool(estimate.accuracy_reported)
         out["cog_deg"] = _f(estimate.cog_deg, 1)
         out["sog_ms"] = _f(estimate.sog_ms, 2)
         out["seabed_error_at_50m_m"] = _f(estimate.position_error_at_m(50.0), 2)

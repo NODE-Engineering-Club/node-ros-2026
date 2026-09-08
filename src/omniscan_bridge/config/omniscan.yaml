@@ -33,14 +33,9 @@ omniscan_bridge:
 
     use_vessel_attitude: true
 
-    # PROVISIONAL (Q2): mounting angle and lever arm must be measured to the
-    # centimetre. The lever arm is a systematic offset that no amount of
-    # post-processing will discover for you.
-    mounting:
-      tilt_deg: 35.0        # downward from vertical, positive to starboard
-      yaw_deg: 0.0
-      pitch_deg: 0.0
-      lever_x_m: -0.20      # forward positive, so this is 20 cm aft
-      lever_y_m: -0.35      # port positive, so this is 35 cm to starboard
-      lever_z_m: -0.15      # up positive, so this is 15 cm below the antenna
-      side: "starboard"
+    # Mounting geometry is NOT here. It lives in mounting.yaml, which carries
+    # its own "has anybody measured this" flag and is read by the pre-flight
+    # check as well as by this node. Leave empty to fall back to the built-in
+    # defaults — which the pre-flight will then report as a warning, loudly and
+    # every time. See docs/open_questions.md Q2.
+    mounting_path: ""

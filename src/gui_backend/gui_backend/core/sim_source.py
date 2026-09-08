@@ -37,6 +37,7 @@ from mission_recorder.core.mission import (
     RecorderConfig,
     list_missions,
 )
+from omniscan_bridge.core.mounting import load_mounting
 from omniscan_bridge.core.status import SonarHealthTracker
 from system_test.core.checks import run_checks
 from system_test.core.history import PreflightHistory
@@ -58,6 +59,23 @@ from .source import CommandOutcome, Sample
 from .streams import DETAIL_FULL
 
 
+def _default_mounting_path():
+    """``src/omniscan_bridge/config/mounting.yaml``, found from this file.
+
+    Sim mode runs from a source checkout, where the packaged share directory
+    does not exist. Returning None when it is not there is deliberate: the
+    pre-flight then reports "no mounting file", which is the truth.
+    """
+    from pathlib import Path
+
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "omniscan_bridge" / "config" / "mounting.yaml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 class SimSource:
     """A :class:`~gui_backend.core.source.DataSource` backed by ``SimWorld``."""
 
@@ -67,6 +85,7 @@ class SimSource:
         time_scale: float = 1.0,
         max_step_s: float = 0.2,
         missions_root=None,
+        mounting_path=None,
     ) -> None:
         self.world = world or SimWorld(WorldConfig())
         self.time_scale = time_scale
@@ -107,6 +126,14 @@ class SimSource:
         self.missions_root = root
         self.preflight = PreflightHistory(root / "system_test.jsonl")
         self.last_report = None
+
+        # The real mounting.yaml, not a simulated one. Rehearsing the pre-flight
+        # is the point of sim mode, and the mounting check is the one item on it
+        # that a simulated vessel can answer truthfully — the file either says
+        # somebody measured the boat or it does not.
+        self._mounting, self._mounting_provenance = load_mounting(
+            mounting_path if mounting_path is not None else _default_mounting_path()
+        )
 
     # -- clock ------------------------------------------------------------
 
@@ -468,10 +495,15 @@ class SimSource:
             "disk_write_mbps": None,
             "state_of_charge": snap.battery.state_of_charge,
             "battery_voltage": snap.battery.voltage,
+            # So the disk check can say which of the two actually binds.
+            "battery_endurance_s": (
+                None if math.isinf(snap.battery.endurance_s) else snap.battery.endurance_s
+            ),
             "link_rtt_ms": snap.link.rtt_ms,
             "link_active": snap.link.active_link,
             "expected_nodes": [],
             "present_nodes": [],
+            "mounting": self._mounting_provenance.to_dict(),
         }
 
     def run_preflight(self, only=None):

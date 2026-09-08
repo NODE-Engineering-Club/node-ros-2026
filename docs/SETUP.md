@@ -73,12 +73,33 @@ the next recording.
 
 The sonar's mounting angle and the lever arm from the GNSS antenna to the
 transducer must be **measured to the centimetre** and put in
-`src/omniscan_bridge/config/mounting.yaml`. It is a systematic offset that no
-amount of post-processing will discover.
+`src/omniscan_bridge/config/mounting.yaml`. It is a systematic offset: it does
+not average out and it does not look like noise. The whole survey is displaced,
+consistently, and looks entirely plausible until somebody overlays a second one.
 
-Until they are measured, the file stays marked `PROVISIONAL` and the pre-flight
-check returns a **WARN** naming the file. That is deliberate: deploying on
-default geometry by accident is exactly the mistake worth an extra amber line.
+Measure the tilt of the fan from vertical and the three lever-arm components
+from the **GNSS antenna phase centre** — not the mast, not the hull centreline —
+to the transducer face. Then edit the file and set the line that matters:
+
+```yaml
+measured: true
+measured_by: "your name"
+measured_utc: "2026-04-12"
+```
+
+and restart `omniscan_bridge`. Until then the pre-flight check
+`sonar.mounting` returns an amber **WARN** naming the file, on every single
+run. That is deliberate: deploying on default geometry by accident is exactly
+the mistake worth an extra amber line every time.
+
+Two things worth knowing about that check:
+
+* It reads the geometry **the bridge reported loading**, not the file. Editing
+  `mounting.yaml` without restarting cannot turn it green while the old numbers
+  are still being applied.
+* A file that exists but fails to load is **FAIL**, not WARN. That is the
+  dangerous case: somebody measured the vessel and the numbers are being
+  ignored in favour of the defaults.
 
 ## 4. Offline map tiles
 

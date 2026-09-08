@@ -4,6 +4,7 @@ import math
 
 from asket_common.heading import (
     DIVERGENCE_WARN_DEG,
+    NOMINAL_ACCURACY_DEG,
     SOURCE_GNSS_COMPASS,
     SOURCE_MAGNETOMETER,
     SOURCE_NONE,
@@ -62,3 +63,39 @@ def test_a_source_marked_invalid_is_not_trusted_even_with_a_value():
 def test_a_reported_accuracy_beats_the_nominal_one():
     est = evaluate_heading(10.0, SOURCE_MAGNETOMETER, 10.0, 2.0, reported_accuracy_deg=2.5)
     assert est.accuracy_deg == 2.5
+
+
+def test_an_assumed_accuracy_is_marked_as_assumed():
+    """A figure the receiver reported and one we picked for its class of
+    hardware are worth different amounts, so they must not display alike
+    (docs/open_questions.md Q4)."""
+    reported = evaluate_heading(10.0, SOURCE_GNSS_COMPASS, 10.0, 2.0,
+                                reported_accuracy_deg=0.9)
+    assumed = evaluate_heading(10.0, SOURCE_GNSS_COMPASS, 10.0, 2.0)
+    assert reported.accuracy_reported and reported.accuracy_deg == 0.9
+    assert not assumed.accuracy_reported
+    assert assumed.accuracy_deg == NOMINAL_ACCURACY_DEG[SOURCE_GNSS_COMPASS]
+
+
+def test_a_degraded_accuracy_from_the_receiver_is_never_replaced_by_the_nominal():
+    """A UM982 that has lost one antenna reports a much worse figure. Silently
+    substituting 0.2 degrees would hide the failure worth seeing."""
+    est = evaluate_heading(10.0, SOURCE_GNSS_COMPASS, 10.0, 2.0,
+                           reported_accuracy_deg=14.0)
+    assert est.accuracy_deg == 14.0
+    assert est.accuracy_reported
+    # 14 degrees at 50 m is over 12 m of seabed error. That is the point.
+    assert est.position_error_at_m(50.0) > 12.0
+
+
+def test_a_nan_from_the_receiver_counts_as_no_report_not_as_a_measurement():
+    est = evaluate_heading(10.0, SOURCE_MAGNETOMETER, 10.0, 2.0,
+                           reported_accuracy_deg=float("nan"))
+    assert not est.accuracy_reported
+    assert est.accuracy_deg == NOMINAL_ACCURACY_DEG[SOURCE_MAGNETOMETER]
+
+
+def test_an_invalid_heading_reports_no_accuracy_at_all():
+    est = evaluate_heading(None, SOURCE_NONE, 10.0, 2.0, reported_accuracy_deg=0.2)
+    assert not est.accuracy_reported
+    assert math.isnan(est.accuracy_deg)

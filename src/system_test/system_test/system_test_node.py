@@ -52,6 +52,25 @@ _STATUS_VALUES = {
 }
 
 
+def _endurance_s(battery) -> float | None:
+    """Seconds left at the present draw, or None.
+
+    ``BatteryState`` carries current as a negative number when discharging, and
+    publishes NaN for anything the BMS does not report. Both have to be ruled
+    out before dividing, because the answer is quoted at the operator by the
+    disk check and a fabricated one there is worse than a missing one.
+    """
+    if battery is None:
+        return None
+    charge, current = float(battery.charge), float(battery.current)
+    if math.isnan(charge) or math.isnan(current):
+        return None
+    draw = abs(current)
+    if draw < 0.1 or charge <= 0.0:
+        return None
+    return charge / draw * 3600.0
+
+
 class SystemTestNode(Node):
     def __init__(self) -> None:
         super().__init__("system_test")
@@ -210,11 +229,43 @@ class SystemTestNode(Node):
             "disk_write_mbps": self._disk_write_mbps,
             "state_of_charge": float(battery.percentage) if battery else None,
             "battery_voltage": float(battery.voltage) if battery else None,
+            # Charge remaining over present draw. Reported only when both are
+            # real numbers: an invented endurance is worse than none, because
+            # the disk check would quote it (docs/open_questions.md Q5).
+            "battery_endurance_s": _endurance_s(battery),
             "link_rtt_ms": float(link.rtt_ms) if link else None,
             "link_active": link.active_link if link else None,
             "expected_nodes": expected,
             "present_nodes": present,
+            "mounting": self._mounting(),
         }
+
+    def _mounting(self) -> dict | None:
+        """The mounting geometry ``omniscan_bridge`` is actually applying.
+
+        Taken from the bridge's own diagnostics rather than by re-reading
+        ``mounting.yaml``: somebody who measures the vessel and edits the file
+        has not changed the geometry until the bridge is restarted, and a check
+        that went green in between would be worse than no check at all.
+        """
+        for name, status in self._node_diagnostics.items():
+            if "omniscan" not in name:
+                continue
+            kv = {v.key: v.value for v in status.values}
+            if "mounting_path" not in kv:
+                continue
+            unknown = [f for f in kv.get("mounting_unknown_fields", "").split(",") if f]
+            return {
+                "path": kv.get("mounting_path", ""),
+                "found": kv.get("mounting_found") == "True",
+                "missing": kv.get("mounting_missing") == "True",
+                "measured": kv.get("mounting_measured") == "True",
+                "measured_by": kv.get("mounting_measured_by", ""),
+                "measured_utc": kv.get("mounting_measured_utc", ""),
+                "error": kv.get("mounting_error", ""),
+                "unknown_fields": unknown,
+            }
+        return None
 
     # -- running ----------------------------------------------------------
 

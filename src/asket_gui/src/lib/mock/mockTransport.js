@@ -443,11 +443,29 @@ export class MockTransport {
       Math.abs(offset) > 250 ? `The sonar's clock is ${offset} ms from the Jetson's`
                              : `Within ${Math.abs(offset)} ms of the Jetson`,
       Math.abs(offset) > 250 ? 'Everything recorded will be un-georeferenceable. Check NTP.' : '');
+    // Amber, every single time, until somebody measures the boat. This is the
+    // real state of the repository's mounting.yaml, not a simulated fault:
+    // there is nothing to toggle here because nothing in software can fix it.
+    add('sonar.mounting', 'Sonar mounting geometry', 'WARN',
+      'Mounting geometry is PROVISIONAL — mounting.yaml says nobody measured it',
+      'Measure the tilt and the lever arm from the GNSS antenna to the transducer, to '
+        + 'the centimetre, then set measured: true. Until then every sounding carries '
+        + 'the same unknown offset.');
+    // Hours of *recording*, not hours of survey: on a 500 GB drive the disk
+    // figure is over a hundred and the battery is three. Naming which one binds
+    // is the point (docs/open_questions.md Q5).
+    const diskFree = world.diskFreeBytes();
+    const diskHours = diskFree / (3.5 * 1024 ** 3);
+    const enduranceH = world.avgPowerW > 1
+      ? world.remainingWh / world.avgPowerW : null;
     add('disk.space', 'Disk space',
-      world.diskFreeBytes() > 20 * 1024 ** 3 ? 'PASS' : 'FAIL',
-      `${(world.diskFreeBytes() / 1024 ** 3).toFixed(0)} GB free — about `
-        + `${(world.diskFreeBytes() / (3.5 * 1024 ** 3)).toFixed(0)} hours of survey`,
-      world.diskFreeBytes() > 20 * 1024 ** 3 ? ''
+      diskFree > 20 * 1024 ** 3 ? 'PASS' : 'FAIL',
+      `${(diskFree / 1024 ** 3).toFixed(0)} GB free `
+        + (enduranceH !== null && enduranceH < diskHours
+          ? `— ${diskHours.toFixed(0)} hours of recording, but the battery gives `
+            + `${enduranceH.toFixed(1)}`
+          : `— about ${diskHours.toFixed(0)} hours of recording`),
+      diskFree > 20 * 1024 ** 3 ? ''
         : 'Export and delete an old mission before launching.');
     add('battery.charge', 'Battery',
       soc < 0.4 ? 'WARN' : 'PASS', `${(soc * 100).toFixed(0)}% charge`,

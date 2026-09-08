@@ -392,9 +392,10 @@ def _clock(state: dict, t: Thresholds) -> CheckResult:
         return CheckResult(
             "sonar.clock", "Sonar clock (NTP)", FAIL,
             f"The sonar's clock is {offset} ms from the Jetson's",
-            "Everything recorded will be un-georeferenceable. Check that the "
-            "Jetson's NTP server is running and that the sonar was pointed at "
-            "it (ntp_url in omniscan.yaml).",
+            "Everything recorded will be un-georeferenceable. Check the "
+            "Jetson's GPS-disciplined NTP server is running. The sonar is "
+            "pointed at it on the device, not from here — Cerulean removed "
+            "the packet that used to set it. See docs/SETUP.md section 1.",
             offset, "ms",
         )
     return CheckResult(
@@ -403,11 +404,84 @@ def _clock(state: dict, t: Thresholds) -> CheckResult:
     )
 
 
+@check("sonar.mounting", "Sonar mounting geometry")
+def _mounting(state: dict, t: Thresholds) -> CheckResult:
+    """Has anybody actually measured where the transducer is?
+
+    The lever arm from the GNSS antenna to the transducer is a systematic
+    offset. It does not average out and it does not look like noise: the whole
+    survey is displaced, consistently, and the result looks entirely plausible
+    until somebody overlays a second one.
+
+    Nothing here can measure it. This check only asks whether a human has, and
+    keeps asking — in amber, on every pre-flight — until one has said so in
+    ``mounting.yaml`` (docs/open_questions.md Q2).
+    """
+    m = state.get("mounting")
+    if m is None:
+        return _missing("sonar.mounting", "Sonar mounting geometry",
+                        "mounting configuration not reported")
+
+    path = m.get("path") or "mounting.yaml"
+
+    if m.get("error"):
+        # The worst of the three states: somebody may well have measured the
+        # vessel, and the numbers are being silently ignored in favour of
+        # defaults. That is a fault, not an omission.
+        return CheckResult(
+            "sonar.mounting", "Sonar mounting geometry", FAIL,
+            f"{path} could not be used ({m['error']}) — running on defaults",
+            "Any measurements in that file are being ignored. Fix the file "
+            "and restart omniscan_bridge; do not survey until it loads.",
+        )
+
+    if m.get("missing") or not m.get("found"):
+        return CheckResult(
+            "sonar.mounting", "Sonar mounting geometry", WARN,
+            "No mounting file — the sonar's position is a hard-coded guess",
+            "Measure the tilt and the lever arm from the GNSS antenna to the "
+            f"transducer, write them into {path}, and set measured: true.",
+        )
+
+    unknown = m.get("unknown_fields") or []
+    if unknown:
+        # Almost always a typo in a value somebody did measure.
+        return CheckResult(
+            "sonar.mounting", "Sonar mounting geometry", WARN,
+            f"{path} has unrecognised entries: {', '.join(unknown)}",
+            "Those lines are being ignored. If one of them is a measurement, "
+            "it is not reaching the sonar — check the spelling.",
+        )
+
+    if not m.get("measured"):
+        return CheckResult(
+            "sonar.mounting", "Sonar mounting geometry", WARN,
+            f"Mounting geometry is PROVISIONAL — {path} says nobody measured it",
+            "Measure the tilt and the lever arm from the GNSS antenna to the "
+            "transducer, to the centimetre, then set measured: true. Until "
+            "then every sounding carries the same unknown offset.",
+        )
+
+    who = m.get("measured_by") or "unrecorded"
+    when = m.get("measured_utc") or "date unrecorded"
+    return CheckResult(
+        "sonar.mounting", "Sonar mounting geometry", PASS,
+        f"Measured by {who}, {when}", "",
+    )
+
+
 # -- resources ------------------------------------------------------------
 
 
 @check("disk.space", "Disk space", critical=True)
 def _disk(state: dict, t: Thresholds) -> CheckResult:
+    """Hours of *recording*, which is not hours of survey.
+
+    A 500 GB drive reports well over a hundred hours here, and reading that as
+    "we can go out for a hundred hours" is the wrong conclusion: the battery
+    stops the vessel first, by a wide margin (docs/open_questions.md Q5). The
+    message says which of the two binds, so the number cannot be misread.
+    """
     free = state.get("disk_free_bytes")
     if free is None:
         return _missing("disk.space", "Disk space", "cannot read the missions disk")
@@ -415,13 +489,20 @@ def _disk(state: dict, t: Thresholds) -> CheckResult:
     if free < t.min_disk_free_bytes:
         return CheckResult(
             "disk.space", "Disk space", FAIL,
-            f"{free / 1024**3:.0f} GB free — about {hours:.1f} hours of survey",
+            f"{free / 1024**3:.0f} GB free — about {hours:.1f} hours of recording",
             "Export and delete an old mission before launching.",
             free / 1024**3, "GB",
         )
+
+    endurance_h = state.get("battery_endurance_s")
+    endurance_h = endurance_h / 3600.0 if endurance_h else None
+    if endurance_h and endurance_h < hours:
+        tail = f"— {hours:.0f} hours of recording, but the battery gives {endurance_h:.1f}"
+    else:
+        tail = f"— about {hours:.0f} hours of recording"
     return CheckResult(
         "disk.space", "Disk space", PASS,
-        f"{free / 1024**3:.0f} GB free — about {hours:.0f} hours of survey",
+        f"{free / 1024**3:.0f} GB free {tail}",
         "", free / 1024**3, "GB",
     )
 

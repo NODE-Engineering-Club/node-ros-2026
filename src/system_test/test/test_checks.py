@@ -28,6 +28,16 @@ HEALTHY = dict(
     state_of_charge=0.9, battery_voltage=28.0,
     link_rtt_ms=25.0, link_active="wifi",
     expected_nodes=["omniscan_bridge"], present_nodes=["omniscan_bridge"],
+    mounting=dict(
+        path="/etc/asket/mounting.yaml", found=True, measured=True,
+        measured_by="AD", measured_utc="2026-03-02", error="", unknown_fields=[],
+    ),
+)
+
+#: What the repository ships with today: a file nobody has measured against.
+PROVISIONAL_MOUNTING = dict(
+    path="/etc/asket/mounting.yaml", found=True, measured=False,
+    measured_by="", measured_utc="", error="", unknown_fields=[],
 )
 
 
@@ -125,10 +135,10 @@ def test_divergence_is_skipped_rather_than_failed_when_stationary():
     assert "Too slow" in result.message
 
 
-def test_disk_space_is_expressed_in_hours_of_survey():
+def test_disk_space_is_expressed_in_hours_of_recording():
     """'42 GB free' means nothing on a beach. 'About 12 hours' does."""
     result = item(run_checks(HEALTHY), "disk.space")
-    assert "hours of survey" in result.message
+    assert "hours of recording" in result.message
 
 
 def test_a_slow_disk_fails_because_the_sonar_will_outrun_it():
@@ -184,3 +194,99 @@ def test_every_check_survives_a_completely_empty_state(registered):
     result = registered.fn({}, Thresholds())
     assert result.status in (PASS, WARN, FAIL, SKIPPED)
     assert result.message
+
+
+# -- mounting geometry (Q2) ----------------------------------------------
+#
+# Nothing in software can measure a lever arm. All these checks do is refuse to
+# let the vessel leave the beach without somebody having said, in writing, that
+# they did.
+
+
+def test_unmeasured_mounting_geometry_warns_but_does_not_ground_the_vessel():
+    report = run_checks(dict(HEALTHY, mounting=PROVISIONAL_MOUNTING))
+    result = item(report, "sonar.mounting")
+    assert result.status == WARN
+    assert "PROVISIONAL" in result.message
+    assert "measured: true" in result.remedy
+    # A warning, deliberately: an unmeasured lever arm ruins the survey, it
+    # does not endanger the boat. Blocking launch on it would teach the crew to
+    # ignore the verdict.
+    assert report.go
+    assert "warning" in report.summary
+
+
+def test_the_warning_names_the_file_you_have_to_edit():
+    report = run_checks(dict(HEALTHY, mounting=dict(
+        PROVISIONAL_MOUNTING, path="/opt/asket/config/mounting.yaml")))
+    assert "/opt/asket/config/mounting.yaml" in item(report, "sonar.mounting").message
+
+
+def test_measured_geometry_passes_and_says_who_measured_it():
+    result = item(run_checks(HEALTHY), "sonar.mounting")
+    assert result.status == PASS
+    # Not just "PASS": the crew can tell a measurement from March from one taken
+    # after the transducer was remounted in June.
+    assert "AD" in result.message and "2026-03-02" in result.message
+
+
+def test_a_mounting_file_that_could_not_be_loaded_is_a_failure_not_a_warning():
+    """The dangerous case: somebody measured the vessel and the numbers are
+    being silently ignored in favour of the defaults."""
+    report = run_checks(dict(HEALTHY, mounting=dict(
+        PROVISIONAL_MOUNTING, found=False, error="not valid YAML: line 12")))
+    result = item(report, "sonar.mounting")
+    assert result.status == FAIL
+    assert "not valid YAML" in result.message
+    assert "defaults" in result.message
+    assert not report.go
+
+
+def test_a_typo_in_a_measured_value_is_not_swallowed():
+    """`lever_y` instead of `lever_y_m` would otherwise be discarded in silence,
+    leaving the default in place with the file looking filled in."""
+    report = run_checks(dict(HEALTHY, mounting=dict(
+        HEALTHY["mounting"], unknown_fields=["lever_y", "tilt"])))
+    result = item(report, "sonar.mounting")
+    assert result.status == WARN
+    assert "lever_y" in result.message
+
+
+def test_no_mounting_file_at_all_warns_with_the_geometry_named_as_a_guess():
+    report = run_checks(dict(HEALTHY, mounting=dict(
+        PROVISIONAL_MOUNTING, found=False, path="")))
+    result = item(report, "sonar.mounting")
+    assert result.status == WARN
+    assert "guess" in result.message
+
+
+def test_a_vessel_that_does_not_report_its_mounting_is_not_assumed_to_be_fine():
+    """Unknown is not pass — the bridge may be running geometry nobody has seen."""
+    state = dict(HEALTHY)
+    del state["mounting"]
+    result = item(run_checks(state), "sonar.mounting")
+    assert result.status == SKIPPED
+
+
+def test_the_disk_check_says_when_the_battery_is_what_actually_binds():
+    """A 200 GB drive is 57 hours of recording. The battery is three. Reading
+    the first number as an endurance is the mistake this wording prevents
+    (docs/open_questions.md Q5)."""
+    result = item(run_checks(dict(HEALTHY, battery_endurance_s=3.2 * 3600)), "disk.space")
+    assert result.status == PASS
+    assert "battery gives 3.2" in result.message
+
+
+def test_an_unknown_endurance_is_not_quoted_as_a_number():
+    result = item(run_checks(dict(HEALTHY, battery_endurance_s=None)), "disk.space")
+    assert "battery" not in result.message
+
+
+def test_a_disk_smaller_than_the_battery_is_the_binding_one_and_says_so():
+    """Ten hours of battery, under nine of disk: the disk figure is the honest
+    one and no battery caveat belongs on it."""
+    result = item(run_checks(dict(
+        HEALTHY, disk_free_bytes=30 * 1024**3, battery_endurance_s=10 * 3600,
+    )), "disk.space")
+    assert result.status == PASS
+    assert "battery" not in result.message

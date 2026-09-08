@@ -85,6 +85,35 @@ Two details worth knowing:
 * The **lever arm** from the GNSS antenna to the transducer must be measured to
   the centimetre. It is a systematic offset that no post-processing will find.
 
+### mounting.yaml, and the check that will not stop asking
+
+The geometry lives in `config/mounting.yaml` rather than in node parameters,
+because it needs to carry one extra thing: whether anybody has actually
+measured it.
+
+```yaml
+measured: false          # <- the only line that matters
+tilt_deg: 35.0
+lever_x_m: -0.20
+```
+
+`core/mounting.py` loads it and returns the numbers **and their provenance**.
+It never raises: taking the sonar down over a config typo is the wrong trade at
+sea, so it falls back to defaults and records why. Making noise is the
+pre-flight's job — `sonar.mounting` returns:
+
+| | |
+|---|---|
+| `measured: true` | **PASS**, naming who measured it and when |
+| `measured: false` | **WARN** — PROVISIONAL, on every run, until somebody measures the boat |
+| no file at all | **WARN** — the geometry is a hard-coded guess |
+| a file that will not load | **FAIL** — somebody may have measured it and the numbers are being ignored |
+| an unrecognised field | **WARN**, naming it — `lever_y` is not `lever_y_m`, and the default would otherwise apply silently |
+
+The provenance travels to the check through this node's `/diagnostics`, not by
+the check re-reading the file. Editing `mounting.yaml` without restarting must
+not turn the check green while this node is still applying the old numbers.
+
 ## The clock — and why this bridge cannot fix it
 
 `clock_offset_ms` — the sonar's `utc_msec` against the Jetson's clock — matters

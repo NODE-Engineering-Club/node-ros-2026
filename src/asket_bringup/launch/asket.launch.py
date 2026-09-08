@@ -32,6 +32,11 @@ def generate_launch_description() -> LaunchDescription:
     sonar_config = PathJoinSubstitution(
         [FindPackageShare("omniscan_bridge"), "config", "omniscan.yaml"]
     )
+    # Its own file, deliberately: it carries the "has anybody measured this"
+    # flag that the pre-flight check reads (docs/open_questions.md Q2).
+    mounting_config = PathJoinSubstitution(
+        [FindPackageShare("omniscan_bridge"), "config", "mounting.yaml"]
+    )
     topics_config = PathJoinSubstitution(
         [FindPackageShare("gui_backend"), "config", "topics.yaml"]
     )
@@ -112,7 +117,7 @@ def generate_launch_description() -> LaunchDescription:
         package="omniscan_bridge",
         executable="omniscan_bridge_node",
         name="omniscan_bridge",
-        parameters=[sonar_config, {"host": sonar_host}],
+        parameters=[sonar_config, {"host": sonar_host, "mounting_path": mounting_config}],
         arguments=["--ros-args", "--log-level", log_level],
         output="screen",
     )

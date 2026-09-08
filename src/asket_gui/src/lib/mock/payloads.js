@@ -70,6 +70,11 @@ export function headingPayload(world, detail) {
   };
   if (detail === 'full') {
     out.accuracy_deg = round(accuracy, 2);
+    // Both simulated sources compute their own figure, so it is a reported one.
+    // The flag exists for the real system: when MAVROS reports no accuracy the
+    // backend substitutes a nominal one for the class of hardware, and the
+    // panel labels that "assumed" rather than showing the two identically.
+    out.accuracy_reported = valid && accuracy !== null;
     out.cog_deg = round(cog, 1);
     out.sog_ms = round(sog, 2);
     // The number that makes heading matter: about 90 cm per degree at 50 m.

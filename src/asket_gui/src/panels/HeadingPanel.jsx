@@ -40,8 +40,19 @@ export function HeadingPanel({ state }) {
           {HEADING_SOURCE_LABELS[heading?.source] || heading?.source || '—'}
         </Row>
         <Row label="Accuracy">
+          {/* A figure the receiver reported and one we assumed for its class of
+              hardware are worth very different amounts. A UM982 that has lost
+              an antenna reports a degraded accuracy; the nominal 0.2° would
+              hide precisely that. So the two never look the same. */}
           {heading?.accuracy_deg !== null && heading?.accuracy_deg !== undefined
-            ? `± ${num(heading.accuracy_deg, 1, '°')}`
+            ? (
+              <>
+                {`± ${num(heading.accuracy_deg, 1, '°')}`}
+                {heading.accuracy_reported === false ? (
+                  <span className="hint" title="The receiver did not report an accuracy. This is the typical figure for this source, not a measurement of this one."> assumed</span>
+                ) : null}
+              </>
+            )
             : '—'}
         </Row>
         <Row label="Seabed error at 50 m">

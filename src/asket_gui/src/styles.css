@@ -77,7 +77,7 @@ body {
    cockpit — the panels it exists to exercise have to stay visible while you
    use it. */
 .app.with-mock { grid-template-columns: minmax(320px, 1fr) 760px 280px; }
-.app.with-mock-collapsed { grid-template-columns: minmax(320px, 1fr) 760px 30px; }
+.app.with-mock-collapsed { grid-template-columns: minmax(320px, 1fr) 760px 34px; }
 
 .topbar {
   grid-column: 1 / -1;
@@ -116,7 +116,7 @@ body {
 @media (max-width: 1600px) {
   .app { grid-template-columns: minmax(300px, 1fr) 640px; }
   .app.with-mock { grid-template-columns: minmax(260px, 1fr) 640px 280px; }
-  .app.with-mock-collapsed { grid-template-columns: minmax(260px, 1fr) 640px 30px; }
+  .app.with-mock-collapsed { grid-template-columns: minmax(260px, 1fr) 640px 34px; }
 }
 
 @media (max-width: 1280px) {
@@ -124,9 +124,9 @@ body {
   .app.with-mock,
   .app.with-mock-collapsed { grid-template-columns: minmax(240px, 1fr) 420px; }
   .sidebar { flex-direction: column; }
-  .app.with-mock .mock-body { position: absolute; right: 30px; width: 280px; height: 100%; }
+  .app.with-mock .mock-body { position: absolute; right: 34px; width: 280px; height: 100%; }
   .app.with-mock, .app.with-mock-collapsed {
-    grid-template-columns: minmax(240px, 1fr) 420px 30px;
+    grid-template-columns: minmax(240px, 1fr) 420px 34px;
   }
 }
 
@@ -182,6 +182,45 @@ body {
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 8px 10px;
+}
+
+/* -- disclosure ----------------------------------------------------------
+ *
+ * Forty-five numbers were on screen at once. Nobody monitors forty-five, so the
+ * detail folds away and the verdict stays. The caret is part of the header
+ * button, so the whole title is the hit target — a 12px triangle is not
+ * something to aim at on a boat.
+ */
+
+.panel h2 button.disclose {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  cursor: pointer;
+}
+.panel h2 button.disclose:hover:not(:disabled) { background: none; text-decoration: underline; }
+/* Held open by a fault: the control is inert, and the reason is on the line
+   below. A toggle that silently does nothing would be worse than none. */
+.panel h2 button.disclose:disabled { color: var(--ink); cursor: default; }
+.panel h2 .caret { font-size: 10px; }
+.panel h2 button.disclose:disabled .caret { color: var(--alarm); }
+
+.panel-detail { margin-top: 6px; }
+
+.forced-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--alarm);
 }
 
 .panel h2 {
@@ -351,6 +390,16 @@ input[type="range"] { accent-color: var(--info-fill); }
   font-size: 12px;
 }
 
+/* The synthetic-basemap warning: purple like everything else that means
+   "none of this is real", and top-left so it is read before the map is. */
+.map-note-mock {
+  bottom: auto;
+  top: 44px;
+  border-color: var(--mock);
+  border-left: 4px solid var(--mock);
+  max-width: 320px;
+}
+
 .map-overlay {
   position: absolute;
   top: 8px;
@@ -408,8 +457,11 @@ details.advanced { border-top: 1px solid var(--line); margin-top: 6px; }
 
 .mock-panel .mock-handle {
   writing-mode: vertical-rl;
-  padding: 10px 3px;
+  padding: 10px 4px;
   border-radius: 0;
+  /* The rail is the only way back to the panel once it is closed, so its
+     label must not be clipped by the rail's own width. */
+  white-space: nowrap;
   background: var(--mock);
   border-color: var(--mock);
   color: #fff;

@@ -57,7 +57,9 @@ export function App({ connection }) {
   // Lifted so the layout can give the dev panel a real column instead of
   // floating it over the cockpit, which made the panels it exists to review
   // impossible to see.
-  const [mockOpen, setMockOpen] = useState(true);
+  // Closed by default: the dev panel stays valuable, but the default view has
+  // to be what an operator actually sees, not the review rig around it.
+  const [mockOpen, setMockOpen] = useState(false);
 
   useEffect(() => {
     connection.subscribe(SUBSCRIPTIONS);
@@ -146,19 +148,22 @@ export function App({ connection }) {
       <aside className="sidebar">
         <div className="sidebar-col">
           <AlarmPanel state={state} />
+          {/* Directly under the alarms: it is the first thing looked at on
+              arriving at the site, and the most useful panel to somebody who
+              did not write the system. It does not belong at the bottom. */}
+          <DiagnosticsPanel state={state} connection={connection} />
           <VesselState state={state} />
           <ModeCommands state={state} connection={connection} />
           <HeadingPanel state={state} />
+        </div>
+        <div className="sidebar-col">
+          <PowerPanel state={state} />
+          <SonarPanel state={state} connection={connection} />
           <LidarPanel
             state={state}
             showRaw={showRawLidar}
             onShowRawChange={setShowRawLidar}
           />
-        </div>
-        <div className="sidebar-col">
-          <PowerPanel state={state} />
-          <SonarPanel state={state} connection={connection} />
-          <DiagnosticsPanel state={state} connection={connection} />
           <MissionPanel state={state} connection={connection} />
           <LinkStatus state={state} connection={connection} />
         </div>

@@ -136,3 +136,100 @@ def test_no_relay_is_given_a_name_nobody_has_confirmed():
     text = source("lib", "hull.js")
     assert "export const RELAY_LABELS = {};" in text
     assert "PROVISIONAL (Q7)" in text
+
+
+# -- collapsing detail ----------------------------------------------------
+#
+# Roughly forty-five numbers were on screen at once, and nobody monitors
+# forty-five. Folding the detail away is only safe because of two rules, and
+# both are worth a test: a collapsed panel shows a verdict rather than raw data,
+# and anything off-nominal forces itself back open. Without the second, this is
+# just a way to hide faults.
+
+COLLAPSIBLE = {
+    "PowerPanel.jsx": "power",
+    "HeadingPanel.jsx": "heading",
+    "SonarPanel.jsx": "sonar",
+    "VesselState.jsx": "vessel",
+    "LidarPanel.jsx": "obstacles",
+    "DiagnosticsPanel.jsx": "preflight",
+    "MissionPanel.jsx": "recording",
+    "LinkStatus.jsx": "link",
+}
+
+
+def summary_block(panel: str) -> str:
+    """The JSX passed as `summary` — what stays on screen when the panel folds.
+
+    Sliced to the line that closes the Panel's props (a lone ``>``), rather than
+    to the first ``>`` found, which lands inside the JSX itself.
+    """
+    text = source("panels", panel)
+    start = text.index("summary={")
+    end = text.index("\n    >\n", start)
+    return text[start:end]
+
+
+@pytest.mark.parametrize("panel,panel_id", sorted(COLLAPSIBLE.items()))
+def test_every_collapsible_panel_can_force_itself_open(panel, panel_id):
+    """A fault behind a disclosure triangle is a hidden fault."""
+    text = source("panels", panel)
+    assert f'id="{panel_id}"' in text
+    assert "collapsible" in text
+    assert "forceOpen={Boolean(forced)}" in text
+    assert "forceReason={forced}" in text
+    # The condition has to be built from the data, not hard-coded false.
+    assert "const forced =" in text
+
+
+@pytest.mark.parametrize("panel", sorted(COLLAPSIBLE))
+def test_every_collapsible_panel_shows_something_when_folded(panel):
+    """Folding a panel to nothing but its title would make the cockpit tidier
+    and useless."""
+    assert "summary={" in source("panels", panel)
+
+
+def test_the_sonar_clock_offset_is_never_folded_away():
+    """The one value whose drift ruins an entire dataset with no other visible
+    symptom: the survey looks perfect on the day and is un-georeferenceable back
+    home. Behind a disclosure triangle nobody would ever look at it."""
+    summary = summary_block("SonarPanel.jsx")
+    assert "clock_offset_ms" in summary
+    assert "clock_compromised" in summary
+
+
+def test_power_folds_to_a_verdict_rather_than_a_percentage():
+    """'95%' does not say whether it is enough to finish. The comparison does."""
+    assert "verdict" in summary_block("PowerPanel.jsx")
+    assert "Enough charge to finish the planned survey" in source("panels", "PowerPanel.jsx")
+
+
+def test_the_operators_preference_survives_a_reload():
+    text = source("lib", "collapse.js")
+    assert "localStorage" in text
+    # ...and a browser with storage disabled still renders a cockpit.
+    assert text.count("catch") >= 2
+
+
+def test_a_forced_panel_does_not_overwrite_what_the_operator_chose():
+    """When the fault clears the panel goes back to however it was left, rather
+    than to wherever the fault happened to put it."""
+    panel = source("components", "Panel.jsx")
+    assert "const open = forceOpen || openPref;" in panel
+
+
+def test_lidar_reports_beams_swept_not_just_returns():
+    """`0 of 0` made open water and a blind sensor identical. They need very
+    different responses."""
+    assert "beams_per_revolution" in source("panels", "LidarPanel.jsx")
+    assert "beams_per_revolution" in source("lib", "mock", "payloads.js")
+
+
+def test_the_synthetic_basemap_says_so_once_not_on_every_tile():
+    """Tile indices and coordinates repeated across every 256 px square are
+    debug output, and they were the loudest thing on a map whose job is showing
+    coverage."""
+    tiles = source("lib", "mock", "tiles.js")
+    assert "ASKET_TILE_LABELS" in tiles
+    assert "SYNTHETIC" not in tiles, "the warning belongs on the map, not per tile"
+    assert "Synthetic basemap — not a chart" in source("panels", "MissionMap.jsx")

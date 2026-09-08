@@ -12,6 +12,22 @@
 
 const TILE_SIZE = 256;
 
+/**
+ * Tile indices and per-tile coordinates, repeated across every tile, are debug
+ * output: they are unreadable as a chart and they are the loudest thing on a
+ * map whose whole job is showing coverage. Off by default.
+ *
+ * Turn them on from the console when debugging the tiling path itself:
+ *
+ *     window.ASKET_TILE_LABELS = true   // then pan to force a redraw
+ *
+ * The "not a chart" warning does not live here. It is said once, as a note on
+ * the map, rather than stamped on every 256 px square.
+ */
+function labelsOn() {
+  return typeof window !== 'undefined' && window.ASKET_TILE_LABELS === true;
+}
+
 /** Register `mocktiles://` with a MapLibre instance. */
 export function registerMockTileProtocol(maplibregl, protocol = 'mocktiles') {
   if (maplibregl.__asketMockTilesRegistered) return;
@@ -55,12 +71,13 @@ function drawTile(z, x, y) {
   ctx.strokeStyle = 'rgba(70, 100, 130, 0.45)';
   ctx.strokeRect(0.5, 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
 
-  ctx.fillStyle = 'rgba(40, 65, 95, 0.85)';
-  ctx.font = '11px ui-monospace, monospace';
-  ctx.fillText(`${z}/${x}/${y}`, 8, 18);
-  ctx.fillText(`${tileNorth(z, y).toFixed(4)}°`, 8, 34);
-  ctx.fillText(`${tileWest(z, x).toFixed(4)}°`, 8, 48);
-  ctx.fillText('SYNTHETIC — not a chart', 8, TILE_SIZE - 10);
+  if (labelsOn()) {
+    ctx.fillStyle = 'rgba(40, 65, 95, 0.85)';
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(`${z}/${x}/${y}`, 8, 18);
+    ctx.fillText(`${tileNorth(z, y).toFixed(4)}°`, 8, 34);
+    ctx.fillText(`${tileWest(z, x).toFixed(4)}°`, 8, 48);
+  }
 
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
 }

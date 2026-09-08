@@ -36,9 +36,31 @@ export function MissionPanel({ state, connection }) {
     .filter((c) => c.name?.endsWith('_mission'))
     .pop();
 
+  // The verdict a collapsed recording panel has to carry: not "12.4 GB written"
+  // but how long it can keep going. Disk that runs out mid-line is the failure
+  // this row exists to prevent.
+  const remaining = mission?.estimated_remaining_s;
+  const verdict = errored
+    ? mission.error_message
+    : recording
+      ? (remaining === null || remaining === undefined
+        ? `Recording ${mission.name}.`
+        : `Recording ${mission.name} — room for ${duration(remaining)} more.`)
+      : 'Not recording.';
+
+  const forced = errored
+    ? 'the recorder has stopped with an error'
+    : recording && remaining !== null && remaining !== undefined && remaining < 900
+      ? 'less than 15 minutes of recording space left'
+      : '';
+
   return (
     <Panel
       title="Recording"
+      id="recording"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
       aside={
         <>
           <Chip level={recording ? 'warn' : errored ? 'alarm' : ''}>
@@ -46,6 +68,11 @@ export function MissionPanel({ state, connection }) {
           </Chip>
           <PanelAge ageMs={ageMs} rateHz={rateHz} />
         </>
+      }
+      summary={
+        <p className={errored ? 'errline' : 'hint'} style={{ margin: '0 0 6px' }}>
+          {verdict}
+        </p>
       }
     >
       {recording ? (
@@ -78,14 +105,6 @@ export function MissionPanel({ state, connection }) {
             value={name}
             placeholder="Mission name"
             onChange={(e) => setName(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px',
-              background: '#0d1117',
-              color: 'inherit',
-              border: '1px solid #2b3440',
-              borderRadius: 6,
-            }}
           />
           <div className="button-row" style={{ marginTop: 8 }}>
             <ConfirmButton
@@ -119,7 +138,7 @@ export function MissionPanel({ state, connection }) {
         <div
           key={m.path}
           style={{
-            borderTop: '1px solid #2b3440',
+            borderTop: '1px solid var(--line)',
             padding: '6px 0',
             cursor: 'pointer',
             opacity: selected === m.path ? 1 : 0.85,

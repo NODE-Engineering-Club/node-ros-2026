@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Chip, Panel, Row, Rows } from '../components/Panel.jsx';
 import { PanelAge } from '../components/Value.jsx';
 import { streamAgeMs, streamPayload } from '../lib/connection.js';
-import { bearing, num } from '../lib/format.js';
+import { bearing, int, num } from '../lib/format.js';
 
 // PROVISIONAL (Q1): harbour versus open coast changes these substantially.
 // Mirrors lidar.warn_radius_m / alarm_radius_m in mission_defaults.yaml.
@@ -46,8 +46,45 @@ export function LidarPanel({ state, showRaw, onShowRawChange }) {
           ? 'warn'
           : 'ok';
 
+  // Stalled is not the same as clear water, and only one of them needs a person.
+  const stalled = lidar?.rotation_hz !== undefined && lidar.rotation_hz < 1;
+  const forced = stalled
+    ? 'the lidar is not turning'
+    : level === 'alarm'
+      ? `an obstacle is inside ${ALARM_RADIUS_M} m`
+      : level === 'warn'
+        ? `an obstacle is inside ${WARN_RADIUS_M} m`
+        : '';
+
   return (
-    <Panel title="Obstacles" aside={<PanelAge ageMs={ageMs} rateHz={rateHz} />}>
+    <Panel
+      title="Obstacles"
+      id="obstacles"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
+      aside={<PanelAge ageMs={ageMs} rateHz={rateHz} />}
+      summary={
+        subscription && !subscription.granted ? null : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span className="big">{num(nearest, 1, ' m')}</span>
+              <Chip level={level}>
+                {nearest === null || nearest === undefined
+                  ? 'nothing in range'
+                  : `nearest, ${bearing(lidar?.nearest_bearing_deg)}`}
+              </Chip>
+            </div>
+            <canvas
+              ref={canvas}
+              width={340}
+              height={340}
+              style={{ width: '100%', maxWidth: 300, display: 'block', margin: '6px auto' }}
+            />
+          </>
+        )
+      }
+    >
       {subscription && !subscription.granted ? (
         <p className="hint" style={{ margin: 0 }}>
           {/* The server's reason is a full sentence already; prefixing it with
@@ -58,27 +95,18 @@ export function LidarPanel({ state, showRaw, onShowRawChange }) {
         </p>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <span className="big">{num(nearest, 1, ' m')}</span>
-            <Chip level={level}>
-              {nearest === null || nearest === undefined
-                ? 'nothing in range'
-                : `nearest, ${bearing(lidar?.nearest_bearing_deg)}`}
-            </Chip>
-          </div>
-
-          <canvas
-            ref={canvas}
-            width={340}
-            height={340}
-            style={{ width: '100%', maxWidth: 340, display: 'block', margin: '8px auto' }}
-          />
-
           <Rows>
+            {/* Returns against beams *swept*. Both used to be the return count,
+                so the row always read "N of N" and open water was
+                indistinguishable from a blind sensor. */}
             <Row label="Returns">
-              {points.length} of {lidar?.points_per_revolution ?? '—'} per revolution
+              {int(lidar?.points_per_revolution)} of {int(lidar?.beams_per_revolution)} beams
             </Row>
-            <Row label="Rotation">{num(lidar?.rotation_hz, 1, ' Hz')}</Row>
+            <Row label="Rotation">
+              <span className={stalled ? 'errline' : ''}>
+                {num(lidar?.rotation_hz, 1, ' Hz')}
+              </span>
+            </Row>
           </Rows>
 
           <div className="button-row" style={{ marginTop: 8 }}>
@@ -122,8 +150,12 @@ function draw(canvas, points, showRaw) {
   ctx.clearRect(0, 0, width, height);
 
   // Range rings, labelled. An unlabelled ring is decoration.
-  ctx.strokeStyle = '#2b3440';
-  ctx.fillStyle = '#93a3b5';
+  //
+  // These were still the dark theme's colours: a #93a3b5 label on white is a
+  // label nobody can read, which is why the rings looked unlabelled and the
+  // alarm radius looked absent.
+  ctx.strokeStyle = '#b0b0b0';
+  ctx.fillStyle = '#000000';
   ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
   ctx.lineWidth = 1;
   for (const ring of [10, 20, 30]) {
@@ -133,18 +165,22 @@ function draw(canvas, points, showRaw) {
     ctx.fillText(`${ring} m`, cx + 3, cy - ring * scale + 11);
   }
 
-  // The alarm radius, so distance can be judged rather than read.
-  ctx.strokeStyle = '#f2b134';
-  ctx.setLineDash([3, 3]);
+  // The alarm radius, so distance can be judged rather than read. Drawn
+  // whether or not anything is inside it — an operator has to be able to see
+  // where the boundary is *before* something crosses it.
+  ctx.strokeStyle = '#a25a00';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 3]);
   ctx.beginPath();
   ctx.arc(cx, cy, ALARM_RADIUS_M * scale, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
+  ctx.lineWidth = 1;
 
   // Hull silhouette, bow up. Gives every bearing a reference.
   const halfLength = 1.6 * scale * 2;
   const halfBeam = 0.9 * scale * 2;
-  ctx.fillStyle = '#4aa3ff';
+  ctx.fillStyle = '#0b57d0';
   ctx.beginPath();
   ctx.moveTo(cx, cy - halfLength);
   ctx.lineTo(cx + halfBeam, cy - halfLength * 0.2);
@@ -154,7 +190,7 @@ function draw(canvas, points, showRaw) {
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = showRaw ? '#ffb37a' : '#ff8a4a';
+  ctx.fillStyle = showRaw ? '#e88a4a' : '#d34500';
   for (const [bearingDeg, range] of points) {
     const rad = (bearingDeg * Math.PI) / 180;
     const x = cx + Math.sin(rad) * range * scale;

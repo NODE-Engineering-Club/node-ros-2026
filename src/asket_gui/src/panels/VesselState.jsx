@@ -29,29 +29,56 @@ export function VesselState({ state }) {
   const mode = pico?.mode ?? 'UNKNOWN';
   const hull = hullSummary(pico);
 
-  return (
-    <Panel title="Vessel" aside={<PanelAge ageMs={vesselAge} rateHz={vesselRate} />}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <Value ageMs={picoAge} rateHz={picoRate}>
-          <span className={`mode-badge mode-${mode}`}>{MODE_LABELS[mode] || mode}</span>
-        </Value>
-        <div className="spacer" />
-        <Chip level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}>
-          {pico?.armed === undefined ? 'Arming not sent' : pico.armed ? 'Armed' : 'Disarmed'}
-        </Chip>
-      </div>
+  // Anything in the folded half that is off-nominal pulls the whole half open.
+  // The RC link and the killswitch are the sovereign path: they are folded away
+  // only while they are healthy.
+  const forced = pico?.estop_latched
+    ? 'propulsion is cut'
+    : pico?.hardware_killswitch_engaged
+      ? 'the hardware killswitch is engaged'
+      : pico?.rc_link_ok === false
+        ? 'the RC link is lost'
+        : hull.alert
+          ? hull.alert
+          : vessel?.num_sats !== undefined && vessel.num_sats < 6
+            ? `only ${vessel.num_sats} satellites`
+            : '';
 
+  return (
+    <Panel
+      title="Vessel"
+      id="vessel"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
+      aside={<PanelAge ageMs={vesselAge} rateHz={vesselRate} />}
+      summary={
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <Value ageMs={picoAge} rateHz={picoRate}>
+              <span className={`mode-badge mode-${mode}`}>{MODE_LABELS[mode] || mode}</span>
+            </Value>
+            <div className="spacer" />
+            <Chip level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}>
+              {pico?.armed === undefined ? 'Arming not sent' : pico.armed ? 'Armed' : 'Disarmed'}
+            </Chip>
+          </div>
+          <Rows>
+            <Row label="Position">
+              <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>
+                <span className="mono">{coordinate(vessel?.lat, vessel?.lon)}</span>
+              </Value>
+            </Row>
+            <Row label="Speed">
+              <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>
+                {num(vessel?.sog_ms, 2, ' m/s')}
+              </Value>
+            </Row>
+          </Rows>
+        </>
+      }
+    >
       <Rows>
-        <Row label="Position">
-          <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>
-            <span className="mono">{coordinate(vessel?.lat, vessel?.lon)}</span>
-          </Value>
-        </Row>
-        <Row label="Speed">
-          <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>
-            {num(vessel?.sog_ms, 2, ' m/s')}
-          </Value>
-        </Row>
         {/* Hull attitude from the IMU. The sonar panel shows the
             *transducer's* attitude, which is a different sensor and is
             labelled as such — two rows reading "roll / pitch" with different
@@ -68,7 +95,7 @@ export function VesselState({ state }) {
         </Row>
       </Rows>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
         {/* RC link and channel 8 are shown because they are the sovereign
             path. Software can observe them; it can never move them.
 

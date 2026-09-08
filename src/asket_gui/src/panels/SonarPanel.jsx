@@ -4,7 +4,7 @@ import { Chip, Panel, Row, Rows } from '../components/Panel.jsx';
 import { ConfirmButton } from '../components/ConfirmButton.jsx';
 import { PanelAge } from '../components/Value.jsx';
 import { streamAgeMs, streamPayload } from '../lib/connection.js';
-import { int, num, pct } from '../lib/format.js';
+import { bytes, int, num, pct } from '../lib/format.js';
 
 /**
  * Sonar health, and the controls for it.
@@ -52,9 +52,29 @@ export function SonarPanel({ state, connection }) {
   const connected = sonar?.connected;
   const clockLevel = sonar?.clock_compromised ? 'alarm' : sonar?.clock_ok ? 'ok' : 'warn';
 
+  // The clock offset is the one value that stays out of the fold. Its drift
+  // ruins an entire dataset with no other visible symptom — the survey looks
+  // perfect on the day and is un-georeferenceable back home — so behind a
+  // disclosure triangle nobody would ever look at it.
+  const forced = connected === false
+    ? 'the sonar is not sending data'
+    : sonar?.clock_compromised
+      ? 'the sonar clock is too far out to georeference'
+      : sonar?.clock_ok === false
+        ? 'the sonar clock is drifting'
+        : sonar?.ping_rate_ok === false
+          ? 'the sonar is not achieving the commanded ping rate'
+          : (sonar?.packet_loss_ratio ?? 0) > 0.05
+            ? 'packet loss above 5%'
+            : '';
+
   return (
     <Panel
       title="Sonar"
+      id="sonar"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
       aside={
         <>
           <Chip level={connected ? 'ok' : 'alarm'}>
@@ -63,21 +83,44 @@ export function SonarPanel({ state, connection }) {
           <PanelAge ageMs={ageMs} rateHz={rateHz} />
         </>
       }
+      summary={
+        <>
+          <Rows>
+            <Row label="Ping rate">
+              <span
+                className={sonar?.ping_rate_ok === false ? 'warnline' : ''}
+                title={
+                  sonar?.rate_from_device
+                    ? "The sonar's own figure, from END_PING_INFO."
+                    : 'Measured from arrival times here, which also measures the network.'
+                }
+              >
+                {num(sonar?.actual_ping_rate_hz, 1)} / {num(sonar?.commanded_ping_rate_hz, 1, ' Hz')}
+                {sonar?.rate_from_device === false && <span className="hint"> (measured)</span>}
+              </span>
+            </Row>
+          </Rows>
+          <div style={{ marginTop: 6 }}>
+            <Chip level={clockLevel} title="Sonar clock versus the Jetson's">
+              Clock {int(sonar?.clock_offset_ms, ' ms')}
+            </Chip>
+            {sonar?.clock_compromised && (
+              <p className="errline" style={{ marginBottom: 0, marginTop: 4 }}>
+                Data recorded now cannot be georeferenced afterwards. Check the NTP
+                server on the Jetson before continuing the survey.
+              </p>
+            )}
+            {!sonar?.clock_ok && !sonar?.clock_compromised && (
+              <p className="warnline" style={{ marginBottom: 0, marginTop: 4 }}>
+                Clock drifting. Post-mission fusion pairs the sonar stream and the
+                trajectory on this timestamp.
+              </p>
+            )}
+          </div>
+        </>
+      }
     >
       <Rows>
-        <Row label="Ping rate">
-          <span
-            className={sonar?.ping_rate_ok === false ? 'warnline' : ''}
-            title={
-              sonar?.rate_from_device
-                ? "The sonar's own figure, from END_PING_INFO."
-                : 'Measured from arrival times here, which also measures the network.'
-            }
-          >
-            {num(sonar?.actual_ping_rate_hz, 1)} / {num(sonar?.commanded_ping_rate_hz, 1, ' Hz')}
-            {sonar?.rate_from_device === false && <span className="hint"> (measured)</span>}
-          </span>
-        </Row>
         <Row label="Points per ping">
           {int(sonar?.valid_points_per_ping)} of {int(sonar?.points_per_ping)}
         </Row>
@@ -93,28 +136,11 @@ export function SonarPanel({ state, connection }) {
         <Row label="Transducer pitch / roll">
           {num(sonar?.pitch_deg, 1, '°')} / {num(sonar?.roll_deg, 1, '°')}
         </Row>
-        <Row label="Framing errors">
-          {int(sonar?.checksum_errors)} bad, {int(sonar?.bytes_discarded)} B lost
-        </Row>
+        {/* Two counts in one line, one of them in bytes: "0 bad, 0 B lost" made
+            the reader work out which unit belonged to which number. */}
+        <Row label="Frames rejected">{int(sonar?.checksum_errors)}</Row>
+        <Row label="Bytes discarded">{bytes(sonar?.bytes_discarded)}</Row>
       </Rows>
-
-      <div style={{ marginTop: 8 }}>
-        <Chip level={clockLevel} title="Sonar clock versus the Jetson's">
-          Clock {int(sonar?.clock_offset_ms, ' ms')}
-        </Chip>
-        {sonar?.clock_compromised && (
-          <p className="errline" style={{ marginBottom: 0, marginTop: 4 }}>
-            Data recorded now cannot be georeferenced afterwards. Check the NTP
-            server on the Jetson before continuing the survey.
-          </p>
-        )}
-        {!sonar?.clock_ok && !sonar?.clock_compromised && (
-          <p className="warnline" style={{ marginBottom: 0, marginTop: 4 }}>
-            Clock drifting. Post-mission fusion pairs the sonar stream and the
-            trajectory on this timestamp.
-          </p>
-        )}
-      </div>
 
       <div style={{ marginTop: 10 }}>
         <Rows>

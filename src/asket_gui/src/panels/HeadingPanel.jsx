@@ -42,21 +42,44 @@ export function HeadingPanel({ state }) {
   const valid = heading?.valid;
   const divergence = heading?.divergence_deg;
 
+  // Held open whenever the number cannot be trusted or cannot be checked: an
+  // invalid heading, a heading that disagrees with the course, or a heading
+  // arriving without the accuracy figure that says how much it is worth.
+  const forced = valid === false
+    ? 'heading is invalid'
+    : heading?.divergence_suspicious
+      ? 'heading and course over ground disagree'
+      : fallback
+        ? 'reduced heading — no accuracy figure on this link profile'
+        : '';
+
   return (
     <Panel
       title="Heading"
+      id="heading"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
       aside={<PanelAge ageMs={ageMs} rateHz={rateHz} />}
+      summary={
+        <>
+          <div className="big">
+            <Value ageMs={ageMs} rateHz={rateHz} showAge={false}>
+              {valid ? bearing(heading?.heading_deg) : <span className="errline">invalid</span>}
+            </Value>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <Chip
+              level={heading?.source === 'magnetometer' ? 'warn' : valid ? 'ok' : 'alarm'}
+              title="A dual-antenna GNSS compass would be about 0.2°."
+            >
+              {HEADING_SOURCE_LABELS[heading?.source] || heading?.source || 'no source'}
+            </Chip>
+          </div>
+        </>
+      }
     >
-      <div className="big">
-        <Value ageMs={ageMs} rateHz={rateHz} showAge={false}>
-          {valid ? bearing(heading?.heading_deg) : <span className="errline">invalid</span>}
-        </Value>
-      </div>
-
       <Rows>
-        <Row label="Source">
-          {HEADING_SOURCE_LABELS[heading?.source] || heading?.source || '—'}
-        </Row>
         <Row label="Accuracy">
           {/* A figure the receiver reported and one we assumed for its class of
               hardware are worth very different amounts. A UM982 that has lost
@@ -106,13 +129,6 @@ export function HeadingPanel({ state }) {
           From the vessel stream — the heading stream is not carried on this link
           profile, so there is no accuracy figure and no comparison with course.
         </p>
-      )}
-      {heading?.source === 'magnetometer' && (
-        <div style={{ marginTop: 8 }}>
-          <Chip level="warn" title="A dual-antenna GNSS compass would be about 0.2°.">
-            Magnetometer heading
-          </Chip>
-        </div>
       )}
     </Panel>
   );

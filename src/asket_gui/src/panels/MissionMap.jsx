@@ -213,6 +213,16 @@ export function MissionMap({ state, connection, follow, onFollowChange, showRawL
           </div>
         ))}
       </div>
+      {/* Said once, on the map, rather than stamped across every 256 px tile.
+          It still has to be said: a synthetic basemap that looked like a chart
+          would be the most dangerous thing this GUI could render. */}
+      {connection.isMock && tiles?.available && (
+        <div className="map-note map-note-mock">
+          <strong>Synthetic basemap — not a chart.</strong> Generated in this
+          browser so the tiled rendering path can be reviewed with no .mbtiles
+          file and no internet.
+        </div>
+      )}
       {tiles && !tiles.available && (
         <div className="map-note">
           <strong className="warnline">No offline map tiles.</strong> Showing a coordinate
@@ -274,7 +284,7 @@ function empty() {
 const COLOURS = {
   coverage: '#00a651',
   plan: '#0b57d0',
-  geofence: '#a25a00',
+  geofence: '#8f3f00',
   track: '#000000',
   lidar: '#d34500',
   graticule: '#aeaeae',
@@ -327,7 +337,14 @@ function addLayers(map, withGraticule) {
     id: 'geofence',
     type: 'line',
     source: 'geofence',
-    paint: { 'line-color': COLOURS.geofence, 'line-width': 2, 'line-dasharray': [1, 2] },
+    // Thicker and more saturated than the planned lines: this is the boundary
+    // the vessel must not cross, and a thin brown dotted line on white was the
+    // quietest thing on the map. A long dash rather than a dot, so it reads as
+    // a boundary at a glance and still cannot be mistaken for a survey line.
+    //
+    // Deliberately not red. Red means something is wrong here, and a boundary
+    // sitting exactly where it has always sat is not something being wrong.
+    paint: { 'line-color': COLOURS.geofence, 'line-width': 3, 'line-dasharray': [4, 2.5] },
   });
 
   map.addLayer({

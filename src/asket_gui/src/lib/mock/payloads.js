@@ -185,6 +185,9 @@ export function lidarPayload(world, detail) {
   const out = {
     rotation_hz: round(scan.rotationHz, 2),
     points_per_revolution: scan.pointsPerRevolution ?? 0,
+    // Beams swept, as against beams that returned something. Open water and a
+    // blind sensor both report zero returns; only this tells them apart.
+    beams_per_revolution: scan.beamsPerRevolution ?? 0,
     nearest_range_m: round(scan.nearestRangeM, 2),
     nearest_bearing_deg: round(scan.nearestBearingDeg, 1),
     filtered: decimate(scan.filtered),

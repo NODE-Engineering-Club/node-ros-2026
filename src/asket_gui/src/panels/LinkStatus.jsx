@@ -23,13 +23,38 @@ export function LinkStatus({ state, connection }) {
         ? 'warn'
         : 'ok';
 
+  // What the collapsed panel has to say is not "63 kB/s" but which detail level
+  // is in force and why — that is what tells an operator whether a missing
+  // value is missing because nothing is happening or because it is not sent.
+  const forced = !state.connected
+    ? 'the link is down'
+    : link?.active_link === 'none'
+      ? 'no bearer'
+      : profile.profile === 'minimal'
+        ? 'beacon profile — most streams are not carried'
+        : degraded.length
+          ? `${degraded.length} subscription(s) cut back`
+          : '';
+
   return (
     <Panel
       title="Link"
+      id="link"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
       aside={
         <Chip level={level}>
           {state.connected ? LINK_LABELS[link?.active_link] || 'connected' : 'disconnected'}
         </Chip>
+      }
+      summary={
+        <Rows>
+          <Row label="Detail level">
+            {PROFILE_LABELS[profile.profile] || profile.profile}
+            {profile.manual ? ' (manual)' : ''}
+          </Row>
+        </Rows>
       }
     >
       <Rows>
@@ -37,10 +62,6 @@ export function LinkStatus({ state, connection }) {
         <Row label="Latency">{num(link?.rtt_ms, 0, ' ms')}</Row>
         <Row label="Carrying">{bytes(link?.rate_bytes_per_s)}/s</Row>
         <Row label="This client">≈ {bytes(state.estimatedBytesPerS)}/s</Row>
-        <Row label="Detail level">
-          {PROFILE_LABELS[profile.profile] || profile.profile}
-          {profile.manual ? ' (manual)' : ''}
-        </Row>
       </Rows>
 
       <p className="hint" style={{ marginTop: 6, marginBottom: 6 }}>

@@ -179,6 +179,37 @@ is a summary, not a second source — every value in it reads the same payload a
 the panel that owns it, and `test_gui_single_source.py` fails if that stops
 being true.
 
+## Collapsing detail
+
+Forty-five numbers were on screen at once. Nobody monitors forty-five: an
+operator watches five and ignores the rest, so the other forty were burying the
+five that mattered.
+
+The split is not by volume. It is by one question — **would a change in this
+value require somebody to act?** Values that trigger action stay out; values
+that explain or detail fold away. So Power shows the charge and the verdict, and
+folds voltage, current, draw, endurance and the survey comparison; Heading shows
+the bearing and its source, and folds accuracy, seabed error and course.
+
+Two rules make that safe, and `test_gui_single_source.py` fails if either
+breaks:
+
+1. **A collapsed panel shows a verdict, not raw data.** "Enough charge to finish
+   the planned survey" is worth more than "95%", because 95% does not say
+   whether it is enough.
+2. **Anything off-nominal forces itself open**, with the reason on the header.
+   A fault behind a disclosure triangle is a hidden fault. While a panel is held
+   open the operator's preference is not overwritten, so when the condition
+   clears it folds back to however they had left it.
+
+One exception is written into the code rather than left to the rule: the
+**sonar clock offset** stays visible whatever else folds. It is the only value
+whose drift ruins an entire dataset with no other symptom — the survey looks
+perfect on the day and is un-georeferenceable back home — and behind a
+disclosure triangle nobody would ever look at it.
+
+Open/closed state is per panel and survives a reload (`lib/collapse.js`).
+
 ## One value, one place
 
 Heading used to appear in both the vessel panel and the heading panel, read

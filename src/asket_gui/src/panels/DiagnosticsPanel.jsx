@@ -27,37 +27,54 @@ export function DiagnosticsPanel({ state, connection }) {
   const items = report?.items || [];
   const degrading = report?.history?.degrading || [];
 
+  // Anything short of a clean GO opens the list. The verdict sentence names the
+  // first problem; the list is what you act on, and having to ask for it is one
+  // step too many when it is already telling you something is wrong.
+  const notClean = items.filter((i) => i.status !== 'PASS');
+  const forced = report && !report.go
+    ? 'the vessel is NO-GO'
+    : notClean.length
+      ? `${notClean.length} check(s) not passing`
+      : '';
+
   return (
     <Panel
       title="Pre-flight"
+      id="preflight"
+      collapsible
+      forceOpen={Boolean(forced)}
+      forceReason={forced}
       aside={
         report ? (
           <Chip level={report.go ? 'ok' : 'alarm'}>{report.go ? 'GO' : 'NO-GO'}</Chip>
         ) : null
       }
+      summary={
+        <>
+          {report ? (
+            <p
+              className={report.go ? '' : 'errline'}
+              style={{ margin: '0 0 8px', fontWeight: 600 }}
+            >
+              {report.summary}
+            </p>
+          ) : (
+            <p className="hint" style={{ margin: '0 0 8px' }}>
+              No pre-flight has run yet in this session.
+            </p>
+          )}
+          <div className="button-row">
+            <ConfirmButton
+              label="Run pre-flight"
+              prompt="Run all passive checks?"
+              pending={pending}
+              disabled={!state.connected}
+              onConfirm={() => connection.command('run_system_test', {})}
+            />
+          </div>
+        </>
+      }
     >
-      {report ? (
-        <p
-          className={report.go ? '' : 'errline'}
-          style={{ margin: '0 0 8px', fontWeight: 600 }}
-        >
-          {report.summary}
-        </p>
-      ) : (
-        <p className="hint" style={{ margin: '0 0 8px' }}>
-          No pre-flight has run yet in this session.
-        </p>
-      )}
-
-      <div className="button-row">
-        <ConfirmButton
-          label="Run pre-flight"
-          prompt="Run all passive checks?"
-          pending={pending}
-          disabled={!state.connected}
-          onConfirm={() => connection.command('run_system_test', {})}
-        />
-      </div>
       <p className="hint" style={{ marginTop: 6, marginBottom: 0 }}>
         Passive checks only. Motor tests never run automatically and are not
         available from this panel.
@@ -68,7 +85,7 @@ export function DiagnosticsPanel({ state, connection }) {
           {items.map((item) => (
             <div
               key={item.id}
-              style={{ borderTop: '1px solid #2b3440', padding: '6px 0' }}
+              style={{ borderTop: '1px solid var(--line)', padding: '6px 0' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                 <span>{item.name}</span>

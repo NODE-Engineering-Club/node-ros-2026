@@ -67,7 +67,7 @@ export function MockControls({ connection, open, onOpenChange }) {
   return (
     <div className={`mock-panel ${open ? '' : 'collapsed'}`}>
       <button className="mock-handle" onClick={() => onOpenChange(!open)}>
-        {open ? '▸ Mock controls' : '◂ Mock'}
+        {open ? '▸ Hide mock controls' : '◂ Mock controls'}
       </button>
 
       {open && (

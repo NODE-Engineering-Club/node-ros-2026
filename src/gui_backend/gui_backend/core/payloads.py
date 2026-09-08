@@ -259,6 +259,10 @@ def lidar_payload(scan, detail: str = DETAIL_FULL, decimation: int = 1) -> dict:
     payload = {
         "rotation_hz": _f(scan.rotation_hz, 2),
         "points_per_revolution": int(scan.points_per_revolution),
+        # How many beams the scanner swept, as against how many came back with
+        # anything. Without it, open water and a blind sensor both read "0", and
+        # those need very different responses.
+        "beams_per_revolution": len(scan.ranges_m),
         "nearest_range_m": _f(nearest[0], 2) if nearest else None,
         "nearest_bearing_deg": _f(nearest[1], 1) if nearest else None,
         "filtered": pairs(scan.filtered_m),

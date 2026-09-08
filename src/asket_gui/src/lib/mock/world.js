@@ -549,7 +549,12 @@ export class MockWorld {
    * of waste that sinks a 4G link.
    */
   lidarScan() {
-    if (this.hasFault('lidar_stall')) return { raw: [], filtered: [], rotationHz: 0 };
+    // A stalled lidar sweeps no beams at all — which is what makes it
+    // distinguishable from a spinning one over open water.
+    if (this.hasFault('lidar_stall')) {
+      return { raw: [], filtered: [], rotationHz: 0, pointsPerRevolution: 0,
+               beamsPerRevolution: 0, nearestRangeM: null, nearestBearingDeg: null };
+    }
 
     const cfg = this.cfg;
     const beams = 360;               // 1 degree; enough to look right, cheap to draw
@@ -599,6 +604,7 @@ export class MockWorld {
       filtered,
       rotationHz: 10 + gauss(this.random, 0.05),
       pointsPerRevolution: raw.length,
+      beamsPerRevolution: beams,
       nearestRangeM: nearest ? nearest[1] : null,
       nearestBearingDeg: nearest ? nearest[0] : null,
     };

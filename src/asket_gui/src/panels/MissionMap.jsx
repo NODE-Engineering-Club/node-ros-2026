@@ -247,7 +247,11 @@ function fitSurvey(map, plan, coverage, duration = 600) {
       [Math.min(...lons), Math.min(...lats)],
       [Math.max(...lons), Math.max(...lats)],
     ],
-    { padding: 48, duration },
+    // maxZoom keeps the camera inside the tile set's own range. A short survey
+    // otherwise frames to a zoom past the deepest tile available, and MapLibre
+    // upscales — a blurred basemap that looks like a rendering fault rather
+    // than the edge of the data.
+    { padding: 48, duration, maxZoom: 18 },
   );
 }
 

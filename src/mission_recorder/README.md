@@ -34,6 +34,7 @@ Two things follow, and they are the whole design:
     diagnostics.jsonl      health snapshots, including the clock offset
     events.jsonl           mode changes, alarms, operator actions
     rosbag/                full rosbag2 (optional, config flag)
+    live.svlog             SonarView-readable log (optional, config flag)
     checksums.sha256
 ```
 

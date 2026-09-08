@@ -26,9 +26,13 @@ import math
 import random
 from dataclasses import dataclass, field
 
-#: Point type byte. 1 = a valid bottom detection, 0 = no return on that beam.
-PT_TYPE_NONE = 0
+#: ``pt_type`` values, matching Cerulean's OS3D_POINT_SET definition:
+#: 0 = unclassified, 1 = bottom, 2 = water column. A beam with no detection is
+#: reported as unclassified, which is what the real device does — it is not a
+#: separate "no return" code.
+PT_TYPE_UNCLASSIFIED = 0
 PT_TYPE_BOTTOM = 1
+PT_TYPE_WATER_COLUMN = 2
 
 
 @dataclass
@@ -105,6 +109,12 @@ class SonarSim:
         self.cfg = config or SonarSimConfig()
         self._rng = random.Random(seed)
         self.ping_number = 0
+        #: What the host last commanded via ``ping_enable``. Kept separate from
+        #: :attr:`pinging` because a simulated dropout must model the sonar
+        #: failing, not the operator's command being forgotten — otherwise
+        #: clearing the fault would leave it stopped, or injecting one would
+        #: look like the command had never been sent.
+        self.ping_enabled_by_command = True
         self.pinging = True
         #: Ping numbers deliberately skipped, so packet-loss estimation has
         #: something real to detect.
@@ -149,7 +159,7 @@ class SonarSim:
             total = theta + tilt + roll
 
             if abs(total) >= math.radians(88.0):
-                points.append(SonarPoint(theta, 0.0, 0.0, PT_TYPE_NONE))
+                points.append(SonarPoint(theta, 0.0, 0.0, PT_TYPE_UNCLASSIFIED))
                 continue
 
             # Two fixed-point iterations for the laterally varying depth.
@@ -163,7 +173,7 @@ class SonarSim:
             slant = depth / math.cos(total) + self._rng.gauss(0.0, cfg.range_noise_m)
 
             if slant > cfg.range_setting_m or self._rng.random() < cfg.dropout_probability:
-                points.append(SonarPoint(theta, 0.0, 0.0, PT_TYPE_NONE))
+                points.append(SonarPoint(theta, 0.0, 0.0, PT_TYPE_UNCLASSIFIED))
                 continue
 
             # Power: spreading loss, plus a grazing-angle term. Steeper

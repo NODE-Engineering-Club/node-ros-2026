@@ -10,9 +10,14 @@ logic and the packet-loss accounting are all genuinely exercised.
 It speaks the parts of the protocol the bridge uses:
 
 * streams ``OS3D_POINT_SET``, ``END_PING_INFO`` and ``ATTITUDE_REPORT``;
-* accepts ``OS3D_SET_PING_PARAMETERS`` and applies range / gain / ping rate;
-* accepts ``SET_NTP_URL`` and records it, so the bridge can verify it was sent;
+* accepts ``OS3D_SET_PING_PARAMETERS`` and applies range, gain, ping period and
+  the ``ping_enable`` flag;
 * answers the Blue Robotics discovery request with a plausible reply.
+
+There is deliberately no NTP message: the Omniscan 3D's ``SET_NTP_INFO`` packet
+was **removed** by Cerulean and the NTP server is configured on the device
+instead. See ``docs/SETUP.md`` — it is a field setup step, not something the
+bridge can do.
 
 Run standalone, no ROS required::
 
@@ -23,14 +28,13 @@ from __future__ import annotations
 
 import argparse
 import socket
-import struct
 import threading
 import time
 from dataclasses import dataclass, field
 
 from omniscan_bridge.core import ping_protocol as pp
 
-from .raw_stream import encode_sim_ping
+from .raw_stream import encode_sim_ping, up_vector
 from .world import SimWorld, WorldConfig
 
 #: Blue Robotics discovery listens here and replies with a text blob.
@@ -49,7 +53,7 @@ class FakeSonarServer:
     device_id: int = 1
     serve_discovery: bool = True
 
-    ntp_url: str | None = field(default=None, init=False)
+    last_parameters: object | None = field(default=None, init=False)
     clients: set[tuple[str, int]] = field(default_factory=set, init=False)
     _stop: threading.Event = field(default_factory=threading.Event, init=False)
     _threads: list[threading.Thread] = field(default_factory=list, init=False)
@@ -105,14 +109,24 @@ class FakeSonarServer:
                 self._handle(frame)
 
     def _handle(self, frame: pp.Frame) -> None:
-        if frame.message_id == pp.MSG_OS3D_SET_PING_PARAMETERS:
-            range_mm, gain, rate = struct.unpack_from("<IB3xf", frame.payload, 0)
-            cfg = self.world.cfg.sonar
-            cfg.range_setting_m = range_mm / 1000.0
-            cfg.gain = gain
-            cfg.ping_rate_hz = max(0.1, rate)
-        elif frame.message_id == pp.MSG_SET_NTP_URL:
-            self.ntp_url = frame.payload.rstrip(b"\x00").decode("ascii", "replace")
+        if frame.message_id != pp.MSG_OS3D_SET_PING_PARAMETERS:
+            return
+        params = pp.decode_set_ping_parameters(frame.payload)
+        self.last_parameters = params
+
+        cfg = self.world.cfg.sonar
+        # end_m of zero means "track the bottom automatically", which is not
+        # the same as a range of zero — the device picks its own window.
+        if params.end_m > 0:
+            cfg.range_setting_m = params.end_m
+        cfg.gain = params.gain_index
+        cfg.ping_rate_hz = max(0.1, params.ping_rate_hz)
+        # ping_enable is how pinging is started and stopped. Sending a rate of
+        # zero would be a different, and wrong, thing to do.
+        self.world.sonar.ping_enabled_by_command = params.ping_enable
+        self.world.sonar.pinging = params.ping_enable and not self.world.faults.active(
+            "sonar_dropout"
+        )
 
     # -- outbound ---------------------------------------------------------
 
@@ -131,14 +145,18 @@ class FakeSonarServer:
             ping = self.world.take_ping()
             if ping is not None:
                 pings += 1
-                valid = sum(1 for p in ping.points if p.pt_type != 0)
                 self._send(encode_sim_ping(ping))
                 self._send(
                     pp.encode_end_ping_info(
                         pp.EndPingInfo(
-                            ping.ping_number,
-                            valid,
-                            1.0 / max(0.1, self.world.cfg.sonar.ping_rate_hz),
+                            ping_number=ping.ping_number,
+                            ping_hz_realized=self.world.cfg.sonar.ping_rate_hz,
+                            range_start_m=0.0,
+                            range_end_m=self.world.cfg.sonar.range_setting_m,
+                            gain_index=self.world.cfg.sonar.gain,
+                            utc_msec=ping.utc_ms,
+                            n_range_bins=400,
+                            samples_per_range_bin=4,
                         ),
                         src_device_id=self.device_id,
                     )
@@ -147,7 +165,9 @@ class FakeSonarServer:
                     snap = self.world.snapshot()
                     self._send(
                         pp.encode_attitude_report(
-                            pp.AttitudeReport(snap.sonar_pitch_deg, snap.sonar_roll_deg),
+                            up_vector(
+                                snap.sonar_roll_deg, snap.sonar_pitch_deg, snap.utc_ms
+                            ),
                             src_device_id=self.device_id,
                         )
                     )

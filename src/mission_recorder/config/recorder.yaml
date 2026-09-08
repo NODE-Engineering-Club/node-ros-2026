@@ -18,6 +18,13 @@ mission_recorder:
     # Optional; a full rosbag2 roughly doubles the disk cost.
     record_rosbag: false
 
+    # Also write a SonarView-readable log as the mission runs, with navigation
+    # already interleaved. The post-mission merge (merge_svlog) is the primary
+    # path; this is belt and braces for the day the trajectory file is lost or
+    # nobody remembers to run the merge. Costs a second copy of the sonar
+    # stream on disk, which is why it is off by default.
+    write_live_svlog: false
+
     export:
       # PROVISIONAL (Q9): which mount points count as a removable fast path.
       # Full mission data is 2-5 GB per hour and never goes over the wireless

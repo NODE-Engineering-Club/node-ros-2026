@@ -20,12 +20,32 @@ parser is worse than no simulator at all.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from omniscan_bridge.core import ping_protocol as pp
 
 from .sonar import PingSet as SimPingSet
 from .world import SimWorld
+
+
+def up_vector(roll_deg: float, pitch_deg: float, utc_ms: int = 0) -> pp.AttitudeReport:
+    """Roll and pitch as the world up vector in the device frame.
+
+    The device does not report angles: ATTITUDE_REPORT carries ``up_vec`` in
+    its own coordinates (x forward, y port, z up). For roll phi and pitch
+    theta that is ``(-sin(theta), cos(theta) sin(phi), cos(theta) cos(phi))``,
+    which is the inverse of the derivation in
+    :class:`omniscan_bridge.core.ping_protocol.AttitudeReport`.
+    """
+    roll = math.radians(roll_deg)
+    pitch = math.radians(pitch_deg)
+    return pp.AttitudeReport(
+        up_x=-math.sin(pitch),
+        up_y=math.cos(pitch) * math.sin(roll),
+        up_z=math.cos(pitch) * math.cos(roll),
+        utc_msec=utc_ms,
+    )
 
 
 def encode_sim_ping(ping: SimPingSet) -> bytes:
@@ -75,12 +95,16 @@ def generate_raw_stream(
             stats.first_utc_ms = ping.utc_ms
         stats.last_utc_ms = ping.utc_ms
 
-        valid = sum(1 for p in ping.points if p.pt_type != 0)
         out += pp.encode_end_ping_info(
             pp.EndPingInfo(
                 ping_number=ping.ping_number,
-                num_results=valid,
-                ping_duration_s=1.0 / max(0.1, world.cfg.sonar.ping_rate_hz),
+                ping_hz_realized=world.cfg.sonar.ping_rate_hz,
+                range_start_m=0.0,
+                range_end_m=world.cfg.sonar.range_setting_m,
+                gain_index=world.cfg.sonar.gain,
+                utc_msec=ping.utc_ms,
+                n_range_bins=400,
+                samples_per_range_bin=4,
             )
         )
         stats.frames += 1
@@ -88,7 +112,7 @@ def generate_raw_stream(
         if attitude_every_n_pings and stats.pings % attitude_every_n_pings == 0:
             snap = world.snapshot()
             out += pp.encode_attitude_report(
-                pp.AttitudeReport(snap.sonar_pitch_deg, snap.sonar_roll_deg)
+                up_vector(snap.sonar_roll_deg, snap.sonar_pitch_deg, snap.utc_ms)
             )
             stats.frames += 1
 

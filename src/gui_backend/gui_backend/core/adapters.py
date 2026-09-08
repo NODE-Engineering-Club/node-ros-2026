@@ -209,6 +209,9 @@ def sonar_from_ros(msg):
         checksum_errors=int(msg.checksum_errors),
         bytes_discarded=int(msg.bytes_discarded),
         seconds_since_data=0.0 if msg.connected else float("inf"),
+        # SonarStatus does not distinguish the source of the rate; the bridge
+        # already preferred the device's figure when it had one.
+        rate_from_device=bool(msg.connected),
     )
 
 

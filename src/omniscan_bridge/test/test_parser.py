@@ -158,7 +158,7 @@ def test_length_mismatches_are_counted_separately_from_corruption():
     parser = PingParser()
     ps = pp.PointSet(1, 1500.0, 0, [pp.Point(0.0, 0.01, 1.0, 1)] * 4)
     payload = bytearray(pp.encode_point_set(ps)[pp.HEADER_SIZE : -pp.CHECKSUM_SIZE])
-    struct.pack_into("<I", payload, 16, 99)
+    struct.pack_into("<H", payload, 8, 99)      # num_points is a u16 at offset 8
     frame = pp.encode_frame(pp.MSG_OS3D_POINT_SET, bytes(payload))
 
     decode_all(parser, frame)

@@ -44,10 +44,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from .ping_protocol import PointSet
-
-#: Point type meaning "no bottom detection on this beam".
-PT_TYPE_NONE = 0
+from .ping_protocol import BOTTOM_TYPES, PointSet
 
 
 @dataclass
@@ -157,9 +154,12 @@ def point_set_to_vessel_frame(
 ) -> list[tuple[float, float, float, float]]:
     """A whole ping, as ``(x, y, z, power)`` in the vessel frame.
 
-    Beams with no detection are dropped rather than emitted at range zero: a
-    zero-range point would sit on the hull and read as a boulder underneath the
-    boat.
+    Only ``bottom_points`` are kept. An *unclassified* point is one the sonar
+    could not place, and a *water column* point is a fish, a thermocline or a
+    wake — putting either into the bathymetry would place features in the
+    seabed that are not on the bottom. Beams with no detection are dropped
+    rather than emitted at range zero, where they would sit on the hull and
+    read as a boulder underneath the boat.
 
     ``speed_of_sound_override`` exists only for testing against a known value;
     in normal operation the sonar's own reported figure is used, because it is
@@ -171,7 +171,7 @@ def point_set_to_vessel_frame(
 
     out: list[tuple[float, float, float, float]] = []
     for p in point_set.points:
-        if p.pt_type == PT_TYPE_NONE:
+        if p.pt_type not in BOTTOM_TYPES:
             continue
         rng = range_from_tof(p.tof_s, sos)
         if rng <= 0.0 or (max_range_m is not None and rng > max_range_m):

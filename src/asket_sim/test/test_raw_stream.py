@@ -77,11 +77,12 @@ def server():
     srv.stop()
 
 
-def _client(server):
+def _client(server, params=None):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(3.0)
     # Any packet registers us as a client; a parameter set is the natural one.
-    sock.sendto(pp.encode_set_ping_parameters(25.0, 3, 10.0), ("127.0.0.1", server.bound_port))
+    params = params or pp.PingParameters.from_rate(10.0, end_m=25.0, gain_index=3)
+    sock.sendto(pp.encode_set_ping_parameters(params), ("127.0.0.1", server.bound_port))
     return sock
 
 
@@ -108,14 +109,33 @@ def test_set_ping_parameters_is_applied_by_the_device(server):
     assert server.world.cfg.sonar.range_setting_m == pytest.approx(25.0)
     assert server.world.cfg.sonar.gain == 3
     assert server.world.cfg.sonar.ping_rate_hz == pytest.approx(10.0)
+    assert server.last_parameters.enable_atof_data is True
 
 
-def test_set_ntp_url_is_recorded_so_the_bridge_can_verify_it(server):
-    """Everything in section 5 depends on this having actually been sent."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(pp.encode_set_ntp_url("192.168.2.1"), ("127.0.0.1", server.bound_port))
+def test_pinging_is_stopped_with_the_enable_flag_not_a_zero_rate(server):
+    """The documented way to stop. A rate of zero is a different thing, and not
+    a supported one."""
+    sock = _client(server)
+    time.sleep(0.3)
+    assert server.world.sonar.pinging
+
+    stop = pp.PingParameters.from_rate(10.0, end_m=25.0, ping_enable=False)
+    sock.sendto(pp.encode_set_ping_parameters(stop), ("127.0.0.1", server.bound_port))
     deadline = time.monotonic() + 2.0
-    while server.ntp_url is None and time.monotonic() < deadline:
+    while server.world.sonar.pinging and time.monotonic() < deadline:
         time.sleep(0.02)
     sock.close()
-    assert server.ntp_url == "192.168.2.1"
+    assert not server.world.sonar.pinging
+    assert server.world.cfg.sonar.ping_rate_hz == pytest.approx(10.0), (
+        "stopping must not also destroy the configured rate"
+    )
+
+
+def test_an_end_range_of_zero_means_auto_range_not_zero_range(server):
+    """Cerulean: 'Set to 0 for Omniscan 3D to automatically track the bottom.'
+    Treating it as a range of zero would silently disable the sonar."""
+    before = server.world.cfg.sonar.range_setting_m
+    sock = _client(server, pp.PingParameters.from_rate(10.0, end_m=0.0))
+    time.sleep(0.4)
+    sock.close()
+    assert server.world.cfg.sonar.range_setting_m == pytest.approx(before)

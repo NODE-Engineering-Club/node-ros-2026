@@ -91,3 +91,29 @@ def test_attitude_is_carried_through():
     t.on_attitude(pitch_deg=-2.5, roll_deg=7.25)
     h = t.health(True, 0, 0, 0, 0, 0.1, 100.0)
     assert (h.pitch_deg, h.roll_deg) == (-2.5, 7.25)
+
+
+def test_the_devices_own_ping_rate_is_preferred_over_our_measurement():
+    """A rate measured here also measures the network: a sonar pinging happily
+    behind a congested switch would be reported as slow, sending somebody to
+    look at the wrong thing."""
+    t = SonarHealthTracker()
+    now = feed_pings(t, 20, period_s=0.2)          # measures 5 Hz
+    assert t.measured_ping_rate_hz(now) == pytest.approx(5.0, rel=0.05)
+
+    t.on_end_ping(realized_ping_rate_hz=4.2, gain_index=3, range_end_m=27.5)
+    health = t.health(True, 0, 0, 0, 0, 0.1, now_monotonic=now)
+    assert health.actual_ping_rate_hz == pytest.approx(4.2)
+    assert health.rate_from_device
+    # The device also reports the range window it actually used, which in
+    # auto-range mode is the only way to know what it is.
+    assert health.range_setting_m == pytest.approx(27.5)
+    assert health.gain_setting == 3
+
+
+def test_a_stale_device_figure_is_not_reported_as_current():
+    t = SonarHealthTracker(window_s=2.0)
+    now = feed_pings(t, 10, period_s=0.1)
+    t.on_end_ping(realized_ping_rate_hz=5.0)
+    assert t.ping_rate_hz(now) == pytest.approx(5.0)
+    assert t.ping_rate_hz(now + 60.0) == 0.0

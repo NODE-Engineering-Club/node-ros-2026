@@ -45,8 +45,7 @@ class FakeSonarNode(Node):
 
     def _report(self) -> None:
         self.get_logger().debug(
-            f"{self.server.frames_sent} frames sent to {len(self.server.clients)} client(s); "
-            f"ntp url = {self.server.ntp_url!r}"
+            f"{self.server.frames_sent} frames sent to {len(self.server.clients)} client(s)"
         )
 
     def destroy_node(self) -> bool:

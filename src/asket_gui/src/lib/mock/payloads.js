@@ -167,7 +167,7 @@ export function sonarPayload(world, detail) {
     checksum_errors: 0,
     bytes_discarded: 0,
     seconds_since_data: connected ? 0 : 30,
-    ntp_url_sent: '192.168.2.1',
+    rate_from_device: connected,
   });
   return out;
 }

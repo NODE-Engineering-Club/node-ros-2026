@@ -19,8 +19,11 @@ which is why coverage gaps are easy to leave and hard to notice.
 
 ## Services
 
-* `~/set_ping_parameters` — range, gain, ping rate
-* `~/start_pinging`, `~/stop_pinging`
+* `~/set_ping_parameters` — range, gain, ping rate. **Adjustable at runtime**,
+  because the range is meant to be tuned on site rather than fixed at launch.
+  Gain `-1` is auto, which is Cerulean's recommendation.
+* `~/start_pinging`, `~/stop_pinging` — via the documented `ping_enable` flag.
+  Sending a rate of zero would be a different thing, and not a supported one.
 
 ## What it does not do
 
@@ -41,15 +44,24 @@ complete, corrupt frames rejected with resynchronisation on the next marker,
 truncation counted, and ping-number gaps measured so `packet_loss_ratio` is a
 measurement rather than a guess.
 
-> ⚠️ The **frame** layout is the documented, stable Ping Protocol header. The
-> **payload** layouts are transcribed from the architecture brief, which names
-> the fields but not, in every case, their order and width. They are written as
-> explicit `struct` tables so reconciling them with Cerulean's real definition
-> is a one-table edit. The parser cross-checks the declared point count against
-> the payload length and flags a mismatch, so a wrong assumption fails loudly
-> rather than producing a plausible cloud of nonsense.
-> **Validate against Cerulean sample data before the first field deployment.**
-> Tracked as Q8 in `docs/open_questions.md`.
+Every layout is transcribed from **Cerulean's published documentation**
+(docs.ceruleansonar.com) and cited against the message it defines. The
+frame layout was confirmed byte for byte; several payload layouts had been
+guessed wrong and are corrected — see the table in `docs/open_questions.md`.
+
+Two things the documentation does not state, and which are therefore
+assumptions:
+
+* **Endianness.** Little-endian, as in the Blue Robotics protocol this
+  descends from. A wrong guess fails immediately: a big-endian `num_points`
+  would be astronomically large and the length cross-check would reject it.
+* **`vec3`.** Not in the nomenclature table; taken as three `float`, the only
+  reading consistent with the documented fixed payload sizes.
+
+The parser still cross-checks the declared point count against the payload
+length and flags a mismatch, because a weak checksum will not catch a
+transposition and a wrong layout must fail loudly rather than produce a
+plausible cloud of nonsense.
 
 ## The conversion
 
@@ -73,7 +85,7 @@ Two details worth knowing:
 * The **lever arm** from the GNSS antenna to the transducer must be measured to
   the centimetre. It is a systematic offset that no post-processing will find.
 
-## The clock
+## The clock — and why this bridge cannot fix it
 
 `clock_offset_ms` — the sonar's `utc_msec` against the Jetson's clock — matters
 more than it looks. The whole post-mission fusion strategy rests on it. If it
@@ -82,10 +94,15 @@ nobody finds out until the data is opened back home. So it is measured
 continuously (as a **median**, so one late packet cannot cry wolf), surfaced in
 `SonarStatus`, and escalated to an alarm in `/diagnostics`.
 
-The bridge sends `SET_NTP_URL` at startup **and after every reconnect** — a
-device that reboots mid-mission comes back with defaults, and silently
-surveying at the wrong range for the second half is exactly the failure nobody
-notices in time.
+**There is no NTP packet.** Cerulean removed `SET_NTP_INFO`; the NTP server is
+configured on the device itself, and its default is an internet host. There is
+no internet in the field. So this is a **field setup step** — see
+`docs/SETUP.md` — and all the bridge can do is measure the offset and shout.
+
+The bridge does re-send the **ping parameters** on first contact and after every
+reconnect: a device that reboots mid-mission comes back with defaults, and
+silently surveying at the wrong range for the second half is exactly the failure
+nobody notices in time.
 
 ## Testing in sim
 

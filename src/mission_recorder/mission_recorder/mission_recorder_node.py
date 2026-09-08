@@ -66,6 +66,7 @@ class MissionRecorderNode(Node):
         self.declare_parameter("trajectory_rate_hz", 10.0)
         self.declare_parameter("diagnostics_rate_hz", 1.0)
         self.declare_parameter("record_rosbag", False)
+        self.declare_parameter("write_live_svlog", False)
         self.declare_parameter("fast_path_globs", ["/media/*", "/mnt/usb*"])
         self.declare_parameter("exclude_roots", ["/data", "/"])
 
@@ -75,6 +76,7 @@ class MissionRecorderNode(Node):
                 min_free_bytes=int(self.get_parameter("min_free_bytes").value),
                 flush_interval_s=float(self.get_parameter("flush_interval_s").value),
                 record_rosbag=bool(self.get_parameter("record_rosbag").value),
+                write_live_svlog=bool(self.get_parameter("write_live_svlog").value),
             )
         )
 

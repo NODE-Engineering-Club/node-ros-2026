@@ -53,6 +53,7 @@ TRAJECTORY_NAME = "trajectory.jsonl"
 DIAGNOSTICS_NAME = "diagnostics.jsonl"
 EVENTS_NAME = "events.jsonl"
 CHECKSUMS_NAME = "checksums.sha256"
+LIVE_SVLOG_NAME = "live.svlog"
 ROSBAG_DIR = "rosbag"
 
 #: Files whose integrity is checked on export. The rosbag is excluded: it is
@@ -126,6 +127,11 @@ class RecorderConfig:
     #: should lose a second, not a minute.
     flush_interval_s: float = 1.0
     record_rosbag: bool = False
+    #: Also write a SonarView-readable log as the mission runs, with navigation
+    #: already interleaved. The post-mission merge is the primary path; this is
+    #: belt and braces for the day the trajectory file is lost or nobody
+    #: remembers to run it. Costs a second copy of the sonar stream on disk.
+    write_live_svlog: bool = False
 
 
 class MissionRecorder:
@@ -142,6 +148,7 @@ class MissionRecorder:
         self._last_flush = 0.0
         self._manifest: dict = {}
         self._rate_samples: list[tuple[float, int]] = []
+        self._live_svlog = None
 
     # -- lifecycle --------------------------------------------------------
 
@@ -186,6 +193,16 @@ class MissionRecorder:
             }
         except OSError as exc:
             return self._fail(f"cannot open mission files: {exc}")
+
+        if self.cfg.write_live_svlog:
+            from .svlog import LiveSvlogWriter
+
+            try:
+                handle = (directory / LIVE_SVLOG_NAME).open("wb")
+            except OSError as exc:
+                return self._fail(f"cannot open {LIVE_SVLOG_NAME}: {exc}")
+            self._files[LIVE_SVLOG_NAME] = handle
+            self._live_svlog = LiveSvlogWriter(handle)
 
         self._manifest = {
             "name": sanitise_name(name),
@@ -238,6 +255,8 @@ class MissionRecorder:
             except OSError:
                 pass
         self._files.clear()
+        live_stats = self._live_svlog.stats if self._live_svlog else None
+        self._live_svlog = None
 
         self._manifest["stopped_utc_ms"] = utc_ms
         self._manifest["complete"] = True
@@ -247,6 +266,9 @@ class MissionRecorder:
             "trajectory_records": self.status.trajectory_records,
             "events": self.status.events,
         }
+        if live_stats is not None:
+            self._manifest["live_svlog"] = live_stats.to_dict()
+            self._manifest["files"]["live_svlog"] = LIVE_SVLOG_NAME
         self._write_manifest()
         self.write_checksums()
 
@@ -285,6 +307,14 @@ class MissionRecorder:
         self.status.sonar_bytes += len(data)
         self.status.bytes_written += len(data)
 
+        if self._live_svlog is not None:
+            # Never let the optional file take down the mandatory one.
+            try:
+                self._live_svlog.feed_sonar(data)
+            except OSError as exc:
+                self._live_svlog = None
+                self.write_event(0, "live_svlog_failed", {"error": str(exc)})
+
     def write_trajectory(self, record: dict) -> None:
         if not self.recording:
             return
@@ -294,6 +324,14 @@ class MissionRecorder:
         ordered = {key: record.get(key) for key in TRAJECTORY_FIELDS}
         self._write_line(TRAJECTORY_NAME, ordered)
         self.status.trajectory_records += 1
+
+        if self._live_svlog is not None and ordered.get("lat") is not None:
+            from .svlog import TrajectorySample
+
+            try:
+                self._live_svlog.set_position(TrajectorySample.from_record(ordered))
+            except (KeyError, TypeError, ValueError):
+                pass
 
     def write_diagnostics(self, record: dict) -> None:
         if not self.recording:

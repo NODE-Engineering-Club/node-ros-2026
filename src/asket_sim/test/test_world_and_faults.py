@@ -201,3 +201,32 @@ def test_a_stationary_vessel_near_the_station_keeps_a_usable_link(world):
         world.vessel.east, world.vessel.north = 0.0, 0.0   # hold it in place
         links.add(world.snapshot().link.active_link)
     assert links == {"wifi"}
+
+
+def test_a_dropout_does_not_un_send_the_hosts_ping_command(world):
+    """A simulated dropout models the sonar failing, not the command being
+    forgotten. Otherwise clearing the fault would leave the sonar stopped, and
+    injecting one would look like the command had never been sent."""
+    world.sonar.ping_enabled_by_command = True
+    run(world, 2)
+    assert world.sonar.pinging
+
+    world.inject_fault("sonar_dropout")
+    run(world, 2)
+    assert not world.sonar.pinging
+    assert world.sonar.ping_enabled_by_command, "the command must survive the fault"
+
+    world.clear_fault("sonar_dropout")
+    run(world, 2)
+    assert world.sonar.pinging
+
+
+def test_a_host_stop_survives_a_fault_being_cleared(world):
+    """The other direction: clearing a fault must not start a sonar the host
+    deliberately stopped."""
+    world.sonar.ping_enabled_by_command = False
+    world.inject_fault("sonar_dropout")
+    run(world, 2)
+    world.clear_fault("sonar_dropout")
+    run(world, 2)
+    assert not world.sonar.pinging

@@ -221,7 +221,10 @@ def sonar_payload(health, detail: str = DETAIL_FULL) -> dict:
             "checksum_errors": int(health.checksum_errors),
             "bytes_discarded": int(health.bytes_discarded),
             "seconds_since_data": _f(health.seconds_since_data, 1),
-            "ntp_url_sent": health.ntp_url_sent,
+            # Whether the ping rate is the device's own figure or our
+            # measurement of arrivals. Ours also measures the network, so the
+            # panel says which it is showing.
+            "rate_from_device": bool(health.rate_from_device),
         }
     )
     return out

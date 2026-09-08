@@ -124,12 +124,27 @@ it is greppable:
 grep -rn PROVISIONAL src/
 ```
 
-The one to read first is **Q8**: the `OS3D_POINT_SET` payload layout is
-transcribed from the brief, not from Cerulean documentation, and must be
-validated against their sample data before the first field deployment. The
-parser cross-checks the declared point count against the payload length so a
-wrong assumption fails loudly rather than producing a plausible cloud of
-nonsense — but it is still an assumption.
+Most are now answered. **Q8 is closed**: every packet layout is taken from
+Cerulean's published documentation, and several of the earlier transcriptions
+were wrong — including one message (`SET_NTP_URL`) that does not exist. What
+changed is tabulated in `docs/open_questions.md`.
+
+**Q3 is closed and it changed the design**: SonarView cannot import an external
+trajectory, so `mission_recorder.merge_svlog` merges the recorded streams into a
+valid `.svlog` afterwards. Option B survives — nothing about the onboard
+recording changed.
+
+What still stands on provisional values is measurement: the survey area (Q1)
+and the mounting geometry (Q2). Both are tuned or measured on site, and the
+pre-flight check warns while the mounting file is still marked `PROVISIONAL`.
+
+## Before deploying
+
+`docs/SETUP.md` lists the steps that must be done on the hardware and cannot be
+done from this repository. The first one — pointing the sonar's NTP at the
+Jetson's GPS-disciplined server — is the most expensive to get wrong: its
+default is an internet host, there is no internet in the field, and a wrong
+sonar clock makes every mission un-georeferenceable.
 
 ## Handoff
 

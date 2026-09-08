@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import struct
+from dataclasses import replace
 
 import rclpy
 from asket_interfaces.msg import SonarStatus
@@ -63,10 +64,12 @@ class OmniscanBridge(Node):
         self.declare_parameter("port", pp.DEFAULT_PORT)
         self.declare_parameter("transport", "udp")
         self.declare_parameter("frame_id", "base_link")
-        self.declare_parameter("ntp_url", "")
         self.declare_parameter("range_m", 30.0)
-        self.declare_parameter("gain", 4)
+        # -1 is auto gain and is what Cerulean recommend; 0..10 is manual.
+        self.declare_parameter("gain_index", -1)
         self.declare_parameter("ping_rate_hz", 5.0)
+        self.declare_parameter("speed_of_sound", 1500.0)
+        self.declare_parameter("n_range_steps", 400)
         self.declare_parameter("max_publish_rate_hz", 20.0)
         self.declare_parameter("drain_rate_hz", 100.0)
         # Mounting geometry. PROVISIONAL until measured — open question Q2.
@@ -97,10 +100,18 @@ class OmniscanBridge(Node):
 
         self.parser = PingParser()
         self.health = SonarHealthTracker()
+        self.params = pp.PingParameters.from_rate(
+            float(self.get_parameter("ping_rate_hz").value),
+            end_m=float(self.get_parameter("range_m").value),
+            gain_index=int(self.get_parameter("gain_index").value),
+            speed_of_sound=float(self.get_parameter("speed_of_sound").value),
+            n_range_steps=int(self.get_parameter("n_range_steps").value),
+            # Without this the sonar produces no angle/time-of-flight points at
+            # all, which is the entire output we consume.
+            enable_atof_data=True,
+        )
         self.health.on_parameters_commanded(
-            self.get_parameter("range_m").value,
-            int(self.get_parameter("gain").value),
-            self.get_parameter("ping_rate_hz").value,
+            self.params.end_m, self.params.gain_index, self.params.ping_rate_hz
         )
 
         transport_cls = (
@@ -158,40 +169,40 @@ class OmniscanBridge(Node):
     # -- device configuration ---------------------------------------------
 
     def _configure_if_needed(self) -> None:
-        """Send NTP and ping parameters on first contact and after a reconnect.
+        """Re-send the ping parameters on first contact and after a reconnect.
 
         A device that reboots mid-mission comes back with defaults. Silently
         surveying at the wrong range for the second half is exactly the kind of
         failure nobody notices until the data is opened back home.
+
+        Note what is *not* sent here: there is no NTP message. The Omniscan 3D's
+        ``SET_NTP_INFO`` packet was removed by Cerulean, and the NTP server is
+        configured on the device itself. The default is an internet host, and
+        there is no internet in the field — so if that step is missed, the
+        sonar's clock is wrong and every mission is un-georeferenceable. The
+        bridge cannot fix it; it can only measure the offset and shout, which
+        is what ``clock_offset_ms`` and the pre-flight check are for.
+        See docs/SETUP.md.
         """
         if not self.transport.connected:
             return
         if self.transport.stats.reconnects == self._configured_for_reconnects:
             return
         self._configured_for_reconnects = self.transport.stats.reconnects
-        self._send_ntp_url()
-        self._send_ping_parameters(
-            self.health.range_setting_m,
-            self.health.gain_setting,
-            self.health.commanded_ping_rate_hz,
-        )
+        self._send_ping_parameters(self.params)
 
-    def _send_ntp_url(self) -> None:
-        url = self.get_parameter("ntp_url").value
-        if not url:
-            self.get_logger().warn(
-                "no ntp_url configured — the sonar's clock will not be disciplined "
-                "by the Jetson, and post-mission fusion depends on it"
-            )
-            return
-        if self.transport.send(pp.encode_set_ntp_url(url)):
-            self.health.ntp_url_sent = url
-            self.get_logger().info(f"pointed the sonar at NTP server {url}")
-
-    def _send_ping_parameters(self, range_m: float, gain: int, rate_hz: float) -> bool:
-        ok = self.transport.send(pp.encode_set_ping_parameters(range_m, gain, rate_hz))
+    def _send_ping_parameters(self, params: pp.PingParameters) -> bool:
+        try:
+            frame = pp.encode_set_ping_parameters(params)
+        except pp.PingProtocolError as exc:
+            self.get_logger().error(f"refusing to send bad ping parameters: {exc}")
+            return False
+        ok = self.transport.send(frame)
         if ok:
-            self.health.on_parameters_commanded(range_m, gain, rate_hz)
+            self.params = params
+            self.health.on_parameters_commanded(
+                params.end_m, params.gain_index, params.ping_rate_hz
+            )
         return ok
 
     # -- inputs -----------------------------------------------------------
@@ -220,11 +231,11 @@ class OmniscanBridge(Node):
             self._on_point_set(message)
         elif isinstance(message, pp.AttitudeReport):
             self._on_attitude(message)
-        # END_PING_INFO carries no information the point set does not; it is
-        # parsed for completeness and for the frame count, not consumed.
+        elif isinstance(message, pp.EndPingInfo):
+            self._on_end_ping(message)
 
     def _on_point_set(self, ps: pp.PointSet) -> None:
-        valid = sum(1 for p in ps.points if p.pt_type != 0)
+        valid = len(ps.bottom_points())
         self.health.on_point_set(
             utc_msec=ps.utc_msec,
             num_points=len(ps.points),
@@ -252,6 +263,8 @@ class OmniscanBridge(Node):
         self.pub_points.publish(self._to_point_cloud(points, ps.utc_msec))
 
     def _on_attitude(self, att: pp.AttitudeReport) -> None:
+        # The device reports an up vector, not angles; the conversion lives on
+        # the dataclass so there is one definition of it.
         self.health.on_attitude(att.pitch_deg, att.roll_deg)
 
         msg = Imu()
@@ -270,6 +283,20 @@ class OmniscanBridge(Node):
         msg.angular_velocity_covariance[0] = -1.0
         msg.linear_acceleration_covariance[0] = -1.0
         self.pub_attitude.publish(msg)
+
+    def _on_end_ping(self, info: pp.EndPingInfo) -> None:
+        """The device's own account of the ping it just finished.
+
+        ``ping_hz_realized`` is the rate the sonar actually achieved, which is
+        not always the rate it was asked for — a long range forces a slower
+        ping. Taking the device's figure beats measuring arrival times
+        ourselves, because ours also measures the network.
+        """
+        self.health.on_end_ping(
+            realized_ping_rate_hz=info.ping_hz_realized,
+            gain_index=info.gain_index,
+            range_end_m=info.range_end_m,
+        )
 
     # -- outputs ----------------------------------------------------------
 
@@ -388,7 +415,7 @@ class OmniscanBridge(Node):
             KeyValue(key="clock_offset_ms", value=str(h.clock_offset_ms)),
             KeyValue(key="checksum_errors", value=str(h.checksum_errors)),
             KeyValue(key="bytes_discarded", value=str(h.bytes_discarded)),
-            KeyValue(key="ntp_url_sent", value=h.ntp_url_sent or "(none)"),
+            KeyValue(key="realized_ping_rate_hz", value=f"{h.actual_ping_rate_hz:.2f}"),
             KeyValue(key="reconnects", value=str(self.transport.stats.reconnects)),
             KeyValue(key="rx_chunks_dropped", value=str(self.transport.stats.chunks_dropped)),
         ]
@@ -398,17 +425,27 @@ class OmniscanBridge(Node):
     # -- services ---------------------------------------------------------
 
     def _on_set_parameters(self, request, response):
+        """Runtime range, gain and rate, so they can be tuned on site."""
         if not self.transport.connected:
             response.success = False
             response.message = "sonar not connected"
             return response
-        ok = self._send_ping_parameters(
-            float(request.range_m), int(request.gain), float(request.ping_rate_hz)
+
+        params = replace(
+            self.params,
+            end_m=float(request.range_m),
+            gain_index=int(request.gain),
+            msec_per_ping=pp.PingParameters.from_rate(
+                float(request.ping_rate_hz)
+            ).msec_per_ping,
+            ping_enable=self._pinging,
         )
+        ok = self._send_ping_parameters(params)
         response.success = ok
         response.message = (
-            f"requested {request.range_m:.1f} m, gain {request.gain}, "
-            f"{request.ping_rate_hz:.1f} Hz"
+            f"requested {params.end_m:.1f} m, gain "
+            f"{'auto' if params.gain_index < 0 else params.gain_index}, "
+            f"{params.ping_rate_hz:.1f} Hz"
             if ok
             else "failed to send to the sonar"
         )
@@ -416,21 +453,16 @@ class OmniscanBridge(Node):
 
     def _on_start(self, request, response):
         self._pinging = True
-        ok = self._send_ping_parameters(
-            self.health.range_setting_m,
-            self.health.gain_setting,
-            self.health.commanded_ping_rate_hz,
-        )
+        ok = self._send_ping_parameters(replace(self.params, ping_enable=True))
         response.success = ok
         response.message = "pinging" if ok else "failed to send to the sonar"
         return response
 
     def _on_stop(self, request, response):
         self._pinging = False
-        # Rate zero is how the device is told to stop without closing the link.
-        ok = self._send_ping_parameters(
-            self.health.range_setting_m, self.health.gain_setting, 0.0
-        )
+        # ping_enable is the documented way to stop. Sending a rate of zero
+        # would be a different thing, and not a supported one.
+        ok = self._send_ping_parameters(replace(self.params, ping_enable=False))
         response.success = ok
         response.message = "stopped" if ok else "failed to send to the sonar"
         return response

@@ -66,8 +66,16 @@ export function SonarPanel({ state, connection }) {
     >
       <Rows>
         <Row label="Ping rate">
-          <span className={sonar?.ping_rate_ok === false ? 'warnline' : ''}>
+          <span
+            className={sonar?.ping_rate_ok === false ? 'warnline' : ''}
+            title={
+              sonar?.rate_from_device
+                ? "The sonar's own figure, from END_PING_INFO."
+                : 'Measured from arrival times here, which also measures the network.'
+            }
+          >
             {num(sonar?.actual_ping_rate_hz, 1)} / {num(sonar?.commanded_ping_rate_hz, 1, ' Hz')}
+            {sonar?.rate_from_device === false && <span className="hint"> (measured)</span>}
           </span>
         </Row>
         <Row label="Points per ping">
@@ -120,10 +128,10 @@ export function SonarPanel({ state, connection }) {
               }}
             />
           </Row>
-          <Row label={`Gain ${gain}`}>
+          <Row label={`Gain ${gain < 0 ? 'auto' : gain}`}>
             <input
               type="range"
-              min="0"
+              min="-1"
               max="10"
               step="1"
               value={gain}
@@ -172,7 +180,8 @@ export function SonarPanel({ state, connection }) {
         )}
         <p className="hint" style={{ marginBottom: 0, marginTop: 6 }}>
           A longer range forces a lower ping rate. Watch the actual rate above:
-          the sonar reduces it on its own when the range demands it.
+          the sonar reduces it on its own when the range demands it, and reports
+          what it achieved. Gain −1 is auto, which Cerulean recommend.
         </p>
       </div>
     </Panel>

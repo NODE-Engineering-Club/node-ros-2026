@@ -166,7 +166,10 @@ class SimWorld:
             self.vessel.cfg.hdop = 0.8
             self.vessel.cfg.fix_type = 3
 
-        self.sonar.pinging = not f.active("sonar_dropout")
+        # A dropout stops the sonar; it does not un-send the host's command.
+        self.sonar.pinging = self.sonar.ping_enabled_by_command and not f.active(
+            "sonar_dropout"
+        )
         if f.active("sonar_packet_loss") and self.sonar.drop_next == 0:
             self.sonar.drop_next = 1
 

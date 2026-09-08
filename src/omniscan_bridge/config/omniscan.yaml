@@ -8,16 +8,23 @@ omniscan_bridge:
 
     frame_id: "base_link"
 
-    # The Jetson's own NTP server, disciplined by GPS time (there is no
-    # internet in the field). Everything in section 5 of the brief — recording
-    # the sonar stream and the trajectory separately and pairing them
-    # afterwards on utc_msec — depends on this being right.
-    ntp_url: "192.168.2.1"
+    # NOTE: there is deliberately no ntp_url here. Cerulean REMOVED the
+    # Omniscan 3D's SET_NTP_INFO packet; the NTP server is configured on the
+    # device itself and defaults to an internet host. There is no internet in
+    # the field, so if that step is missed the sonar's clock is wrong and every
+    # mission is un-georeferenceable. The bridge cannot fix it — it measures
+    # clock_offset_ms and shouts. See docs/SETUP.md.
 
-    # PROVISIONAL (Q1): depth profile in Namibia unknown.
+    # PROVISIONAL (Q1): depth profile in Namibia unknown. Adjustable at runtime
+    # from the GUI via ~/set_ping_parameters — the range is meant to be tuned
+    # on site, not fixed at launch.
     range_m: 30.0
-    gain: 4
+    # -1 is auto gain, which is Cerulean's recommendation. 0..10 is manual.
+    gain_index: -1
     ping_rate_hz: 5.0
+    speed_of_sound: 1500.0
+    # Range resolution in steps; must be 200..1000 inclusive.
+    n_range_steps: 400
 
     # The GUI is not a sonar analysis tool, so the point cloud is rate-limited
     # for RViz and debugging. Health accounting still sees every ping.

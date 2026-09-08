@@ -44,7 +44,10 @@ class SonarHealth:
     checksum_errors: int = 0
     bytes_discarded: int = 0
     seconds_since_data: float = float("inf")
-    ntp_url_sent: str = ""
+    #: True when the ping rate comes from the device's own END_PING_INFO rather
+    #: than from timing arrivals here. The device's figure is the better one:
+    #: ours also measures the network.
+    rate_from_device: bool = False
 
     @property
     def clock_ok(self) -> bool:
@@ -86,7 +89,8 @@ class SonarHealthTracker:
         self.commanded_ping_rate_hz = 0.0
         self.range_setting_m = 0.0
         self.gain_setting = 0
-        self.ntp_url_sent = ""
+        #: From END_PING_INFO. ``None`` until the device has told us.
+        self.realized_ping_rate_hz: float | None = None
 
     # -- inputs -----------------------------------------------------------
 
@@ -123,6 +127,28 @@ class SonarHealthTracker:
         self.gain_setting = gain
         self.commanded_ping_rate_hz = ping_rate_hz
 
+    def on_end_ping(
+        self,
+        realized_ping_rate_hz: float,
+        gain_index: int | None = None,
+        range_end_m: float | None = None,
+    ) -> None:
+        """The device's own account of the ping it just finished.
+
+        Preferred over timing arrivals here, because a rate measured at this end
+        also measures the network: a sonar pinging happily at 5 Hz behind a
+        congested switch would otherwise be reported as slow, sending somebody
+        to look at the wrong thing.
+        """
+        if realized_ping_rate_hz > 0:
+            self.realized_ping_rate_hz = realized_ping_rate_hz
+        if gain_index is not None:
+            self.gain_setting = gain_index
+        # The device also reports the range window it actually used, which in
+        # auto-range mode is the only way to know what it is.
+        if range_end_m is not None and range_end_m > 0:
+            self.range_setting_m = range_end_m
+
     # -- outputs ----------------------------------------------------------
 
     def _trim(self, now: float) -> None:
@@ -130,6 +156,23 @@ class SonarHealthTracker:
             self._ping_times.popleft()
 
     def ping_rate_hz(self, now_monotonic: float | None = None) -> float:
+        """The device's realized rate where we have it, otherwise measured.
+
+        Falls back to measurement so the panel is not blank before the first
+        END_PING_INFO arrives, and so a device that never sends one still
+        reports something.
+        """
+        if self.realized_ping_rate_hz is not None and self._recently_active(now_monotonic):
+            return self.realized_ping_rate_hz
+        return self.measured_ping_rate_hz(now_monotonic)
+
+    def _recently_active(self, now_monotonic: float | None = None) -> bool:
+        """A device figure is only current while pings are still arriving."""
+        now = now_monotonic if now_monotonic is not None else time.monotonic()
+        self._trim(now)
+        return len(self._ping_times) >= 2
+
+    def measured_ping_rate_hz(self, now_monotonic: float | None = None) -> float:
         now = now_monotonic if now_monotonic is not None else time.monotonic()
         self._trim(now)
         if len(self._ping_times) < 2:
@@ -172,5 +215,8 @@ class SonarHealthTracker:
             checksum_errors=checksum_errors,
             bytes_discarded=bytes_discarded,
             seconds_since_data=seconds_since_data,
-            ntp_url_sent=self.ntp_url_sent,
+            rate_from_device=(
+                self.realized_ping_rate_hz is not None
+                and self._recently_active(now_monotonic)
+            ),
         )

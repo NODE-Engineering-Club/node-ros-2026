@@ -165,12 +165,11 @@ class SimSource:
         )
         self._coverage.append(
             {
-                "lat": round(v.lat, 7),
-                "lon": round(v.lon, 7),
-                "heading_deg": round(v.heading_deg, 1),
-                "half_width_m": round(half, 1),
-                "inner_gap_m": round(nadir, 1),
-                "side": self.world.cfg.sonar_side,
+                "lat": v.lat,
+                "lon": v.lon,
+                "heading_deg": v.heading_deg,
+                "half_width_m": half,
+                "inner_gap_m": nadir,
             }
         )
         del self._coverage[: max(0, len(self._coverage) - 4000)]
@@ -198,7 +197,9 @@ class SimSource:
 
     # -- the DataSource interface -----------------------------------------
 
-    def snapshot(self, stream: str, detail: str = DETAIL_FULL) -> Sample | None:
+    def snapshot(
+        self, stream: str, detail: str = DETAIL_FULL, cursor: int = 0
+    ) -> Sample | None:
         snap = self.world.snapshot()
         utc = snap.utc_ms
 
@@ -256,9 +257,21 @@ class SimSource:
         if stream == "plan":
             return Sample(stream, utc, payloads.plan_payload(self.world.plan))
         if stream == "track":
-            return Sample(stream, utc, {"points": [[lon, lat] for lat, lon in self._track]})
+            step = {"full": 1, "reduced": 3, "minimal": 10}[detail]
+            return Sample(
+                stream, utc,
+                payloads.track_payload(self._track, cursor, step),
+                cursor=len(self._track),
+            )
         if stream == "coverage":
-            return Sample(stream, utc, {"segments": list(self._coverage)})
+            step = {"full": 1, "reduced": 3, "minimal": 10}[detail]
+            return Sample(
+                stream, utc,
+                payloads.coverage_payload(
+                    self._coverage, cursor, self.world.cfg.sonar_side, step
+                ),
+                cursor=len(self._coverage),
+            )
         return None
 
     def state(self) -> dict:

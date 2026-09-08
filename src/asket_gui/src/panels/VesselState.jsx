@@ -28,7 +28,9 @@ export function VesselState({ state }) {
           <span className={`mode-badge mode-${mode}`}>{MODE_LABELS[mode] || mode}</span>
         </Value>
         <div className="spacer" />
-        <Chip level={pico?.armed ? 'warn' : 'ok'}>{pico?.armed ? 'Armed' : 'Disarmed'}</Chip>
+        <Chip level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}>
+          {pico?.armed === undefined ? 'Arming not sent' : pico.armed ? 'Armed' : 'Disarmed'}
+        </Chip>
       </div>
 
       <Rows>
@@ -65,9 +67,14 @@ export function VesselState({ state }) {
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
         {/* RC link and channel 8 are shown because they are the sovereign
-            path. Software can observe them; it can never move them. */}
-        <Chip level={pico?.rc_link_ok ? 'ok' : 'alarm'}>
-          RC {pico?.rc_link_ok ? 'linked' : 'lost'}
+            path. Software can observe them; it can never move them.
+
+            Both are absent by design on the reduced and minimal profiles, and
+            "not sent" must never render as "lost" — reporting a healthy RC
+            link as lost because the shore link is narrow is precisely the kind
+            of lie this GUI exists to avoid. */}
+        <Chip level={rcLevel(pico?.rc_link_ok)} title={rcTitle(pico?.rc_link_ok)}>
+          RC {pico?.rc_link_ok === undefined ? 'not sent' : pico.rc_link_ok ? 'linked' : 'lost'}
         </Chip>
         <Chip
           level={picoChannelLevel(pico?.rc_channel8_raw_pct)}
@@ -98,6 +105,21 @@ export function VesselState({ state }) {
 }
 
 function picoChannelLevel(pct) {
+  // No level at all when the value was not sent: an uncoloured chip reads as
+  // "unknown", which is what it is. Green would claim it is fine and red would
+  // claim it is not, and neither is known.
   if (pct === null || pct === undefined) return '';
   return pct < 25 ? 'alarm' : 'ok';
+}
+
+function rcLevel(ok) {
+  if (ok === undefined || ok === null) return '';
+  return ok ? 'ok' : 'alarm';
+}
+
+function rcTitle(ok) {
+  if (ok === undefined || ok === null) {
+    return 'RC link state is not carried on the current link profile. This says nothing about the RC link itself.';
+  }
+  return 'RC channel 8 cuts propulsion in hardware. Nothing in this GUI can move it.';
 }

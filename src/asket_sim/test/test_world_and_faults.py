@@ -107,3 +107,97 @@ def test_propulsion_only_draws_power_when_the_pico_says_armed(world):
     run(world, 60)
     assert world.snapshot().pico.armed
     assert world.snapshot().battery.power_w > idle
+
+
+def test_obstacles_are_never_driven_through(world):
+    """The simulator does not do obstacle avoidance — that is the navigation
+    stack's job, and faking it here would test nothing. So obstacles must be
+    placed clear of the track the vessel actually drives, which is not the same
+    as the track it plans: the controller runs a few metres wide in a
+    cross-current and wider through a turn.
+
+    A demo in which the boat passes through a moored vessel is a demo nobody
+    believes, and a lidar panel showing a 0.2 m return from inside a rock
+    teaches an operator to distrust the panel."""
+    import math
+
+    closest = {o.name: float("inf") for o in world.cfg.obstacles}
+    while not world.vessel.finished and world.t < 3000:
+        world.step(0.1)
+        for obstacle in world.cfg.obstacles:
+            distance = math.hypot(
+                world.vessel.east - obstacle.east_m, world.vessel.north - obstacle.north_m
+            )
+            closest[obstacle.name] = min(closest[obstacle.name], distance - obstacle.radius_m)
+
+    for name, clearance in closest.items():
+        assert clearance > 3.0, f"the vessel passes within {clearance:.1f} m of the {name}"
+
+
+def test_at_least_one_obstacle_comes_within_lidar_range(world):
+    """The other half of the same requirement: obstacles clear of the track are
+    useless if they are also out of range, because the lidar panel then has
+    nothing to show and cannot be demonstrated or reviewed."""
+    max_range = world.cfg.lidar.max_range_m
+    seen = 0
+    while not world.vessel.finished and world.t < 3000:
+        world.step(0.1)
+        scan = world.take_lidar()
+        if scan is not None and scan.nearest(use_filtered=True):
+            if scan.nearest(use_filtered=True)[0] < max_range:
+                seen += 1
+    assert seen > 50, "obstacles are placed too far from the survey to ever be seen"
+
+
+def test_sampling_the_link_does_not_change_it():
+    """A read that mutates what it reads is a bug waiting to happen, and this
+    one bit: the backend samples the link several times per tick, so a fade
+    advanced inside sample() ran sixty times a second instead of once. Quality
+    swung between 0.26 and 0.99 on a stationary vessel and the profile selector
+    could never hold a candidate long enough to recover."""
+    from asket_sim.core.link import LinkSim
+
+    link = LinkSim()
+    for _ in range(50):
+        link.step(0.05)
+
+    first = link.sample(0, 10.0, 20.0)
+    for _ in range(20):
+        again = link.sample(0, 10.0, 20.0)
+        assert (again.quality, again.active_link, again.rtt_ms) == (
+            first.quality,
+            first.active_link,
+            first.rtt_ms,
+        )
+
+
+def test_fading_is_the_same_whatever_the_step_size():
+    """Parameterised as a standard deviation and a time constant rather than a
+    per-step amplitude, so changing the tick rate does not silently change the
+    weather."""
+    import statistics
+
+    from asket_sim.core.link import LinkSim
+
+    def spread(dt, steps):
+        link = LinkSim(seed=11)
+        values = []
+        for _ in range(steps):
+            link.step(dt)
+            values.append(link.sample(0, 0.0, 0.0).quality)
+        return statistics.pstdev(values)
+
+    fine = spread(0.01, 20000)     # 200 s at 100 Hz
+    coarse = spread(0.5, 400)      # 200 s at 2 Hz
+    assert abs(fine - coarse) < 0.03
+
+
+def test_a_stationary_vessel_near_the_station_keeps_a_usable_link(world):
+    """Fading must wander, not thrash. A link that flips between WiFi and LTE-M
+    while the boat sits still makes the whole profile mechanism look broken."""
+    links = set()
+    for _ in range(600):
+        world.step(0.1)
+        world.vessel.east, world.vessel.north = 0.0, 0.0   # hold it in place
+        links.add(world.snapshot().link.active_link)
+    assert links == {"wifi"}

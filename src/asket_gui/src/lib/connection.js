@@ -38,6 +38,12 @@ function initialState() {
     commands: {},
     skewMs: 0,
     lastMessageAt: null,
+    // Bumped four times a second so that the store snapshot changes even when
+    // no data is arriving. Without it, useSyncExternalStore sees the same
+    // object reference, skips the render, and every "N s ago" label freezes at
+    // whatever it last showed — exactly when the link has dropped and a growing
+    // age is the single most important thing on the screen (safety rule 7).
+    tick: 0,
   };
 }
 
@@ -53,7 +59,7 @@ export class Connection {
     this.ws = null;
     this.reconnectTimer = null;
     this.closed = false;
-    this.tickTimer = setInterval(() => this.#emit(), 250);
+    this.tickTimer = setInterval(() => this.#set({ tick: this.state.tick + 1 }), 250);
   }
 
   // -- React glue -------------------------------------------------------
@@ -175,7 +181,10 @@ export class Connection {
       case 'data': {
         const streams = { ...this.state.streams };
         streams[message.stream] = {
-          payload: message.payload,
+          // Append-only streams (track, coverage) arrive as increments and are
+          // accumulated here; everything else carries a complete current value
+          // and simply replaces the last one.
+          payload: this.#accumulate(message),
           sourceUtcMs: message.source_utc_ms,
           serverUtcMs: message.server_utc_ms,
           detail: message.detail,
@@ -206,6 +215,45 @@ export class Connection {
       default:
         break;
     }
+  }
+
+  /**
+   * Splice an increment onto what we already have.
+   *
+   * `from` says where the increment starts. If it starts beyond what we hold,
+   * we have missed something — a dropped frame, or a reconnect — and the
+   * accumulated history would be wrong. Rather than splice a hole and draw a
+   * coverage ribbon that claims seabed nobody ensonified, the stream is reset
+   * and a full resync requested. A visibly short history is recoverable; a
+   * silently wrong one is not.
+   */
+  #accumulate(message) {
+    const incoming = message.payload;
+    if (!incoming || incoming.from === undefined) return incoming;
+
+    const key = incoming.segments !== undefined ? 'segments' : 'points';
+    const previous = this.state.streams[message.stream]?.payload;
+    const held = previous?.[key] ?? [];
+
+    if (incoming.from === 0) {
+      return { ...incoming, [key]: incoming[key] };
+    }
+    if (incoming.from > held.length) {
+      this.#resync(message.stream);
+      return previous ?? { ...incoming, [key]: [] };
+    }
+    return {
+      ...incoming,
+      [key]: held.slice(0, incoming.from).concat(incoming[key]),
+    };
+  }
+
+  #resync(stream) {
+    const request = this.desired.find((s) => s.name === stream);
+    if (!request) return;
+    // Re-subscribing resets the server-side cursor, so the next frame is the
+    // whole history rather than another increment we cannot place.
+    this.send({ type: 'subscribe', streams: [request] });
   }
 
   // -- outbound ---------------------------------------------------------

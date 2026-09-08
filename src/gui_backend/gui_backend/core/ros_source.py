@@ -206,7 +206,9 @@ class RosSource:
 
     # -- the DataSource interface -----------------------------------------
 
-    def snapshot(self, stream: str, detail: str = DETAIL_FULL) -> Sample | None:
+    def snapshot(
+        self, stream: str, detail: str = DETAIL_FULL, cursor: int = 0
+    ) -> Sample | None:
         if stream == "vessel":
             record = self._vessel_record()
             return Sample(stream, record.utc_ms, payloads.vessel_payload(record, detail)) \
@@ -273,13 +275,21 @@ class RosSource:
             )
 
         if stream == "track":
+            step = {"full": 1, "reduced": 3, "minimal": 10}[detail]
             return Sample(
                 stream, self.now_utc_ms(),
-                {"points": [[lon, lat] for lat, lon in self._track]},
+                payloads.track_payload(self._track, cursor, step),
+                cursor=len(self._track),
             )
 
         if stream == "coverage":
-            return Sample(stream, self.now_utc_ms(), {"segments": list(self._coverage)})
+            step = {"full": 1, "reduced": 3, "minimal": 10}[detail]
+            side = (self.config.get("survey") or {}).get("sonar_side", "starboard")
+            return Sample(
+                stream, self.now_utc_ms(),
+                payloads.coverage_payload(self._coverage, cursor, side, step),
+                cursor=len(self._coverage),
+            )
 
         return None
 

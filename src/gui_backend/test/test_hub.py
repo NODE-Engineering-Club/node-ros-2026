@@ -35,6 +35,22 @@ def run(hub, seconds, start=1000.0, step=0.05):
     return t
 
 
+def run_collecting(hub, session, seconds, start=1000.0, step=0.05):
+    """Run, draining the client every tick.
+
+    The outbox is bounded and drops its oldest frames, so a test that runs for
+    a while and drains at the end sees a window, not the whole conversation.
+    Anything asserting on the *sequence* of frames has to keep up.
+    """
+    collected = []
+    t = start
+    for _ in range(int(seconds / step)):
+        t += step
+        hub.tick(t)
+        collected += drain(session)
+    return collected
+
+
 def test_a_client_with_no_subscriptions_receives_no_data(hub, client):
     run(hub, 3.0)
     assert [m for m in drain(client) if m["type"] == "data"] == []
@@ -230,3 +246,97 @@ def test_a_stream_that_does_produce_data_never_reports_unavailable(hub, client):
     drain(client)
     run(hub, 10.0)
     assert [m for m in drain(client) if m["type"] == "stream_unavailable"] == []
+
+
+def test_sonar_parameters_are_confirmed_by_the_sonar_not_by_sending(hub, client):
+    """Same rule as vessel mode: a setting that never took effect must not read
+    as applied. Surveying at the wrong range is not noticed until Windhoek."""
+    result = hub.issue_command(
+        "set_ping_parameters", {"range_m": 22.0, "gain": 6, "ping_rate_hz": 8.0}
+    )
+    assert result["status"] == "pending"
+
+    run(hub, 2.0)
+    results = [m for m in drain(client) if m["type"] == "command_result"]
+    assert results and results[-1]["status"] == "confirmed"
+
+    sonar = hub.source.state()["sonar"]
+    assert sonar["range_setting_m"] == 22.0
+    assert sonar["gain_setting"] == 6
+    assert sonar["commanded_ping_rate_hz"] == 8.0
+
+
+def test_a_sonar_setting_that_does_not_take_effect_fails(hub, client):
+    """Ask for a rate the source will clamp, and the confirmation must not
+    pretend it was applied."""
+    hub.issue_command("set_ping_parameters", {"range_m": 22.0, "gain": 6, "ping_rate_hz": 0.0})
+    run(hub, 5.0)
+    results = [m for m in drain(client) if m["type"] == "command_result"]
+    assert results and results[-1]["status"] == "failed"
+
+
+def test_append_only_streams_send_increments_not_the_whole_history(hub, client):
+    """Resending the whole coverage ribbon every frame reached 18 kB per frame
+    after ninety seconds and would have been about a megabyte after three
+    hours — the exact "works on the bench, collapses offshore" failure this
+    whole design exists to prevent."""
+    # Pin the profile: an automatic change is a legitimate resync, and this
+    # test is about the steady state.
+    hub.set_profile("full")
+    hub.subscribe(client, [{"name": "coverage", "rate_hz": 2.0},
+                           {"name": "track", "rate_hz": 2.0}])
+    drain(client)
+    frames = [m for m in run_collecting(hub, client, 40.0) if m["type"] == "data"]
+
+    coverage = [m for m in frames if m["stream"] == "coverage"]
+    assert len(coverage) > 5
+
+    first, last = coverage[0], coverage[-1]
+    assert first["payload"]["from"] == 0
+    assert last["payload"]["from"] > 0, "later frames must start where the last ended"
+    assert last["payload"]["total"] > len(last["payload"]["segments"])
+
+    # The increment must not grow with the length of the mission.
+    assert len(last["payload"]["segments"]) <= len(first["payload"]["segments"]) + 5
+
+
+def test_increments_are_contiguous_so_the_client_can_splice_them(hub, client):
+    hub.set_profile("full")
+    hub.subscribe(client, [{"name": "track", "rate_hz": 2.0}])
+    drain(client)
+    frames = run_collecting(hub, client, 30.0)
+
+    held = 0
+    for message in [m for m in frames if m.get("stream") == "track"]:
+        payload = message["payload"]
+        assert payload["from"] == held, "a gap here would silently corrupt the track"
+        held += len(payload["points"])
+
+
+def test_a_profile_change_resyncs_rather_than_sending_an_unspliceable_increment(hub, client):
+    """The detail level changes the decimation, so an increment computed at the
+    old step cannot be appended to history built at the new one."""
+    hub.set_profile("full")
+    hub.subscribe(client, [{"name": "coverage", "rate_hz": 2.0}])
+    run(hub, 20.0)
+    drain(client)
+
+    hub.set_profile(PROFILE_REDUCED)
+    run(hub, 3.0)
+    frames = [m for m in drain(client) if m.get("stream") == "coverage"]
+    assert frames and frames[0]["payload"]["from"] == 0
+
+
+def test_coverage_gaps_survive_onto_the_wire(hub, client):
+    """A gap that renders as filled claims seabed nobody ensonified. With one
+    sonar unit covering one side, that is the most expensive lie available."""
+    hub.set_profile("full")
+    hub.issue_command("inject_fault", {"fault": "sonar_dropout"})
+    hub.subscribe(client, [{"name": "coverage", "rate_hz": 2.0}])
+    drain(client)
+    frames = run_collecting(hub, client, 20.0)
+
+    segments = []
+    for message in [m for m in frames if m.get("stream") == "coverage"]:
+        segments += message["payload"]["segments"]
+    assert any(s is None for s in segments), "the dropout must show as a gap"

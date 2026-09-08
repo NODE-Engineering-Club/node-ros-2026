@@ -55,11 +55,26 @@ class WorldConfig:
     pico: PicoConfig = field(default_factory=PicoConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
 
+    #: Static obstacles, in local ENU metres.
+    #:
+    #: Placed near the survey lines but never on them. The simulator does not
+    #: do obstacle avoidance — that is the navigation stack's job, and faking
+    #: it here would test nothing — so an obstacle sitting on a planned line
+    #: would have the vessel drive straight through it. A demo in which the
+    #: boat passes through a moored vessel is a demo nobody believes.
+    #:
+    #: Clearances are measured against the track the vessel ACTUALLY drives,
+    #: not the planned one. The controller is lookahead-based and works in a
+    #: cross-current, so it runs a couple of metres wide of the line and up to
+    #: about four metres wide through a turn. An obstacle placed to clear the
+    #: planned track by three metres is therefore an obstacle the boat drives
+    #: through. These clear the driven track by 6 m, 6 m and 12 m.
+    #: ``test_obstacles_are_never_driven_through`` holds that true.
     obstacles: list[Obstacle] = field(
         default_factory=lambda: [
-            Obstacle(60.0, 120.0, 1.2, "channel buoy"),
-            Obstacle(-25.0, 210.0, 3.5, "rock"),
-            Obstacle(95.0, 40.0, 6.0, "moored vessel"),
+            Obstacle(54.4, 122.1, 1.2, "channel buoy"),
+            Obstacle(74.0, 239.0, 3.5, "rock"),
+            Obstacle(132.0, 26.5, 6.0, "moored vessel"),
         ]
     )
 
@@ -183,6 +198,7 @@ class SimWorld:
 
         self.vessel.step(dt)
         self.pico.step(dt)
+        self.link.step(dt)
 
         # Propulsion only draws power when the Pico says the vessel is armed —
         # the same authority the GUI displays.

@@ -285,6 +285,57 @@ def link_payload(sample, profile: str, profile_manual: bool, clients: int,
 # -- map layers -----------------------------------------------------------
 
 
+def track_payload(points: list[tuple[float, float]], cursor: int, step: int = 1) -> dict:
+    """The vessel track, as an increment.
+
+    ``from`` is where this increment starts; the client appends. Coordinates go
+    out as ``[lon, lat]`` pairs rounded to seven places — about a centimetre,
+    which is finer than anything we can actually measure.
+    """
+    new = points[cursor:]
+    if step > 1:
+        new = new[::step]
+    return {
+        "from": cursor,
+        "total": len(points),
+        "points": [[round(lon, 7), round(lat, 7)] for lat, lon in new],
+    }
+
+
+#: One coverage sample on the wire, as a fixed-order array rather than an
+#: object: ``[lat, lon, heading_deg, half_width_m, inner_gap_m]``. A gap in the
+#: data is ``null``. Objects cost about ninety bytes a sample and arrays about
+#: forty, and over a three-hour survey that difference is megabytes.
+COVERAGE_FIELDS = ["lat", "lon", "heading_deg", "half_width_m", "inner_gap_m"]
+
+
+def coverage_payload(segments: list[dict], cursor: int, side: str, step: int = 1) -> dict:
+    """The swath ribbon, as an increment.
+
+    A ``null`` entry is a gap — a stretch where the sonar was not ensonifying,
+    because the vessel was turning, the heading was invalid, or the sonar had
+    dropped out. The client renders gaps as gaps. With one sonar unit covering
+    one side only, a gap that renders as filled is the most expensive way this
+    GUI could mislead an operator.
+    """
+    new = segments[cursor:]
+    if step > 1:
+        new = new[::step]
+    encoded: list[list[float] | None] = []
+    for segment in new:
+        if segment.get("gap"):
+            encoded.append(None)
+        else:
+            encoded.append([
+                round(segment["lat"], 7),
+                round(segment["lon"], 7),
+                round(segment["heading_deg"], 1),
+                round(segment["half_width_m"], 1),
+                round(segment["inner_gap_m"], 1),
+            ])
+    return {"from": cursor, "total": len(segments), "side": side, "segments": encoded}
+
+
 def plan_payload(plan: SurveyPlan, geofence: list[tuple[float, float]] | None = None) -> dict:
     """Survey lines and the geofence. Sent on subscribe, then on change."""
     return {

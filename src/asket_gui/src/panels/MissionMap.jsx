@@ -17,7 +17,7 @@ import { streamPayload } from '../lib/connection.js';
  * shows an empty rectangle, because an operator would read that as "no map
  * today" rather than "fix the tile file".
  */
-export function MissionMap({ state, follow, onFollowChange }) {
+export function MissionMap({ state, follow, onFollowChange, showRawLidar = false }) {
   const container = useRef(null);
   const map = useRef(null);
   const [tiles, setTiles] = useState(null);
@@ -99,7 +99,11 @@ export function MissionMap({ state, follow, onFollowChange }) {
         : [],
     });
 
-    setData(instance, 'coverage', coverageRibbon(coverage?.segments || []));
+    setData(
+      instance,
+      'coverage',
+      coverageRibbon(coverage?.segments || [], coverage?.side),
+    );
 
     setData(instance, 'track', {
       type: 'FeatureCollection',
@@ -111,7 +115,12 @@ export function MissionMap({ state, follow, onFollowChange }) {
     setData(
       instance,
       'lidar',
-      lidarPoints(lidar?.filtered, vessel?.lat, vessel?.lon, vessel?.heading_deg ?? 0),
+      lidarPoints(
+        showRawLidar ? lidar?.raw || lidar?.filtered : lidar?.filtered,
+        vessel?.lat,
+        vessel?.lon,
+        vessel?.heading_deg ?? 0,
+      ),
     );
 
     const vesselFeatures = vessel?.lat
@@ -133,7 +142,7 @@ export function MissionMap({ state, follow, onFollowChange }) {
     if (follow && vessel?.lat) {
       instance.easeTo({ center: [vessel.lon, vessel.lat], duration: 400 });
     }
-  }, [ready, vessel, track, plan, coverage, lidar, follow]);
+  }, [ready, vessel, track, plan, coverage, lidar, follow, showRawLidar]);
 
   // -- graticule --------------------------------------------------------
 

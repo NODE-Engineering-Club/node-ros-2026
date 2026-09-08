@@ -91,21 +91,32 @@ STREAMS: dict[str, StreamSpec] = {
             "mission", "Recording state, elapsed time, disk",
             default_rate_hz=1.0, max_rate_hz=2.0, typical_bytes=220,
         ),
+        # Both of these are append-only and send only what is new since the
+        # client last heard, so their cost per frame is bounded by the sample
+        # rate rather than by how long the mission has been running. Sending
+        # the whole history each time reached 18 kB per frame after ninety
+        # seconds and would have been about a megabyte after three hours.
         StreamSpec(
             "coverage", "Swath ribbon painted so far",
-            default_rate_hz=1.0, max_rate_hz=4.0, typical_bytes=400,
+            default_rate_hz=1.0, max_rate_hz=4.0, typical_bytes=250,
         ),
         StreamSpec(
             "track", "Vessel track history",
-            default_rate_hz=1.0, max_rate_hz=4.0, typical_bytes=300,
+            default_rate_hz=1.0, max_rate_hz=4.0, typical_bytes=150,
         ),
         StreamSpec(
             "sonar", "Sonar health: ping rate, points, packet loss, clock offset",
             default_rate_hz=1.0, max_rate_hz=2.0, typical_bytes=280,
         ),
         StreamSpec(
+            # Sized for the WORST case, not the typical one: over open water a
+            # 720-beam scanner returns almost nothing, but alongside a moored
+            # vessel it returns on most beams, and at full detail both the raw
+            # and the filtered set are sent so the operator can compare them.
+            # The estimate exists to answer "will this subscription survive the
+            # link", and that question is decided by the peak.
             "lidar", "Obstacle returns, top-down",
-            default_rate_hz=5.0, max_rate_hz=10.0, typical_bytes=4000,
+            default_rate_hz=5.0, max_rate_hz=10.0, typical_bytes=12000,
         ),
         StreamSpec(
             "diagnostics", "Built-in test results and node health",

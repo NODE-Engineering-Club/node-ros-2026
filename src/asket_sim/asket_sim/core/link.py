@@ -40,7 +40,16 @@ class LinkConfig:
     wifi_range_m: float = 400.0
     #: Whether a cellular fallback exists at this site. PROVISIONAL, Q6.
     cellular_available: bool = True
-    fade_amplitude: float = 0.12
+
+    #: Fading, as an Ornstein-Uhlenbeck process: a standard deviation and a
+    #: time constant, rather than a per-step noise amplitude.
+    #:
+    #: Parameterised this way on purpose. A per-step amplitude makes the amount
+    #: of fading depend on how often the simulator happens to be stepped, so
+    #: changing the tick rate silently changes the weather. These two numbers
+    #: mean what they say at any step size.
+    fade_std: float = 0.06
+    fade_time_constant_s: float = 12.0
 
 
 @dataclass
@@ -54,10 +63,35 @@ class LinkSample:
 
 
 class LinkSim:
+    """Simulated shore link.
+
+    ``step()`` advances the fading; ``sample()`` is **pure**. That separation is
+    not stylistic. An earlier version advanced the fade inside ``sample()``, and
+    since the backend samples the link several times per tick — once for the
+    stream, once for alarms, once for profile selection — the "slow" fade was
+    being advanced sixty times a second instead of once. Quality swung between
+    0.26 and 0.99 on a stationary vessel, the link flipped between WiFi and
+    LTE-M, and the profile selector could never hold a candidate long enough to
+    recover. A read that changes what it reads is a bug waiting to happen.
+    """
+
     def __init__(self, config: LinkConfig | None = None, seed: int = 5) -> None:
         self.cfg = config or LinkConfig()
         self._rng = random.Random(seed)
         self._fade = 0.0
+
+    def step(self, dt: float) -> None:
+        """Advance the fading by ``dt`` seconds.
+
+        Ornstein-Uhlenbeck, discretised exactly, so the steady-state spread is
+        ``fade_std`` whatever step size the caller uses.
+        """
+        cfg = self.cfg
+        if dt <= 0.0 or cfg.fade_time_constant_s <= 0.0:
+            return
+        decay = math.exp(-dt / cfg.fade_time_constant_s)
+        kick = cfg.fade_std * math.sqrt(max(0.0, 1.0 - decay * decay))
+        self._fade = decay * self._fade + self._rng.gauss(0.0, kick)
 
     def sample(
         self,
@@ -68,10 +102,6 @@ class LinkSim:
     ) -> LinkSample:
         cfg = self.cfg
         dist = math.hypot(east_m - cfg.station_east_m, north_m - cfg.station_north_m)
-
-        # Slow fading, correlated in time — the realistic case, where quality
-        # wanders rather than flickering per sample.
-        self._fade = 0.9 * self._fade + self._rng.gauss(0.0, cfg.fade_amplitude)
 
         wifi_q = max(0.0, 1.0 - (dist / cfg.wifi_range_m) ** 1.6) + self._fade
         wifi_q = max(0.0, min(1.0, wifi_q))
@@ -84,7 +114,10 @@ class LinkSim:
             quality = wifi_q
         elif cfg.cellular_available and wifi_q > 0.02:
             link = LINK_4G
-            quality = 0.4 + 0.3 * self._rng.random()
+            # Derived from the fade rather than drawn fresh, so that sampling
+            # twice in a row cannot report two different links.
+            quality = 0.55 + 0.15 * self._fade / max(1e-6, cfg.fade_std)
+            quality = max(0.2, min(0.85, quality))
         elif cfg.cellular_available:
             link = LINK_LTEM
             quality = 0.2

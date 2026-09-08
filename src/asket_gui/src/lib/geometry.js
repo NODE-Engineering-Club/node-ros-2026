@@ -26,7 +26,7 @@ export function offset(lat, lon, bearingDeg, distanceM) {
  * covering one side only, a gap that renders as filled is the single most
  * expensive way this GUI could mislead an operator.
  */
-export function coverageRibbon(segments) {
+export function coverageRibbon(segments, side = 'starboard') {
   const features = [];
   let run = [];
 
@@ -43,15 +43,19 @@ export function coverageRibbon(segments) {
     run = [];
   };
 
+  // Wire format: [lat, lon, heading_deg, half_width_m, inner_gap_m], or null
+  // for a gap — a stretch where the sonar was not ensonifying because the
+  // vessel was turning, the heading was invalid, or the sonar had dropped out.
+  const bearingOffset = side === 'port' ? -90 : 90;
   for (const segment of segments) {
-    if (segment.gap || segment.lat === undefined) {
+    if (!segment) {
       flush();
       continue;
     }
-    const side = segment.side === 'port' ? -90 : 90;
+    const [lat, lon, heading, halfWidth, innerGap] = segment;
     run.push({
-      near: offset(segment.lat, segment.lon, segment.heading_deg + side, segment.inner_gap_m || 0),
-      far: offset(segment.lat, segment.lon, segment.heading_deg + side, segment.half_width_m),
+      near: offset(lat, lon, heading + bearingOffset, innerGap || 0),
+      far: offset(lat, lon, heading + bearingOffset, halfWidth),
     });
   }
   flush();

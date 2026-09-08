@@ -29,11 +29,21 @@ class Sample:
 
     ``source_utc_ms`` is when the value was *produced*, never when it was sent.
     Everything about honest data age depends on that distinction.
+
+    ``cursor`` is for the append-only streams — track and coverage — which send
+    only what is new since the client last heard from them. Without it they
+    resend their whole history every frame: a three-hour survey would reach
+    about a megabyte per frame at 1 Hz, which would swamp even fast WiFi and is
+    exactly the "works on the bench, collapses offshore" failure this design
+    exists to prevent.
     """
 
     stream: str
     source_utc_ms: int
     payload: dict
+    #: How much of the history the client has now been sent. Echoed back on the
+    #: next request. ``None`` for streams that carry a complete current value.
+    cursor: int | None = None
 
 
 @dataclass
@@ -51,8 +61,13 @@ class DataSource(Protocol):
     def now_utc_ms(self) -> int:
         """The source's idea of the current time, in UTC milliseconds."""
 
-    def snapshot(self, stream: str, detail: str) -> Sample | None:
-        """Current value of a stream, or ``None`` if there isn't one yet."""
+    def snapshot(self, stream: str, detail: str, cursor: int = 0) -> Sample | None:
+        """Current value of a stream, or ``None`` if there isn't one yet.
+
+        ``cursor`` is the client's position in an append-only stream; pass 0 for
+        a full resync, which is what a new subscription and a profile change
+        both need.
+        """
 
     def state(self) -> dict:
         """Everything at full detail, for alarms and command confirmation.

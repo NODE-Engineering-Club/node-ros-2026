@@ -30,10 +30,12 @@ from . import alarms as alarms_mod
 from .commands import (
     CMD_CUT_PROPULSION,
     CMD_SET_MODE,
+    CMD_SET_PING_PARAMETERS,
     CMD_SET_PROFILE,
     CommandManager,
     STATUS_FAILED,
     mode_confirmed,
+    ping_parameters_confirmed,
     propulsion_cut_confirmed,
 )
 from .link_profile import ProfileSelector
@@ -66,6 +68,10 @@ class Subscription:
     first_tick_s: float | None = None
     #: Whether the client has already been told this stream produces nothing.
     reported_unavailable: bool = False
+    #: Position in an append-only stream. Reset to 0 on a profile change so the
+    #: client gets a full resync at the new detail level rather than an
+    #: increment it cannot splice onto what it already has.
+    cursor: int = 0
 
 
 class ClientSession:
@@ -113,6 +119,7 @@ class ClientSession:
             sub.resolution = new
             if new.granted:
                 sub.next_due_s = 0.0   # deliver once immediately at the new rate
+                sub.cursor = 0         # resync: the detail level may have changed
             results.append(new)
         self.bytes_estimate_per_s = estimate_bytes_per_s(
             [s.resolution for s in self.subscriptions.values()]
@@ -279,6 +286,17 @@ class Hub:
             confirm = mode_confirmed(str(args.get("mode", "")).upper())
         elif name == CMD_CUT_PROPULSION:
             confirm = propulsion_cut_confirmed
+        elif name == CMD_SET_PING_PARAMETERS:
+            # The sonar is the authority on its own settings, exactly as the
+            # Pico is on the vessel's mode. A range the operator asked for that
+            # never took effect must show as failed, not as applied — silently
+            # surveying at the wrong range is a failure nobody notices until
+            # the data is opened back home.
+            confirm = ping_parameters_confirmed(
+                float(args.get("range_m", 0.0)),
+                int(args.get("gain", 0)),
+                float(args.get("ping_rate_hz", 0.0)),
+            )
 
         cmd = self.commands.issue(name, args, now_utc, confirm=confirm, command_id=command_id)
         outcome = self.source.send_command(name, args)
@@ -334,7 +352,7 @@ class Hub:
                 spec = STREAMS[name]
 
                 if spec.on_change_only:
-                    sample = self.source.snapshot(name, sub.resolution.detail)
+                    sample = self.source.snapshot(name, sub.resolution.detail, sub.cursor)
                     if sample is None:
                         self._report_unavailable(session, name, sub, now_s, now_utc)
                         continue
@@ -346,13 +364,16 @@ class Hub:
                     if sub.resolution.rate_hz <= 0.0 or now_s < sub.next_due_s:
                         continue
                     sub.next_due_s = now_s + 1.0 / sub.resolution.rate_hz
-                    sample = self.source.snapshot(name, sub.resolution.detail)
+                    sample = self.source.snapshot(name, sub.resolution.detail, sub.cursor)
                     if sample is None:
                         self._report_unavailable(session, name, sub, now_s, now_utc)
                         continue
 
                 if name == "link":
                     sample.payload.update(self._link_context(session))
+
+                if sample.cursor is not None:
+                    sub.cursor = sample.cursor
 
                 sub.sent += 1
                 session.send(

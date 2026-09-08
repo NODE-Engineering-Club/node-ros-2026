@@ -51,6 +51,24 @@ in the ribbon. With one sonar unit covering one side only, a gap that renders as
 filled is the single most expensive way this GUI could mislead an operator —
 you find out back in Windhoek.
 
+## Bandwidth
+
+`track` and `coverage` are **append-only** streams: the server sends only what
+is new since this client last heard, and the client splices it on. Sending the
+whole history each frame reached 18 kB per frame after ninety seconds and would
+have been about a megabyte per frame after three hours — the exact
+"works on the bench, collapses offshore" failure the architecture is meant to
+prevent. Measured against the simulator, the full subscription set costs about
+6–8 kB/s and stays flat as the mission runs.
+
+If an increment arrives that cannot be spliced onto what we hold — a dropped
+frame, or a reconnect — the stream is reset and a full resync requested. A
+visibly short history is recoverable; a silently wrong coverage ribbon is not.
+
+The one thing that does grow with mission length is the **initial** resync a
+newly connected client receives. At `reduced` detail a three-hour survey is
+roughly 160 kB, which is about a second and a half of 4G.
+
 ## Data age
 
 Every live value carries its age. Age is computed against an estimate of the
@@ -61,3 +79,8 @@ Staleness thresholds scale with the negotiated rate: a 0.2 Hz stream on the
 beacon profile is not stale at four seconds old, and painting the screen red
 because the link is working exactly as negotiated would teach the operator to
 ignore the colour.
+
+The header reports what has actually been **received**, not what the socket
+believes about itself. A TCP connection stays open for tens of seconds after
+the link behind it has gone, and for all of that time `connected` is true while
+nothing is arriving.

@@ -20,8 +20,7 @@ import time
 from dataclasses import dataclass
 
 from asket_common.heading import (
-    SOURCE_GNSS_COMPASS,
-    SOURCE_MAGNETOMETER,
+    SOURCE_EKF,
     SOURCE_NONE,
     evaluate_heading,
 )
@@ -133,29 +132,23 @@ class RosSource:
         return entry.message if entry else None
 
     def _vessel_record(self):
-        compass = self._msg("compass_heading")
-        heading_deg = float(compass.data) if compass is not None else None
         fix = self._msg("gnss_fix")
         if fix is None:
             return None
 
+        odom = self._msg("odom_filtered")
         # Heading is invalid if its topic has gone quiet, even though the last
         # value is still in memory. A frozen heading that still renders is
         # exactly the failure this whole design is built to prevent.
-        heading_age = self.latest.get("compass_heading", LatestMessage()).age_s
-        heading_valid = heading_deg is not None and heading_age < 2.0
+        odom_age = self.latest.get("odom_filtered", LatestMessage()).age_s
+        heading_valid = odom is not None and odom_age < 2.0
 
-        expected = (self.config.get("heading") or {}).get("expected_source", "magnetometer")
-        source = SOURCE_GNSS_COMPASS if expected == "gnss_compass" else SOURCE_MAGNETOMETER
-
-        return adapters.vessel_from_ros(
+        return adapters.vessel_from_odometry(
             fix,
-            heading_deg,
-            self._msg("gps_velocity"),
+            odom,
             self._msg("imu"),
-            self._msg("gps_raw"),
             extra={
-                "heading_source": source if heading_valid else SOURCE_NONE,
+                "heading_source": SOURCE_EKF if heading_valid else SOURCE_NONE,
                 "heading_valid": heading_valid,
                 "distance_travelled_m": self._track_distance_m(),
             },
@@ -227,7 +220,9 @@ class RosSource:
             msg = self._msg("pico_status")
             if msg is None:
                 return None
-            record = adapters.pico_from_ros(msg)
+            # A std_msgs/String carries no timestamp, so the record is stamped
+            # with when this process received it. See adapters.pico_from_ros.
+            record = adapters.pico_from_ros(msg, self.now_utc_ms())
             return Sample(stream, record.utc_ms, payloads.pico_payload(record, detail))
 
         if stream == "power":
@@ -256,14 +251,7 @@ class RosSource:
             return Sample(stream, self.now_utc_ms(), payloads.sonar_payload(record, detail))
 
         if stream == "lidar":
-            msg = self._msg("lidar_scan")
-            if msg is None:
-                return None
-            record = adapters.lidar_from_ros(msg)
-            decimation = {"full": 1, "reduced": 4, "minimal": 12}[detail]
-            return Sample(
-                stream, record.utc_ms, payloads.lidar_payload(record, detail, decimation)
-            )
+            return self._lidar_sample(detail)
 
         if stream == "link":
             return Sample(
@@ -340,20 +328,30 @@ class RosSource:
             "roll_deg": state["vessel"].get("roll_deg"),
             "geofence_distance_m": None,
             "rc_link_ok": state["pico"].get("rc_link_ok"),
+            # Whether the GUI is reading the Pico's status or guessing at it.
+            **self._pico_state_facts(),
+        }
+
+    def _pico_state_facts(self) -> dict:
+        """What the pre-flight needs to judge the STATE parser.
+
+        Absent when nothing has arrived, so the check reports SKIPPED rather
+        than passing a vessel nobody has heard from.
+        """
+        msg = self._msg("pico_status")
+        if msg is None:
+            return {}
+        record = adapters.pico_from_ros(msg, self.now_utc_ms())
+        return {
+            "pico_state_format_verified": getattr(record, "state_format_verified", True),
+            "pico_state_parsed": getattr(record, "state_parsed", True),
+            "pico_state_line": getattr(record, "state_line", ""),
+            "pico_state_unknown_keys": list(getattr(record, "state_unknown_keys", [])),
         }
 
     def send_command(self, name: str, args: dict) -> CommandOutcome:
         if name in (CMD_SET_MODE, CMD_CUT_PROPULSION):
-            publisher = self._publishers.get("mode_request")
-            if publisher is None:
-                return CommandOutcome(False, "no mode_request publisher configured")
-            from std_msgs.msg import String
-
-            mode = "ESTOP" if name == CMD_CUT_PROPULSION else str(args.get("mode", "")).upper()
-            if mode not in MODE_NAMES.values():
-                return CommandOutcome(False, f"unknown mode {mode!r}")
-            publisher.publish(String(data=mode))
-            return CommandOutcome(True, "sent to the Pico")
+            return self._send_mode(name, args)
 
         if name == CMD_SET_PING_PARAMETERS:
             return self._call_service(
@@ -379,6 +377,82 @@ class RosSource:
 
         return CommandOutcome(False, f"command {name!r} is not wired up")
 
+    def _lidar_sample(self, detail: str):
+        """Obstacle returns, from the perception stack's own output.
+
+        The Obstacles panel's raw/filtered toggle is backed by two real topics:
+        ``/lidar_driver/scan_raw`` and ``/obstacles/lidar``, which filters
+        beyond 10 m. Both are sent so the operator can tell a sensor fault from
+        a filter one — which is the entire reason the toggle exists.
+
+        The filtered set is taken from perception rather than re-derived here.
+        Filtering twice, in two places, would eventually produce two different
+        answers about where the obstacles are, and the navigation stack's answer
+        is the one that matters.
+        """
+        scan = self._msg("lidar_scan")
+        if scan is None:
+            return None
+        record = adapters.lidar_from_ros(scan)
+        decimation = {"full": 1, "reduced": 4, "minimal": 12}[detail]
+        payload = payloads.lidar_payload(record, detail, decimation)
+
+        cloud = self._msg("obstacles_lidar")
+        if cloud is not None:
+            filtered = adapters.obstacles_from_pointcloud(cloud)
+            payload["filtered"] = filtered[::decimation]
+            payload["nearest_range_m"] = min((p[1] for p in filtered), default=None)
+            payload["nearest_bearing_deg"] = next(
+                (p[0] for p in filtered if p[1] == payload["nearest_range_m"]), None
+            )
+        return Sample("lidar", record.utc_ms, payload)
+
+    def _send_mode(self, name: str, args: dict) -> CommandOutcome:
+        """Publish a mode request in the Pico's own vocabulary.
+
+        ``pico_bridge`` accepts exactly two words, ``AUTO`` and ``MANUAL``, and
+        logs a warning for anything else. So the GUI translates rather than
+        hoping: ``AUTONOMOUS`` goes out as ``AUTO``.
+
+        **Cut propulsion has nothing to send.** There is no software ESTOP in
+        the firmware bridge. The configured interim is a drop to ``MANUAL``,
+        which removes software authority over the thrusters — the Pico drives
+        them only when armed *and* in AUTONOMOUS — without stopping the boat.
+        The button says so on screen. If ``estop.mode`` is anything else the
+        command is refused rather than guessed at: a Cut propulsion button that
+        silently did nothing would be far worse than one that reports it cannot.
+        """
+        publisher = self._publishers.get("mode_request")
+        if publisher is None:
+            return CommandOutcome(False, "no mode_request publisher configured")
+        from std_msgs.msg import String
+
+        spec = (self.config.get("commands") or {}).get("mode_request") or {}
+        accepts = [w.upper() for w in spec.get("accepts", ["AUTO", "MANUAL"])]
+
+        if name == CMD_CUT_PROPULSION:
+            estop = (self.config.get("estop") or {})
+            if estop.get("mode") != "mode_request_manual":
+                return CommandOutcome(
+                    False,
+                    "no propulsion-cut path is configured. The hardware killswitch "
+                    "and RC channel 8 are unaffected and still work.",
+                )
+            word = "MANUAL"
+            detail = "dropped to MANUAL — the RC pilot has control"
+        else:
+            requested = str(args.get("mode", "")).upper()
+            word = {"AUTONOMOUS": "AUTO", "AUTO": "AUTO", "MANUAL": "MANUAL"}.get(requested)
+            if word is None:
+                return CommandOutcome(False, f"unknown mode {requested!r}")
+            detail = "sent to the Pico"
+
+        if word not in accepts:
+            return CommandOutcome(False, f"pico_bridge does not accept {word!r}")
+
+        publisher.publish(String(data=word))
+        return CommandOutcome(True, detail)
+
     def _call_service(self, key: str, fill) -> CommandOutcome:
         """Send a service request without waiting for it.
 
@@ -398,10 +472,20 @@ class RosSource:
         return CommandOutcome(True, "sent")
 
     def describe(self) -> dict:
+        estop = (self.config.get("estop") or {})
         return {
             "mode": "ros",
             "topics": {
                 name: spec.get("topic") or spec.get("service")
                 for name, spec in (self.config.get("sources") or {}).items()
+            },
+            # What the propulsion-cut button can actually do here. The frontend
+            # labels the button from this rather than assuming a capability the
+            # vessel may not have: on this stack there is no software ESTOP, and
+            # a button claiming otherwise is the worst thing on the screen.
+            "estop": {
+                "available": bool(estop.get("mode")),
+                "label": estop.get("label") or "Cut propulsion",
+                "effect": estop.get("effect") or "",
             },
         }

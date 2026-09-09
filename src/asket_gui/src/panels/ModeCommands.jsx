@@ -30,6 +30,18 @@ export function ModeCommands({ state, connection }) {
 
   const offline = !state.connected;
 
+  // The vessel declares what a propulsion cut can do here; the GUI does not
+  // assume it. Falls back to the honest minimum before the hello arrives.
+  const declared = state.hello?.source?.estop;
+  const estop = {
+    available: declared?.available ?? false,
+    label: declared?.label || COMMAND_LABELS.cut_propulsion,
+    effect: declared?.effect || '',
+    prompt: declared?.effect
+      ? `${declared.label || COMMAND_LABELS.cut_propulsion}? ${declared.effect}`
+      : CONFIRM_PROMPTS.cut_propulsion,
+  };
+
   return (
     <Panel title="Mode">
       <div className="button-row">
@@ -52,13 +64,25 @@ export function ModeCommands({ state, connection }) {
       <div className="button-row" style={{ marginTop: 8 }}>
         <ConfirmButton
           danger
-          label={COMMAND_LABELS.cut_propulsion}
-          prompt={CONFIRM_PROMPTS.cut_propulsion}
+          label={estop.label}
+          prompt={estop.prompt}
           pending={pendingFor('cut_propulsion')}
-          disabled={offline}
+          disabled={offline || !estop.available}
           onConfirm={() => connection.command('cut_propulsion', {})}
         />
       </div>
+
+      {/* What this button does depends on the vessel, and the vessel says so.
+          On the Njord stack there is no software ESTOP at all: pico_bridge
+          accepts AUTO and MANUAL and nothing else. A button labelled "Cut
+          propulsion" that quietly drops the mode instead would be the single
+          most dangerous thing on this screen, so it is labelled with what it
+          actually does and the effect is spelled out underneath. */}
+      {estop.effect && (
+        <p className="warnline" style={{ marginBottom: 0, marginTop: 6 }}>
+          {estop.effect}
+        </p>
+      )}
 
       {latest && (
         <p

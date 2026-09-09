@@ -28,6 +28,7 @@ HEALTHY = dict(
     state_of_charge=0.9, battery_voltage=28.0,
     link_rtt_ms=25.0, link_active="wifi",
     expected_nodes=["omniscan_bridge"], present_nodes=["omniscan_bridge"],
+    pico_state_format_verified=True, pico_state_parsed=True, pico_state_unknown_keys=[],
     mounting=dict(
         path="/etc/asket/mounting.yaml", found=True, measured=True,
         measured_by="AD", measured_utc="2026-03-02", error="", unknown_fields=[],
@@ -290,3 +291,46 @@ def test_a_disk_smaller_than_the_battery_is_the_binding_one_and_says_so():
     )), "disk.space")
     assert result.status == PASS
     assert "battery" not in result.message
+
+
+# -- the Pico's STATE format (Q7) ----------------------------------------
+#
+# /pico/status is a std_msgs/String of raw firmware lines. The GUI parses that
+# text, and the format it parses has never been checked against a real line. A
+# parser reading the wrong format does not look broken — it looks like a vessel
+# that is not reporting much — so the pre-flight has to say so out loud.
+
+
+def test_an_unverified_state_format_warns_on_every_run():
+    report = run_checks(dict(HEALTHY, pico_state_format_verified=False))
+    result = item(report, "pico.state_format")
+    assert result.status == WARN
+    assert "never been checked" in result.message
+    assert "ros2 topic echo /pico/status" in result.remedy
+    # A warning, not a blocker: the vessel is fine, our reading of it is what
+    # is in doubt.
+    assert report.go
+
+
+def test_a_line_the_parser_cannot_read_is_a_failure():
+    """Not a warning. If the text cannot be parsed, every field in the vessel
+    panel is absent and nothing there can be trusted."""
+    report = run_checks(dict(
+        HEALTHY, pico_state_parsed=False, pico_state_line="STATE 0x41 0x00 0x1f"))
+    result = item(report, "pico.state_format")
+    assert result.status == FAIL
+    assert not report.go
+
+
+def test_fields_the_parser_ignores_are_reported_rather_than_dropped():
+    """An unrecognised key is usually the one that matters."""
+    result = item(run_checks(dict(
+        HEALTHY, pico_state_unknown_keys=["batt_mv", "faults"])), "pico.state_format")
+    assert result.status == WARN
+    assert "batt_mv" in result.message
+
+
+def test_no_pico_status_at_all_is_unknown_not_a_pass():
+    state = dict(HEALTHY)
+    del state["pico_state_format_verified"]
+    assert item(run_checks(state), "pico.state_format").status == SKIPPED

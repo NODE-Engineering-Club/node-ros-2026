@@ -21,6 +21,8 @@ from __future__ import annotations
 import math
 from types import SimpleNamespace
 
+from .pico_state import parse_state_line
+
 
 def _stamp_to_utc_ms(header) -> int:
     """A ROS header stamp as UTC milliseconds."""
@@ -97,14 +99,31 @@ def vessel_from_ros(fix, compass_hdg, gps_vel, imu, gps_raw=None, extra=None):
     )
 
 
-def pico_from_ros(msg):
-    """Adapt a Pico status message.
+#: The GUI's mode vocabulary, as integers, matching asket_interfaces/PicoStatus.
+_MODE_VALUES = {"ESTOP": 0, "MANUAL": 1, "AUTONOMOUS": 2}
 
-    Written against ``asket_interfaces/PicoStatus`` (what the simulator
-    publishes). The real ``pico_bridge`` message is not known here, so this is
-    the one function that changes when Q7 is answered — deliberately isolated
-    so that change is a few lines and not a hunt.
+
+def pico_from_ros(msg, received_utc_ms: int = 0):
+    """Adapt whatever ``/pico/status`` carries into a vessel-state record.
+
+    Two shapes are accepted, because two exist:
+
+    * ``std_msgs/String`` — what the real ``pico_bridge`` publishes. It reads
+      lines off the serial link and republishes any ``STATE ...`` line verbatim,
+      unparsed, so the text is parsed here through
+      :mod:`gui_backend.core.pico_state`. That format is **PROVISIONAL**.
+    * ``asket_interfaces/PicoStatus`` — what ``asket_sim`` publishes, a proper
+      structured message.
+
+    A String has no header, so it has no timestamp of its own. ``received_utc_ms``
+    is when this process saw it, which is the best available and is honest about
+    what it is: the age on screen is then the age of our receipt, not of the
+    sample. That is a slight over-estimate of freshness by the serial latency,
+    and it is the direction to err in.
     """
+    if hasattr(msg, "data") and not hasattr(msg, "mode"):
+        return _pico_from_state_line(str(msg.data), received_utc_ms)
+
     return SimpleNamespace(
         utc_ms=_stamp_to_utc_ms(msg.header),
         mode=int(msg.mode),
@@ -115,7 +134,161 @@ def pico_from_ros(msg):
         rc_link_ok=bool(msg.rc_link_ok),
         rc_channel8_raw_pct=int(msg.rc_channel8_raw_pct),
         hardware_killswitch_engaged=bool(getattr(msg, "hardware_killswitch_engaged", False)),
+        state_line="",
+        state_parsed=True,
+        state_format_verified=True,
     )
+
+
+def _pico_from_state_line(line: str, received_utc_ms: int):
+    """A raw firmware line into the same record shape.
+
+    Every field the line does not carry stays ``None``. It travels to the GUI as
+    ``null`` and renders as "not sent" — not as zero, and not as a fault. The
+    difference matters most for ``rc_link_ok``: reporting a healthy RC link as
+    lost because a text field was missing is exactly the lie this GUI exists to
+    avoid.
+    """
+    state = parse_state_line(line)
+    return SimpleNamespace(
+        utc_ms=received_utc_ms,
+        mode=_MODE_VALUES.get(state.mode) if state.mode else None,
+        armed=state.armed,
+        # There is no ESTOP in the firmware bridge's vocabulary, so the Pico
+        # cannot report one latched. Absent, not False: claiming "not latched"
+        # would be claiming knowledge of something never reported.
+        estop_latched=None,
+        relay_states=[],
+        esc_status=[],
+        rc_link_ok=state.rc_link_ok,
+        rc_channel8_raw_pct=state.rc_channel8_raw_pct,
+        hardware_killswitch_engaged=None,
+        battery_voltage=state.battery_voltage,
+        battery_current=state.battery_current,
+        state_line=state.raw,
+        state_parsed=state.parsed,
+        state_unknown_keys=state.unknown_keys,
+        state_format_verified=state.format_verified,
+    )
+
+
+def vessel_from_odometry(fix, odom_filtered, imu=None, extra=None):
+    """Assemble a vessel record from the club stack's topics.
+
+    Where the values come from, and why:
+
+    * **Position** from ``/gps_driver/gps_raw`` (``NavSatFix``). The map-frame
+      pose on ``/odometry/gps`` is the same fix transformed; the GUI draws on a
+      geographic map, so it takes the geographic one and avoids depending on the
+      datum being set.
+    * **Heading, speed and attitude** from ``/odometry/filtered``, the EKF
+      output. That is a fused heading rather than a raw magnetometer, which is
+      why its nominal accuracy is better than the magnetometer figure.
+    * **Course over ground** from the same message's twist, rotated out of the
+      body frame into the map frame. Heading and course must be independently
+      derived or comparing them says nothing — and that comparison is the row
+      the heading panel exists for.
+
+    ROS is ENU (x east, y north, yaw counter-clockwise from east); a compass
+    bearing is clockwise from north. Hence ``90 - yaw``.
+    """
+    roll = pitch = 0.0
+    heading_deg = None
+    sog_ms = 0.0
+    cog_deg = 0.0
+
+    if odom_filtered is not None:
+        roll, pitch, yaw = quaternion_to_euler_deg(odom_filtered.pose.pose.orientation)
+        heading_deg = (90.0 - yaw) % 360.0
+
+        # Odometry twist is in child_frame_id — the body frame. Rotate it into
+        # the map frame before taking a course from it.
+        vx = odom_filtered.twist.twist.linear.x
+        vy = odom_filtered.twist.twist.linear.y
+        sog_ms = math.hypot(vx, vy)
+        if sog_ms > 0.05:
+            rad = math.radians(yaw)
+            east = vx * math.cos(rad) - vy * math.sin(rad)
+            north = vx * math.sin(rad) + vy * math.cos(rad)
+            cog_deg = math.degrees(math.atan2(east, north)) % 360.0
+
+    if imu is not None and odom_filtered is None:
+        roll, pitch, _ = quaternion_to_euler_deg(imu.orientation)
+
+    stamps = [_stamp_to_utc_ms(m.header) for m in (fix, odom_filtered, imu) if m is not None]
+    utc_ms = min(stamps) if stamps else 0
+
+    # Neither NavSatFix nor Odometry carries a satellite count, and this stack
+    # has no equivalent of MAVROS's GPSRAW. Absent, not zero: "0 satellites"
+    # would read as a GNSS failure and ground a perfectly healthy vessel.
+    hdop = None
+    if fix is not None and fix.position_covariance[0] > 0.0:
+        # Horizontal standard deviation in metres. Reported as itself rather
+        # than converted to an HDOP by a made-up UERE.
+        hdop = math.sqrt(fix.position_covariance[0])
+
+    return SimpleNamespace(
+        utc_ms=utc_ms,
+        lat=fix.latitude if fix else float("nan"),
+        lon=fix.longitude if fix else float("nan"),
+        alt=fix.altitude if fix else float("nan"),
+        heading_deg=heading_deg if heading_deg is not None else float("nan"),
+        heading_source=(extra or {}).get("heading_source", "ekf"),
+        heading_valid=(extra or {}).get("heading_valid", heading_deg is not None),
+        heading_accuracy_deg=(extra or {}).get("heading_accuracy_deg", float("nan")),
+        cog_deg=cog_deg,
+        sog_ms=sog_ms,
+        roll_deg=roll,
+        pitch_deg=pitch,
+        gnss_fix_type=int(getattr(getattr(fix, "status", None), "status", -1)) + 3
+        if fix is not None
+        else 0,
+        num_sats=None,
+        hdop=hdop,
+        distance_travelled_m=(extra or {}).get("distance_travelled_m", 0.0),
+        on_survey=(extra or {}).get("on_survey", False),
+    )
+
+
+def obstacles_from_pointcloud(msg, max_points: int = 720):
+    """``sensor_msgs/PointCloud2`` of obstacle points into bearing/range pairs.
+
+    ``/obstacles/lidar`` and ``/obstacles/fused`` are what the perception stack
+    already produces, so the GUI consumes those rather than re-filtering a raw
+    scan itself and risking a second, disagreeing answer about where the
+    obstacles are.
+
+    Points are read with the stdlib only — no numpy, no ``sensor_msgs_py`` — so
+    this stays testable without ROS installed like everything else in ``core``.
+    """
+    import struct
+
+    offsets = {f.name: (f.offset, f.datatype) for f in msg.fields}
+    if "x" not in offsets or "y" not in offsets:
+        return []
+
+    fmt = "<f" if not msg.is_bigendian else ">f"
+    step = msg.point_step
+    data = bytes(msg.data)
+    count = min(len(data) // step if step else 0, max_points)
+
+    out = []
+    for i in range(count):
+        base = i * step
+        try:
+            x = struct.unpack_from(fmt, data, base + offsets["x"][0])[0]
+            y = struct.unpack_from(fmt, data, base + offsets["y"][0])[0]
+        except struct.error:
+            break
+        if x != x or y != y:          # NaN padding
+            continue
+        rng = math.hypot(x, y)
+        if rng < 0.05:
+            continue
+        # Body frame: x forward, y left. Bearing is clockwise from the bow.
+        bearing = math.degrees(math.atan2(-y, x)) % 360.0
+        out.append([round(bearing, 1), round(rng, 2)])
+    return out
 
 
 def battery_from_ros(msg, capacity_wh: float, hotel_load_w: float = 85.0):

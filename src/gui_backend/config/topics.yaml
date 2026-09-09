@@ -1,44 +1,64 @@
 # Where the backend finds real data.
 #
-# Nothing in gui_backend hard-codes a topic name or a message type. They live
-# here because the existing pico_bridge message is not known to this repository
-# and pico_bridge must not be modified (docs/open_questions.md Q7). Pointing the
-# backend at the real message is a change to this file plus, at most, one
-# adapter function in core/adapters.py.
+# Nothing in gui_backend hard-codes a topic name or a message type. Pointing a
+# stream at a different topic is a change to this file plus, at most, one adapter
+# function in core/adapters.py.
+#
+# This file now names the **real** Njord interface (open question Q7, answered).
+# The competition packages are not modified to suit the GUI: the GUI reads what
+# they already publish.
 #
 # `adapter` names a function in gui_backend.core.adapters.
 
 sources:
   gnss_fix:
-    topic: /mavros/global_position/global
+    topic: /gps_driver/gps_raw
     type: sensor_msgs/msg/NavSatFix
-  compass_heading:
-    topic: /mavros/global_position/compass_hdg
-    type: std_msgs/msg/Float64
-  gps_velocity:
-    topic: /mavros/global_position/raw/gps_vel
-    type: geometry_msgs/msg/TwistStamped
+  # The same fix in the map frame, from navsat_transform_node. Not used for the
+  # map — the GUI draws geographically and takes the geographic fix directly,
+  # so it does not depend on the datum being established. Kept because the
+  # coverage overlay works in metres and this is already metres.
+  odom_map:
+    topic: /odometry/gps
+    type: nav_msgs/msg/Odometry
+    optional: true
+  # Heading, speed and attitude, all from the EKF. One message, one timestamp:
+  # the three cannot drift apart the way four MAVROS topics could.
+  odom_filtered:
+    topic: /odometry/filtered
+    type: nav_msgs/msg/Odometry
   imu:
-    topic: /mavros/imu/data
+    topic: /imu_driver/imu_raw
     type: sensor_msgs/msg/Imu
-  gps_raw:
-    topic: /mavros/gpsstatus/gps1/raw
-    type: mavros_msgs/msg/GPSRAW
-    optional: true          # satellite count and HDOP; the GUI degrades without it
-  battery:
-    topic: /mavros/battery
-    type: sensor_msgs/msg/BatteryState
-    adapter: battery_from_ros
+    optional: true          # attitude falls back to the EKF pose
+  # The Obstacles panel's raw/filtered toggle, backed by the real pair.
   lidar_scan:
-    topic: /scan
+    topic: /lidar_driver/scan_raw
     type: sensor_msgs/msg/LaserScan
     adapter: lidar_from_ros
+  obstacles_lidar:
+    topic: /obstacles/lidar
+    type: sensor_msgs/msg/PointCloud2
+    adapter: obstacles_from_pointcloud
+  obstacles_fused:
+    topic: /obstacles/fused
+    type: sensor_msgs/msg/PointCloud2
+    adapter: obstacles_from_pointcloud
+    optional: true          # needs vision; absent when enable_vision:=false
+  commanded_effort:
+    topic: /control/effort
+    type: geometry_msgs/msg/Twist
+    optional: true
   pico_status:
-    # PROVISIONAL (Q7): asket_sim publishes this. Reconcile with pico_bridge.
+    # std_msgs/String carrying raw firmware "STATE ..." lines, republished
+    # verbatim and unparsed by pico_bridge. The parser is in
+    # core/pico_state.py and its format is PROVISIONAL — nobody has captured a
+    # real line yet, and the pre-flight says so on every run.
     topic: /pico/status
-    type: asket_interfaces/msg/PicoStatus
+    type: std_msgs/msg/String
     adapter: pico_from_ros
   sonar_status:
+    # The Omniscan bridge is part of the GUI overlay, so this one is known.
     topic: /sonar/status
     type: asket_interfaces/msg/SonarStatus
     adapter: sonar_from_ros
@@ -50,13 +70,15 @@ sources:
     topic: /diagnostics
     type: diagnostic_msgs/msg/DiagnosticArray
 
-# Where commands go. Mode requests reach the Pico through pico_bridge; this
-# repository does not modify that package, so the interface is named here.
+# Where commands go. Mode requests reach the Pico through pico_bridge, which
+# this repository does not modify, so the interface is named here.
 commands:
   mode_request:
-    # PROVISIONAL (Q7): asket_sim listens here.
     topic: /pico/mode_request
     type: std_msgs/msg/String
+    # pico_bridge accepts ONLY these two words. Anything else it logs as a
+    # warning and drops, so the GUI must never send anything else.
+    accepts: ["AUTO", "MANUAL"]
   set_ping_parameters:
     service: /omniscan_bridge/set_ping_parameters
     type: asket_interfaces/srv/SetPingParameters
@@ -70,8 +92,40 @@ commands:
     service: /system_test/run
     type: asket_interfaces/srv/RunSystemTest
 
+# What "Cut propulsion" actually does.
+#
+# There is no software ESTOP anywhere in this stack: pico_bridge accepts AUTO
+# and MANUAL and nothing else, and the firmware has no MODE ESTOP. So the button
+# cannot cut propulsion, and it must not pretend to.
+#
+# The safest thing available is to drop the Pico out of AUTONOMOUS. Per
+# pico_bridge's own docstring the Pico applies motor commands only when armed
+# AND in AUTONOMOUS, so requesting MANUAL removes software authority over the
+# thrusters and hands the boat back to the RC pilot. It does NOT stop the boat.
+#
+# The GUI labels the button with what this actually does. Changing it to a real
+# ESTOP needs a firmware change and a pico_bridge change, and that decision is
+# not this repository's to make (see README, "Two things that are not settled").
+estop:
+  mode: mode_request_manual
+  # Shown on the button and in its confirmation prompt. If the firmware ever
+  # gains a real ESTOP, this is what changes alongside `mode`.
+  label: "Drop to MANUAL"
+  effect: >-
+    Hands control back to the RC pilot. The Pico only drives the thrusters when
+    armed and in AUTONOMOUS, so this removes software authority — it does not
+    stop the boat. The hardware killswitch and RC channel 8 are the only things
+    that cut propulsion.
+
 # Battery capacity, needed to turn a percentage into an endurance estimate.
 # PROVISIONAL (Q5).
 vessel:
   battery_capacity_wh: 1200.0
   hotel_load_w: 85.0
+
+# The GUI's own server. 8090 stays clear of foxglove_bridge (8765) and of the
+# rosbridge (9090) and web_video_server (8080) entries in njord.launch.py.
+# 0.0.0.0 because the whole point is reaching it from a laptop on the beach.
+server:
+  host: 0.0.0.0
+  port: 8090

@@ -143,6 +143,60 @@ def _pico_link(state: dict, t: Thresholds) -> CheckResult:
     return CheckResult("pico.link", "Pico link", PASS, f"Heartbeat {age:.1f} s ago", "", age, "s")
 
 
+@check("pico.state_format", "Pico status format")
+def _state_format(state: dict, t: Thresholds) -> CheckResult:
+    """Is the GUI reading the Pico's status, or guessing at it?
+
+    ``/pico/status`` is a ``std_msgs/String``: ``pico_bridge`` republishes raw
+    firmware ``STATE`` lines verbatim, without parsing them. The GUI parses that
+    text, and the format it parses is transcribed from nobody — no real line has
+    been captured (docs/open_questions.md Q7).
+
+    That makes every field in the vessel panel provisional in a way an operator
+    cannot see, because a parser reading the wrong format does not look broken:
+    it looks like a vessel that is not reporting much. So the pre-flight says so
+    on every run until somebody confirms the format.
+    """
+    reported = state.get("pico_state_format_verified")
+    if reported is None:
+        return _missing("pico.state_format", "Pico status format",
+                        "no Pico status received")
+
+    if not reported:
+        return CheckResult(
+            "pico.state_format", "Pico status format", WARN,
+            "Unverified: the STATE line format has never been checked against "
+            "real firmware output",
+            "Run `ros2 topic echo /pico/status --field data` on the Jetson, "
+            "confirm the fields against gui_backend/core/pico_state.py, and set "
+            "FORMAT_VERIFIED there. Until then treat the vessel panel as "
+            "indicative, not confirmed.",
+        )
+
+    if state.get("pico_state_parsed") is False:
+        line = str(state.get("pico_state_line") or "")[:60]
+        return CheckResult(
+            "pico.state_format", "Pico status format", FAIL,
+            f"The Pico is sending something this GUI cannot read: {line!r}",
+            "The firmware format has changed, or the parser is wrong. Nothing "
+            "in the vessel panel can be trusted until it is fixed.",
+        )
+
+    unknown = state.get("pico_state_unknown_keys") or []
+    if unknown:
+        return CheckResult(
+            "pico.state_format", "Pico status format", WARN,
+            f"Unrecognised fields in the STATE line: {', '.join(unknown[:4])}",
+            "The firmware is reporting something this GUI ignores. Add it to "
+            "gui_backend/core/pico_state.py if it matters.",
+        )
+
+    return CheckResult(
+        "pico.state_format", "Pico status format", PASS,
+        "Verified against real firmware output", "",
+    )
+
+
 @check("rc.link", "RC link and killswitch")
 def _rc(state: dict, t: Thresholds) -> CheckResult:
     ok = state.get("rc_link_ok")

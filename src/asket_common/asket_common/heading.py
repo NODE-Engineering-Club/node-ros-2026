@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from .geo import angular_difference
 
 SOURCE_GNSS_COMPASS = "gnss_compass"
+#: The Njord stack's EKF yaw, from /odometry/filtered. A fusion of IMU, GNSS and
+#: whatever else robot_localization is configured with — better than a bare
+#: magnetometer, and not as good as a dual-antenna compass.
+SOURCE_EKF = "ekf"
 SOURCE_MAGNETOMETER = "magnetometer"
 SOURCE_COG = "cog"
 SOURCE_NONE = "none"
@@ -29,6 +33,11 @@ SOURCE_NONE = "none"
 #: (PROVISIONAL, docs/open_questions.md Q4).
 NOMINAL_ACCURACY_DEG = {
     SOURCE_GNSS_COMPASS: 0.2,
+    # PROVISIONAL: the EKF publishes a pose covariance and that is the figure to
+    # use once somebody confirms robot_localization is filling it in rather than
+    # leaving the default. Until then this is a guess at a fused heading, and
+    # the panel marks it "assumed" because it is not a measurement.
+    SOURCE_EKF: 3.0,
     SOURCE_MAGNETOMETER: 10.0,
     SOURCE_COG: 5.0,
     SOURCE_NONE: float("nan"),

@@ -53,6 +53,7 @@ export const PROFILE_LABELS = {
 
 export const HEADING_SOURCE_LABELS = {
   gnss_compass: 'GNSS compass',
+  ekf: 'EKF (fused)',
   magnetometer: 'Magnetometer',
   cog: 'Course over ground',
   none: 'None',

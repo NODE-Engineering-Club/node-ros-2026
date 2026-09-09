@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, SetParameter
+from launch_ros.substitutions import FindPackageShare
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import RewrittenYaml
 
@@ -54,6 +55,15 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
+        # Mission GUI (Namibia survey overlay). OFF by default: nobody working
+        # on navigation should be made to start a web server. See
+        # gui_backend/launch/gui.launch.py and the GUI section of README.md.
+        DeclareLaunchArgument(
+            "enable_gui",
+            default_value="false",
+            description="Start the mission GUI backend on http://<host>:8090",
+        ),
+        DeclareLaunchArgument("gui_port", default_value="8090"),
         DeclareLaunchArgument("lidar_camera_extrinsic", default_value="",
                               description="Path to lidar_camera_extrinsic.yaml; "
                                           "empty = use URDF nominal TF for lidar→front_camera"),
@@ -470,6 +480,23 @@ def generate_launch_description():
                 ),
             ],
             condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
+        # Mission GUI — its own launch file, included rather than inlined, so it
+        # stays runnable on its own and this file keeps one line about it. It
+        # runs as a separate process from pico_bridge and must: that node owns
+        # the serial link and its 20 Hz heartbeat is what keeps the Pico out of
+        # MANUAL.
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution(
+                    [FindPackageShare("gui_backend"), "launch", "gui.launch.py"]
+                )
+            ),
+            launch_arguments={
+                "gui_port": LaunchConfiguration("gui_port"),
+                "use_sim": LaunchConfiguration("use_sim"),
+            }.items(),
+            condition=IfCondition(LaunchConfiguration("enable_gui")),
         ),
     ]
 

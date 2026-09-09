@@ -33,8 +33,12 @@ class GuiBackendNode(Node):
     def __init__(self) -> None:
         super().__init__("gui_backend")
 
+        # 0.0.0.0: the point of this server is being reachable from a laptop
+        # on the beach. Bound to localhost it would be a GUI nobody can open.
         self.declare_parameter("host", "0.0.0.0")
-        self.declare_parameter("port", 8080)
+        # 8090 stays clear of foxglove_bridge (8765) and of the rosbridge (9090)
+        # and web_video_server (8080) entries in njord.launch.py.
+        self.declare_parameter("port", 8090)
         self.declare_parameter("topics_config", "")
         self.declare_parameter("link_profiles_config", "")
         self.declare_parameter("tiles_path", "/data/maps/survey.mbtiles")

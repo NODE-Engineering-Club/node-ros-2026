@@ -101,7 +101,34 @@ Two things worth knowing about that check:
   dangerous case: somebody measured the vessel and the numbers are being
   ignored in favour of the defaults.
 
-## 4. Offline map tiles
+## 4. Network ports
+
+The GUI backend serves the API and the page from **one** port: there is no CDN
+in Namibia and no second server to run on the Jetson.
+
+| Port | What | Where |
+|---|---|---|
+| **8090** | **Mission GUI (HTTP + WebSocket)** | `gui_backend`, `enable_gui:=true` |
+| 8765 | `foxglove_bridge` | `njord.launch.py`, `enable_foxglove` (on by default) |
+| 9090 | `rosbridge_websocket` | `njord.launch.py`, currently commented out |
+| 8080 | `web_video_server` | `njord.launch.py`, currently commented out |
+
+8090 was picked to stay clear of all three, the two commented ones included —
+somebody will uncomment them, and discovering the clash then is worse than
+avoiding it now.
+
+The backend binds `0.0.0.0`, not `127.0.0.1`. Being reachable from the laptop
+ashore is the entire point; bound to localhost it would be a GUI nobody can
+open. Check from the laptop:
+
+```bash
+curl -s http://<jetson>:8090/api/tiles/info
+```
+
+If that times out and the Jetson is otherwise reachable, it is a firewall, not
+the GUI.
+
+## 5. Offline map tiles
 
 There is no internet in the field. Pre-download an `.mbtiles` covering the
 survey box and put it where `gui_backend` expects it
@@ -114,7 +141,7 @@ but you will not see the coastline. Check it before leaving:
 curl -s http://<jetson>:8080/api/tiles/info
 ```
 
-## 5. After the mission — produce the .svlog
+## 6. After the mission — produce the .svlog
 
 SonarView cannot import an external trajectory. Merge the recorded streams into
 a log it can open:

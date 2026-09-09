@@ -677,4 +677,11 @@ class SimSource:
             "origin": {"lat": cfg.origin_lat, "lon": cfg.origin_lon},
             "sonar_side": cfg.sonar_side,
             "available_faults": sorted(FAULTS),
+            # The simulator does model a soft latch, so here the button means
+            # what it says. Against the real stack it does not — see ros_source.
+            "estop": {
+                "available": True,
+                "label": "Cut propulsion",
+                "effect": "Latches the simulated Pico into ESTOP.",
+            },
         }

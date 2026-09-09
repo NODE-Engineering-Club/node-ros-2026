@@ -1,3 +1,28 @@
+> **If you are reading this on a branch in `auxenceIAAC/GUI_NAMIBIA`, you are
+> looking at a transfer artefact.**
+>
+> This work's real home is **`auxenceIAAC/node-ros-2026`**, branch
+> `gui-integration`. It was pushed to `transfer/gui-integration` on the GUI
+> repository only because the session that produced it could read the fork but
+> had no credential to push to it. The branch carries the whole Njord
+> workspace, which does not belong in the GUI repository — delete it once the
+> commits are in the fork.
+>
+> ```bash
+> # In a clone of auxenceIAAC/node-ros-2026:
+> git remote add transfer https://github.com/auxenceIAAC/GUI_NAMIBIA.git
+> git fetch transfer transfer/gui-integration
+> git checkout -b gui-integration transfer/gui-integration
+> git push -u origin gui-integration
+> git remote remove transfer
+>
+> # Then drop the hop:
+> git push https://github.com/auxenceIAAC/GUI_NAMIBIA.git \
+>   --delete transfer/gui-integration
+> ```
+>
+> Nothing was pushed to `NODE-Engineering-Club/node-ros-2026`.
+
 # GUI integration — status
 
 The mission GUI overlay merged into the Njord workspace on `gui-integration`.

@@ -1,0 +1,57 @@
+# Mission-wide defaults for the Asket Namibia survey.
+#
+# Values marked PROVISIONAL are placeholders for the open questions in
+# docs/open_questions.md. They are here, in YAML, rather than in code, precisely
+# so that answering a question is an edit and not a rebuild.
+
+mission:
+  # PROVISIONAL (Q5): target mission duration. Drives disk sizing, the power
+  # budget, and the "estimated remaining recording time" readout.
+  target_duration_s: 10800          # 3 hours
+
+survey:
+  # PROVISIONAL (Q1): Walvis Bay placeholder. Replace with the real survey box.
+  origin_lat: -22.9576
+  origin_lon: 14.5053
+  heading_deg: 20.0
+  line_length_m: 300.0
+  line_spacing_m: 20.0
+  num_lines: 6
+  # One Omniscan unit means one side. This is why coverage gaps are easy to
+  # leave and hard to notice, and why the coverage overlay exists.
+  sonar_side: starboard
+
+sonar:
+  # PROVISIONAL (Q1): depth profile unknown, so the range setting is a guess.
+  range_m: 30.0
+  gain: 4
+  ping_rate_hz: 5.0
+
+lidar:
+  # PROVISIONAL (Q1): harbour vs open coast changes these substantially.
+  warn_radius_m: 15.0
+  alarm_radius_m: 8.0
+
+heading:
+  # PROVISIONAL (Q4): UM982 purchase unconfirmed; 1 m baseline assumed for the
+  # accuracy figure shown when no accuracy is reported by the source.
+  expected_source: magnetometer     # -> gnss_compass once the UM982 is fitted
+  gnss_compass_baseline_m: 1.0
+  divergence_warn_deg: 15.0
+
+data_age:
+  # Rule 7: every live value carries its age, and stale values are visually
+  # degraded. These are the thresholds, in seconds.
+  stale_s: 3.0
+  very_stale_s: 10.0
+
+alarms:
+  battery_low_soc: 0.25
+  battery_critical_soc: 0.12
+  disk_low_bytes: 5368709120        # 5 GiB
+  clock_offset_warn_ms: 250
+  clock_offset_alarm_ms: 1000
+  roll_warn_deg: 20.0
+  roll_alarm_deg: 30.0
+  link_lost_s: 10.0
+  geofence_approach_m: 25.0

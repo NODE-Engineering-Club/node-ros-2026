@@ -1,0 +1,126 @@
+// The scenarios the dev panel can trigger.
+//
+// Every one of these is a condition that has to be reviewable before the boat
+// goes out, because each changes what the interface is allowed to claim. They
+// are named and described here rather than inline in the panel so that the list
+// is a checklist someone can read.
+
+export const SCENARIOS = [
+  {
+    group: 'Link',
+    items: [
+      {
+        id: 'link_degraded',
+        label: '4G link',
+        kind: 'fault',
+        detail:
+          'Bearer drops to 4G. The profile selector falls back to `reduced`, lidar stops '
+          + 'being carried, and the panel says so rather than going blank.',
+      },
+      {
+        id: 'link_loss',
+        label: 'Link lost',
+        kind: 'fault',
+        detail:
+          'Nothing arrives. Every value must keep its last reading, marked with a growing '
+          + 'age, rather than blanking — the last known position is most valuable exactly '
+          + 'when the link has gone.',
+      },
+    ],
+  },
+  {
+    group: 'Profile (manual override)',
+    items: [
+      { id: 'full', label: 'Full', kind: 'profile', detail: 'Fast WiFi — everything.' },
+      { id: 'reduced', label: 'Reduced', kind: 'profile',
+        detail: '4G — position, heading, mode, power, coverage, alarms.' },
+      { id: 'minimal', label: 'Beacon', kind: 'profile',
+        detail: 'LTE-M — position, mode, battery, alarms only.' },
+      { id: 'auto', label: 'Auto', kind: 'profile',
+        detail: 'Back to automatic selection from measured link quality.' },
+    ],
+  },
+  {
+    group: 'Sensors',
+    items: [
+      {
+        id: 'sonar_dropout',
+        label: 'Sonar dropout',
+        kind: 'fault',
+        detail:
+          'The sonar stops. Coverage must stop painting — a ribbon that closed over the '
+          + 'gap would claim seabed nobody ensonified.',
+      },
+      {
+        id: 'heading_invalid',
+        label: 'Heading invalid',
+        kind: 'fault',
+        detail:
+          'Data recorded now cannot be georeferenced. The heading arrow stops rotating, '
+          + 'coverage stops, and the alarm says to re-run these lines.',
+      },
+      {
+        id: 'gnss_degraded',
+        label: 'GNSS degraded',
+        kind: 'fault',
+        detail: 'Four satellites and a poor HDOP. Pre-flight must go NO-GO.',
+      },
+      {
+        id: 'clock_drift',
+        label: 'Sonar clock drift',
+        kind: 'fault',
+        detail:
+          'The offset grows about 40 ms per second. Warns, then escalates to "cannot be '
+          + 'georeferenced" — the failure nobody notices until the data is opened at home.',
+      },
+      { id: 'lidar_stall', label: 'Lidar stalled', kind: 'fault',
+        detail: 'No returns at all. The obstacle panel must show absence, not zero.' },
+      { id: 'rc_link_loss', label: 'RC link lost', kind: 'fault',
+        detail: 'The sovereign killswitch is out of range. Alarm, and it says why.' },
+    ],
+  },
+  {
+    group: 'Resources',
+    items: [
+      { id: 'disk_full', label: 'Disk full', kind: 'fault',
+        detail: 'Recording stops cleanly and the alarm survives the stop.' },
+      { id: 'low_battery', label: 'Low battery', kind: 'fault',
+        detail: 'Drops to 8%. Check the endurance-versus-survey comparison.' },
+    ],
+  },
+  {
+    group: 'Mode commands',
+    items: [
+      {
+        id: 'confirm_slow',
+        label: 'Confirmation slow (2.5 s)',
+        kind: 'toggle',
+        detail:
+          'The Pico takes longer to confirm. The button must stay outlined and pulsing, '
+          + 'and the displayed mode must not move until the vessel says so.',
+      },
+      {
+        id: 'confirm_fails',
+        label: 'Confirmation never arrives',
+        kind: 'toggle',
+        detail:
+          'The request is accepted and then lost. After 3 s the command must fail with '
+          + '"the vessel has NOT changed state" — never a silent success.',
+      },
+    ],
+  },
+  {
+    group: 'Map',
+    items: [
+      {
+        id: 'tiles',
+        label: 'Offline tiles present',
+        kind: 'toggle',
+        detail:
+          'Off: no .mbtiles, so the map degrades to a labelled coordinate grid and says '
+          + 'why. On: synthetic tiles generated in the browser, so the tiled path can be '
+          + 'reviewed with no file and no internet.',
+      },
+    ],
+  },
+];

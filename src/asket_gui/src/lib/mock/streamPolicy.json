@@ -1,0 +1,254 @@
+{
+  "_comment": "GENERATED from gui_backend/core/streams.py by gui_backend/tools/export_stream_policy.py. Do not edit by hand \u2014 test_mock_policy.py fails if this drifts from the Python.",
+  "profile_order": [
+    "full",
+    "reduced",
+    "minimal"
+  ],
+  "profiles": {
+    "full": {
+      "budget_bytes_per_s": 200000.0,
+      "description": "Fast WiFi \u2014 everything",
+      "policies": {
+        "alarms": {
+          "detail": "full",
+          "max_rate_hz": 2.0
+        },
+        "coverage": {
+          "detail": "full",
+          "max_rate_hz": 4.0
+        },
+        "diagnostics": {
+          "detail": "full",
+          "max_rate_hz": 1.0
+        },
+        "heading": {
+          "detail": "full",
+          "max_rate_hz": 5.0
+        },
+        "lidar": {
+          "detail": "full",
+          "max_rate_hz": 10.0
+        },
+        "link": {
+          "detail": "full",
+          "max_rate_hz": 2.0
+        },
+        "mission": {
+          "detail": "full",
+          "max_rate_hz": 2.0
+        },
+        "pico": {
+          "detail": "full",
+          "max_rate_hz": 10.0
+        },
+        "plan": {
+          "detail": "full",
+          "max_rate_hz": 1.0
+        },
+        "power": {
+          "detail": "full",
+          "max_rate_hz": 2.0
+        },
+        "sonar": {
+          "detail": "full",
+          "max_rate_hz": 2.0
+        },
+        "track": {
+          "detail": "full",
+          "max_rate_hz": 4.0
+        },
+        "vessel": {
+          "detail": "full",
+          "max_rate_hz": 10.0
+        }
+      }
+    },
+    "minimal": {
+      "budget_bytes_per_s": 1000.0,
+      "description": "LTE-M \u2014 position, mode, battery, alarms only",
+      "policies": {
+        "alarms": {
+          "detail": "minimal",
+          "max_rate_hz": 0.5
+        },
+        "link": {
+          "detail": "minimal",
+          "max_rate_hz": 0.1
+        },
+        "pico": {
+          "detail": "minimal",
+          "max_rate_hz": 0.2
+        },
+        "power": {
+          "detail": "minimal",
+          "max_rate_hz": 0.1
+        },
+        "vessel": {
+          "detail": "minimal",
+          "max_rate_hz": 0.2
+        }
+      }
+    },
+    "reduced": {
+      "budget_bytes_per_s": 12000.0,
+      "description": "4G \u2014 position, heading, mode, power, coverage, alarms",
+      "policies": {
+        "alarms": {
+          "detail": "full",
+          "max_rate_hz": 1.0
+        },
+        "coverage": {
+          "detail": "reduced",
+          "max_rate_hz": 0.2
+        },
+        "diagnostics": {
+          "detail": "reduced",
+          "max_rate_hz": 0.1
+        },
+        "heading": {
+          "detail": "full",
+          "max_rate_hz": 1.0
+        },
+        "link": {
+          "detail": "full",
+          "max_rate_hz": 0.5
+        },
+        "mission": {
+          "detail": "reduced",
+          "max_rate_hz": 0.5
+        },
+        "pico": {
+          "detail": "full",
+          "max_rate_hz": 1.0
+        },
+        "plan": {
+          "detail": "reduced",
+          "max_rate_hz": 0.0
+        },
+        "power": {
+          "detail": "full",
+          "max_rate_hz": 0.5
+        },
+        "sonar": {
+          "detail": "reduced",
+          "max_rate_hz": 0.5
+        },
+        "track": {
+          "detail": "reduced",
+          "max_rate_hz": 0.2
+        },
+        "vessel": {
+          "detail": "full",
+          "max_rate_hz": 2.0
+        }
+      }
+    }
+  },
+  "streams": {
+    "alarms": {
+      "critical": true,
+      "default_rate_hz": 1.0,
+      "description": "Active alarms",
+      "max_rate_hz": 2.0,
+      "on_change_only": false,
+      "typical_bytes": 180
+    },
+    "coverage": {
+      "critical": false,
+      "default_rate_hz": 1.0,
+      "description": "Swath ribbon painted so far",
+      "max_rate_hz": 4.0,
+      "on_change_only": false,
+      "typical_bytes": 250
+    },
+    "diagnostics": {
+      "critical": false,
+      "default_rate_hz": 0.2,
+      "description": "Built-in test results and node health",
+      "max_rate_hz": 1.0,
+      "on_change_only": false,
+      "typical_bytes": 1500
+    },
+    "heading": {
+      "critical": false,
+      "default_rate_hz": 2.0,
+      "description": "Heading provenance, validity, divergence from COG",
+      "max_rate_hz": 5.0,
+      "on_change_only": false,
+      "typical_bytes": 200
+    },
+    "lidar": {
+      "critical": false,
+      "default_rate_hz": 5.0,
+      "description": "Obstacle returns, top-down",
+      "max_rate_hz": 10.0,
+      "on_change_only": false,
+      "typical_bytes": 12000
+    },
+    "link": {
+      "critical": true,
+      "default_rate_hz": 1.0,
+      "description": "Shore link quality, latency, profile",
+      "max_rate_hz": 2.0,
+      "on_change_only": false,
+      "typical_bytes": 180
+    },
+    "mission": {
+      "critical": false,
+      "default_rate_hz": 1.0,
+      "description": "Recording state, elapsed time, disk",
+      "max_rate_hz": 2.0,
+      "on_change_only": false,
+      "typical_bytes": 220
+    },
+    "pico": {
+      "critical": true,
+      "default_rate_hz": 2.0,
+      "description": "Confirmed mode, arming, relays, ESCs, RC link",
+      "max_rate_hz": 10.0,
+      "on_change_only": false,
+      "typical_bytes": 220
+    },
+    "plan": {
+      "critical": false,
+      "default_rate_hz": 0.0,
+      "description": "Survey lines, waypoints, geofence",
+      "max_rate_hz": 1.0,
+      "on_change_only": true,
+      "typical_bytes": 2000
+    },
+    "power": {
+      "critical": true,
+      "default_rate_hz": 1.0,
+      "description": "Battery voltage, current, state of charge, endurance",
+      "max_rate_hz": 2.0,
+      "on_change_only": false,
+      "typical_bytes": 200
+    },
+    "sonar": {
+      "critical": false,
+      "default_rate_hz": 1.0,
+      "description": "Sonar health: ping rate, points, packet loss, clock offset",
+      "max_rate_hz": 2.0,
+      "on_change_only": false,
+      "typical_bytes": 280
+    },
+    "track": {
+      "critical": false,
+      "default_rate_hz": 1.0,
+      "description": "Vessel track history",
+      "max_rate_hz": 4.0,
+      "on_change_only": false,
+      "typical_bytes": 150
+    },
+    "vessel": {
+      "critical": true,
+      "default_rate_hz": 5.0,
+      "description": "Position, heading, course, attitude, GNSS quality",
+      "max_rate_hz": 10.0,
+      "on_change_only": false,
+      "typical_bytes": 320
+    }
+  }
+}

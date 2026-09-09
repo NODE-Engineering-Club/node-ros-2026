@@ -1,0 +1,6 @@
+float32 range_m
+uint8   gain
+float32 ping_rate_hz
+---
+bool   success
+string message

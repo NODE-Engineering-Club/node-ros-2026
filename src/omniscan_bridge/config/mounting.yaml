@@ -1,0 +1,41 @@
+# Sonar mounting geometry — where the transducer is, and which way it looks.
+#
+# PROVISIONAL (Q2). Every number below is a guess. They must be MEASURED on the
+# assembled vessel, to the centimetre, and the lever arm measured from the GNSS
+# antenna phase centre — not from the mast, not from the hull centreline.
+#
+# This is a systematic offset. It does not average out, it does not show up as
+# noise, and no amount of post-processing will discover it: the whole survey is
+# simply displaced, consistently, and looks perfectly plausible.
+#
+# When the numbers have been measured, fill them in, set `measured: true`, and
+# put your name and the date in. The pre-flight check reads this file — the
+# same file the bridge loads — and returns WARN until that line is true, so
+# nobody deploys on defaults by accident.
+
+# The one line that matters.
+measured: false
+measured_by: ""
+measured_utc: ""
+notes: "Transcribed from the architecture brief. Nothing here has been measured."
+
+# --- orientation ---------------------------------------------------------
+# Downward tilt of the fan's centre from vertical, degrees. Positive tilts
+# towards starboard, matching a starboard-looking install.
+tilt_deg: 35.0
+# Rotation about the vertical axis if the head is not square to the hull,
+# degrees, clockwise seen from above.
+yaw_deg: 0.0
+# Nose-up pitch of the head, degrees.
+pitch_deg: 0.0
+
+# --- lever arm -----------------------------------------------------------
+# From the GNSS antenna to the transducer, in vessel frame (REP-103:
+# x forward, y port, z up), metres.
+lever_x_m: -0.20     # 20 cm aft of the antenna
+lever_y_m: -0.35     # 35 cm to starboard
+lever_z_m: -0.15     # 15 cm below
+
+# Which side the fan looks at. Used for the coverage overlay and for sanity
+# checks; the sign of tilt_deg is what actually steers the geometry.
+side: "starboard"

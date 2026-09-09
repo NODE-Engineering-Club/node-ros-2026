@@ -27,3 +27,13 @@ frames_*.pdf
 # Generated reports and stray launch logs
 reports/
 *.log
+
+# --- Added by the GUI overlay (asket_gui / gui_backend) ---
+*.py[cod]
+.pytest_cache/
+node_modules/
+src/asket_gui/dist/
+src/gui_backend/gui_backend/static/
+/data/
+*.mbtiles
+*.bin.gz

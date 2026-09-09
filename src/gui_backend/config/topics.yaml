@@ -1,0 +1,77 @@
+# Where the backend finds real data.
+#
+# Nothing in gui_backend hard-codes a topic name or a message type. They live
+# here because the existing pico_bridge message is not known to this repository
+# and pico_bridge must not be modified (docs/open_questions.md Q7). Pointing the
+# backend at the real message is a change to this file plus, at most, one
+# adapter function in core/adapters.py.
+#
+# `adapter` names a function in gui_backend.core.adapters.
+
+sources:
+  gnss_fix:
+    topic: /mavros/global_position/global
+    type: sensor_msgs/msg/NavSatFix
+  compass_heading:
+    topic: /mavros/global_position/compass_hdg
+    type: std_msgs/msg/Float64
+  gps_velocity:
+    topic: /mavros/global_position/raw/gps_vel
+    type: geometry_msgs/msg/TwistStamped
+  imu:
+    topic: /mavros/imu/data
+    type: sensor_msgs/msg/Imu
+  gps_raw:
+    topic: /mavros/gpsstatus/gps1/raw
+    type: mavros_msgs/msg/GPSRAW
+    optional: true          # satellite count and HDOP; the GUI degrades without it
+  battery:
+    topic: /mavros/battery
+    type: sensor_msgs/msg/BatteryState
+    adapter: battery_from_ros
+  lidar_scan:
+    topic: /scan
+    type: sensor_msgs/msg/LaserScan
+    adapter: lidar_from_ros
+  pico_status:
+    # PROVISIONAL (Q7): asket_sim publishes this. Reconcile with pico_bridge.
+    topic: /pico/status
+    type: asket_interfaces/msg/PicoStatus
+    adapter: pico_from_ros
+  sonar_status:
+    topic: /sonar/status
+    type: asket_interfaces/msg/SonarStatus
+    adapter: sonar_from_ros
+  mission_state:
+    topic: /mission/state
+    type: asket_interfaces/msg/MissionState
+    optional: true
+  diagnostics:
+    topic: /diagnostics
+    type: diagnostic_msgs/msg/DiagnosticArray
+
+# Where commands go. Mode requests reach the Pico through pico_bridge; this
+# repository does not modify that package, so the interface is named here.
+commands:
+  mode_request:
+    # PROVISIONAL (Q7): asket_sim listens here.
+    topic: /pico/mode_request
+    type: std_msgs/msg/String
+  set_ping_parameters:
+    service: /omniscan_bridge/set_ping_parameters
+    type: asket_interfaces/srv/SetPingParameters
+  start_mission:
+    service: /mission_recorder/start_mission
+    type: asket_interfaces/srv/StartMission
+  stop_mission:
+    service: /mission_recorder/stop_mission
+    type: asket_interfaces/srv/StopMission
+  run_system_test:
+    service: /system_test/run
+    type: asket_interfaces/srv/RunSystemTest
+
+# Battery capacity, needed to turn a percentage into an endurance estimate.
+# PROVISIONAL (Q5).
+vessel:
+  battery_capacity_wh: 1200.0
+  hotel_load_w: 85.0

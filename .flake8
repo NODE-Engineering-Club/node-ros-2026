@@ -1,0 +1,16 @@
+[flake8]
+max-line-length = 100
+
+# E203: whitespace before ':'. flake8 flags `data[offset : offset + n]`, which
+# PEP 8 explicitly recommends — a slice colon binds loosest, so it gets the
+# widest spacing when either side is an expression. The rule is wrong here; the
+# spacing stays.
+extend-ignore = E203
+
+exclude =
+    .git,
+    __pycache__,
+    node_modules,
+    build,
+    install,
+    log

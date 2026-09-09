@@ -1,0 +1,6 @@
+string[] only             # empty = all passive checks
+bool     include_active   # active tests need consent below
+string   consent_token    # required for active tests, see system_test/README.md
+---
+bool     accepted
+string   message

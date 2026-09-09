@@ -1,0 +1,92 @@
+// Synthetic offline tiles, drawn in the browser.
+//
+// The requirement is that the map works with no internet. In the field that is
+// met by a pre-downloaded .mbtiles file on the Jetson; in mock mode there is no
+// Jetson and no file, so tiles are generated on demand through a MapLibre
+// custom protocol. Nothing is fetched and nothing is bundled.
+//
+// These are obviously not a chart — they are a grid with coordinates and a
+// water-coloured ground. That is deliberate: the point is to review the *tiled*
+// rendering path (that layers sit correctly over a raster basemap) without
+// anybody mistaking the result for real bathymetry.
+
+const TILE_SIZE = 256;
+
+/**
+ * Tile indices and per-tile coordinates, repeated across every tile, are debug
+ * output: they are unreadable as a chart and they are the loudest thing on a
+ * map whose whole job is showing coverage. Off by default.
+ *
+ * Turn them on from the console when debugging the tiling path itself:
+ *
+ *     window.ASKET_TILE_LABELS = true   // then pan to force a redraw
+ *
+ * The "not a chart" warning does not live here. It is said once, as a note on
+ * the map, rather than stamped on every 256 px square.
+ */
+function labelsOn() {
+  return typeof window !== 'undefined' && window.ASKET_TILE_LABELS === true;
+}
+
+/** Register `mocktiles://` with a MapLibre instance. */
+export function registerMockTileProtocol(maplibregl, protocol = 'mocktiles') {
+  if (maplibregl.__asketMockTilesRegistered) return;
+  maplibregl.__asketMockTilesRegistered = true;
+
+  maplibregl.addProtocol(protocol, async (params) => {
+    // mocktiles://{z}/{x}/{y}
+    const [z, x, y] = params.url
+      .replace(`${protocol}://`, '')
+      .split('/')
+      .map((part) => parseInt(part, 10));
+    const blob = await drawTile(z, x, y);
+    return { data: await blob.arrayBuffer() };
+  });
+}
+
+function drawTile(z, x, y) {
+  const canvas = document.createElement('canvas');
+  canvas.width = TILE_SIZE;
+  canvas.height = TILE_SIZE;
+  const ctx = canvas.getContext('2d');
+
+  // A pale sea-ish ground that shades slightly per tile, so panning is
+  // visibly moving. Light, because the overlays drawn on top of it — coverage,
+  // track, plan — are what has to be readable, not the basemap.
+  const shade = 236 + ((x * 7 + y * 13) % 8);
+  ctx.fillStyle = `rgb(${shade - 12}, ${shade - 4}, ${shade})`;
+  ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+
+  ctx.strokeStyle = 'rgba(70, 100, 130, 0.22)';
+  ctx.lineWidth = 1;
+  for (let i = 64; i < TILE_SIZE; i += 64) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, TILE_SIZE);
+    ctx.moveTo(0, i);
+    ctx.lineTo(TILE_SIZE, i);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(70, 100, 130, 0.45)';
+  ctx.strokeRect(0.5, 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+
+  if (labelsOn()) {
+    ctx.fillStyle = 'rgba(40, 65, 95, 0.85)';
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(`${z}/${x}/${y}`, 8, 18);
+    ctx.fillText(`${tileNorth(z, y).toFixed(4)}°`, 8, 34);
+    ctx.fillText(`${tileWest(z, x).toFixed(4)}°`, 8, 48);
+  }
+
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+}
+
+function tileWest(z, x) {
+  return (x / 2 ** z) * 360 - 180;
+}
+
+function tileNorth(z, y) {
+  const n = Math.PI - (2 * Math.PI * y) / 2 ** z;
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}

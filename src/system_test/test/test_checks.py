@@ -29,6 +29,9 @@ HEALTHY = dict(
     link_rtt_ms=25.0, link_active="wifi",
     expected_nodes=["omniscan_bridge"], present_nodes=["omniscan_bridge"],
     pico_state_format_verified=True, pico_state_parsed=True, pico_state_unknown_keys=[],
+    # A healthy vessel has the e-stop feedback trace connected. The build
+    # this repository ships against does not — see the tests below.
+    pico_estop_feedback_enabled=True,
     mounting=dict(
         path="/etc/asket/mounting.yaml", found=True, measured=True,
         measured_by="AD", measured_utc="2026-03-02", error="", unknown_fields=[],
@@ -334,3 +337,34 @@ def test_no_pico_status_at_all_is_unknown_not_a_pass():
     state = dict(HEALTHY)
     del state["pico_state_format_verified"]
     assert item(run_checks(state), "pico.state_format").status == SKIPPED
+
+
+# -- e-stop power feedback -------------------------------------------------
+
+
+def test_the_compiled_out_estop_feedback_warns_on_every_run():
+    """ESTOP_FEEDBACK_ENABLED is 0 in the firmware this ships against, so
+    nothing verifies the ESC rail actually collapsed when commanded.
+
+    That is a standing warning, not a one-off: an assumption nobody is reminded
+    of becomes a belief, which is the same reason the mounting check nags.
+    """
+    report = run_checks(dict(HEALTHY, pico_estop_feedback_enabled=False))
+    result = item(report, "pico.estop_feedback")
+    assert result.status == WARN
+    assert "nothing verifies" in result.message.lower()
+    # A warning, never a blocker: the vessel is still safe to run, it just has
+    # one fewer confirmation than the panel might suggest.
+    assert report.go
+
+
+def test_enabled_estop_feedback_passes():
+    report = run_checks(dict(HEALTHY, pico_estop_feedback_enabled=True))
+    assert item(report, "pico.estop_feedback").status == PASS
+
+
+def test_an_unreported_estop_feedback_flag_is_skipped_not_assumed():
+    state = dict(HEALTHY)
+    del state["pico_estop_feedback_enabled"]
+    result = item(run_checks(state), "pico.estop_feedback")
+    assert result.status == SKIPPED

@@ -2,7 +2,7 @@ import { Panel, Row, Rows, Chip } from '../components/Panel.jsx';
 import { PanelAge, Value } from '../components/Value.jsx';
 import { streamAgeMs, streamPayload } from '../lib/connection.js';
 import { coordinate, int, num } from '../lib/format.js';
-import { hullSummary } from '../lib/hull.js';
+import { armingWindow, hullSummary } from '../lib/hull.js';
 import { MODE_LABELS } from '../lib/labels.js';
 
 /**
@@ -27,22 +27,31 @@ export function VesselState({ state }) {
   const picoRate = state.subscriptions.pico?.rate_hz;
 
   const mode = pico?.mode ?? 'UNKNOWN';
+  const rcMode = pico?.rc_mode ?? null;
   const hull = hullSummary(pico);
+
+  // The firmware sitting below what Ch8 selects means a software request is
+  // holding the vessel down. That is not a fault, and an operator who cannot
+  // see the difference will hunt for one.
+  const clamped = pico?.software_clamp_active === true;
+  const arming = armingWindow(pico, pico?.relay_closed_ms_ago);
 
   // Anything in the folded half that is off-nominal pulls the whole half open.
   // The RC link and the killswitch are the sovereign path: they are folded away
   // only while they are healthy.
   const forced = pico?.estop_latched
-    ? 'propulsion is cut'
+    ? 'propulsion is cut and latched'
     : pico?.hardware_killswitch_engaged
       ? 'the hardware killswitch is engaged'
       : pico?.rc_link_ok === false
         ? 'the RC link is lost'
-        : hull.alert
-          ? hull.alert
-          : vessel?.num_sats !== undefined && vessel.num_sats < 6
-            ? `only ${vessel.num_sats} satellites`
-            : '';
+        : clamped
+          ? 'a software request is holding the vessel below the transmitter'
+          : hull.alert
+            ? hull.alert
+            : vessel?.num_sats !== undefined && vessel.num_sats < 6
+              ? `only ${vessel.num_sats} satellites`
+              : '';
 
   return (
     <Panel
@@ -58,6 +67,23 @@ export function VesselState({ state }) {
             <Value ageMs={picoAge} rateHz={picoRate}>
               <span className={`mode-badge mode-${mode}`}>{MODE_LABELS[mode] || mode}</span>
             </Value>
+            {/* What the transmitter is selecting, shown only when it differs
+                from what the vessel is actually in. Showing it always would be
+                two mode readouts side by side agreeing, which teaches the crew
+                to stop reading either. */}
+            {rcMode && rcMode !== mode && (
+              <Chip
+                level="warn"
+                title={
+                  'The transmitter (channel 8) selects ' +
+                  (MODE_LABELS[rcMode] || rcMode) +
+                  '. The vessel is more restrictive than that because software ' +
+                  'is requesting it. Software can only ever restrict, never extend.'
+                }
+              >
+                Ch8 wants {MODE_LABELS[rcMode] || rcMode}
+              </Chip>
+            )}
             <div className="spacer" />
             <Chip level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}>
               {pico?.armed === undefined ? 'Arming not sent' : pico.armed ? 'Armed' : 'Disarmed'}
@@ -112,8 +138,35 @@ export function VesselState({ state }) {
         >
           Ch8 {int(pico?.rc_channel8_raw_pct, '%')}
         </Chip>
-        {pico?.estop_latched && <Chip level="alarm">Propulsion cut</Chip>}
+        {/* The latch is the one an operator most needs told about. A latched
+            vessel that will not re-arm looks broken, and somebody who does not
+            know it is latched will go looking for a loose wire. Say what clears
+            it, on the chip itself. */}
+        {pico?.estop_latched && (
+          <Chip
+            level="alarm"
+            title="Latched. Re-arming is blocked until the operator cycles the arm switch (Ch7) or selects ESTOP on channel 8. This is deliberate: the latch is cleared by a physical act, never by software."
+          >
+            Propulsion cut — latched
+          </Chip>
+        )}
         {pico?.hardware_killswitch_engaged && <Chip level="alarm">Killswitch engaged</Chip>}
+        {clamped && (
+          <Chip
+            level="warn"
+            title="A software mode request is holding the vessel more restrictive than channel 8 alone would. Stop refreshing the request and it expires, handing authority back to the transmitter."
+          >
+            Software clamp
+          </Chip>
+        )}
+        {arming && (
+          <Chip
+            level="warn"
+            title="The relay has just closed. The firmware holds both thrusters at neutral for 2 s so the ESCs can boot. The vessel is not unresponsive; it is arming."
+          >
+            {arming.text}
+          </Chip>
+        )}
       </div>
 
       {/* A fault is never hidden behind a disclosure triangle. Anything
@@ -177,6 +230,16 @@ function rcLevel(ok) {
 function rcTitle(ok) {
   if (ok === undefined || ok === null) {
     return 'RC link state is not carried on the current link profile. This says nothing about the RC link itself.';
+  }
+  if (ok === false) {
+    // The two link losses are different events with different consequences, and
+    // an operator told only "link lost" cannot tell which one just happened.
+    return (
+      'RC link lost. Outside AUTONOMOUS this latches an e-stop after 500 ms: ' +
+      'ESC power is cut and re-arming is blocked until the arm switch is cycled. ' +
+      'This is not the same as losing the shore link to this GUI, which holds ' +
+      'the thrusters at neutral without cutting power.'
+    );
   }
   return 'RC channel 8 cuts propulsion in hardware. Nothing in this GUI can move it.';
 }

@@ -148,14 +148,15 @@ def _state_format(state: dict, t: Thresholds) -> CheckResult:
     """Is the GUI reading the Pico's status, or guessing at it?
 
     ``/pico/status`` is a ``std_msgs/String``: ``pico_bridge`` republishes raw
-    firmware ``STATE`` lines verbatim, without parsing them. The GUI parses that
-    text, and the format it parses is transcribed from nobody — no real line has
-    been captured (docs/open_questions.md Q7).
+    firmware ``[STAT]`` lines verbatim, without parsing them. The GUI parses that
+    text.
 
-    That makes every field in the vessel panel provisional in a way an operator
-    cannot see, because a parser reading the wrong format does not look broken:
-    it looks like a vessel that is not reporting much. So the pre-flight says so
-    on every run until somebody confirms the format.
+    The format is now transcribed from firmware v3 rather than guessed, so this
+    no longer warns on every run. It still checks, every run, that the lines
+    *actually arriving* parse — which is the part that matters. A flag set once
+    is a promise about the past; a firmware change that alters the format would
+    otherwise produce a panel full of nulls that looks like a quiet vessel
+    rather than a broken parser.
     """
     reported = state.get("pico_state_format_verified")
     if reported is None:
@@ -165,7 +166,7 @@ def _state_format(state: dict, t: Thresholds) -> CheckResult:
     if not reported:
         return CheckResult(
             "pico.state_format", "Pico status format", WARN,
-            "Unverified: the STATE line format has never been checked against "
+            "Unverified: the status line format has never been checked against "
             "real firmware output",
             "Run `ros2 topic echo /pico/status --field data` on the Jetson, "
             "confirm the fields against gui_backend/core/pico_state.py, and set "
@@ -179,21 +180,59 @@ def _state_format(state: dict, t: Thresholds) -> CheckResult:
             "pico.state_format", "Pico status format", FAIL,
             f"The Pico is sending something this GUI cannot read: {line!r}",
             "The firmware format has changed, or the parser is wrong. Nothing "
-            "in the vessel panel can be trusted until it is fixed.",
+            "in the vessel panel can be trusted until it is fixed. Check the "
+            "line prefix first: the firmware writes '[STAT]', and a bridge "
+            "looking for anything else publishes nothing at all.",
         )
 
     unknown = state.get("pico_state_unknown_keys") or []
     if unknown:
         return CheckResult(
             "pico.state_format", "Pico status format", WARN,
-            f"Unrecognised fields in the STATE line: {', '.join(unknown[:4])}",
+            f"Unrecognised fields in the status line: {', '.join(unknown[:4])}",
             "The firmware is reporting something this GUI ignores. Add it to "
             "gui_backend/core/pico_state.py if it matters.",
         )
 
     return CheckResult(
         "pico.state_format", "Pico status format", PASS,
-        "Verified against real firmware output", "",
+        "Format matches firmware v3, and the lines arriving parse", "",
+    )
+
+
+@check("pico.estop_feedback", "E-stop power feedback")
+def _estop_feedback(state: dict, t: Thresholds) -> CheckResult:
+    """Does anything actually verify that ESC power dropped when commanded?
+
+    No. ``ESTOP_FEEDBACK_ENABLED`` is 0 in firmware v3 — the GPIO20 divider
+    trace was cut for bench testing — so ``check_power_feedback()`` compiles to
+    nothing and the firmware never confirms the relay did what it was told.
+
+    Commanding the relay open and *observing* the rail collapse are two
+    different claims, and only the first is happening. A green vessel panel is
+    not evidence the second one would. This warns on every run until the
+    feedback is enabled, for the same reason the mounting-geometry check does:
+    an assumption nobody is reminded of becomes a belief.
+    """
+    enabled = state.get("pico_estop_feedback_enabled")
+    if enabled is None:
+        return _missing("pico.estop_feedback", "E-stop power feedback",
+                        "not reported by this build")
+
+    if not enabled:
+        return CheckResult(
+            "pico.estop_feedback", "E-stop power feedback", WARN,
+            "Compiled out: nothing verifies that ESC power actually dropped "
+            "when the relay was commanded open",
+            "The GPIO20 divider trace is cut for bench testing. Set "
+            "ESTOP_FEEDBACK_ENABLED to 1 in the firmware once the hardware is "
+            "ready. Until then the hardware killswitch and RC channel 8 are the "
+            "only propulsion cuts with any confirmation behind them.",
+        )
+
+    return CheckResult(
+        "pico.estop_feedback", "E-stop power feedback", PASS,
+        "Enabled: the firmware confirms the rail collapsed", "",
     )
 
 

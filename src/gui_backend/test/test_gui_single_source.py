@@ -129,13 +129,38 @@ def test_relay_and_esc_bytes_are_decoded_into_words():
     assert data["disarmed"]["alert"] is None
 
 
-def test_no_relay_is_given_a_name_nobody_has_confirmed():
-    """Which load each relay drives lives in pico_bridge, which this repository
-    must not modify (Q7). Inventing 'Bilge pump' would be a caption an operator
-    would act on."""
+def test_a_relay_is_named_only_where_the_firmware_confirms_it():
+    """The one relay firmware v3 has is named, because its function is read out
+    of the firmware source: GPIO21 cuts ESC power.
+
+    The rule has not loosened, it has been satisfied for this one relay. What is
+    still forbidden is a caption an operator would act on that nobody confirmed —
+    so any *further* relay must arrive with a source, and unnamed ones still fall
+    back to a bare index rather than to a guess.
+    """
     text = source("lib", "hull.js")
-    assert "export const RELAY_LABELS = {};" in text
-    assert "PROVISIONAL (Q7)" in text
+    assert "export const RELAY_LABELS = { 0: 'ESC power' };" in text
+    assert "GPIO21" in text
+    # The fallback for anything not confirmed stays a bare index.
+    assert "`Relay ${index + 1}`" in text
+
+
+def test_the_gui_does_not_claim_four_relays():
+    """`0/4 relays closed` came from the simulator's placeholder, not hardware.
+
+    Both ends are checked, because correcting one and not the other is how the
+    number survived this long.
+    """
+    sim = Path(__file__).resolve().parents[2] / "asket_sim" / "asket_sim" / "core" / "pico.py"
+    assert "num_relays: int = 1" in sim.read_text()
+    assert "relay_states: [world.armed]," in source("lib", "mock", "payloads.js")
+
+
+def test_esc_codes_are_still_not_interpreted():
+    """The firmware reports no ESC code over serial at all. A non-zero code from
+    the simulator is reported, never captioned."""
+    text = source("lib", "hull.js")
+    assert "export const ESC_STATUS_LABELS = { 0: 'running' };" in text
 
 
 # -- collapsing detail ----------------------------------------------------

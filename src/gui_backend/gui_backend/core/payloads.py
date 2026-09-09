@@ -133,6 +133,14 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
         {
             "rc_link_ok": bool(sample.rc_link_ok),
             "rc_channel8_raw_pct": int(sample.rc_channel8_raw_pct),
+            # What the transmitter is *selecting*, as against `mode`, which is
+            # what the firmware settled on. The two differ whenever a software
+            # request is clamping the vessel below the switch, and an operator
+            # who cannot see both has no way to tell a clamp from a fault.
+            # Carried at REDUCED because that distinction matters most exactly
+            # when the link is poor and buttons seem not to work.
+            "rc_mode": getattr(sample, "rc_mode", None),
+            "software_clamp_active": getattr(sample, "software_clamp_active", None),
         }
     )
     if detail == DETAIL_REDUCED:
@@ -147,6 +155,20 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
             "hardware_killswitch_engaged": bool(
                 getattr(sample, "hardware_killswitch_engaged", False)
             ),
+            "rc_arm_high": getattr(sample, "rc_arm_high", None),
+            "rc_channels": getattr(sample, "rc_channels", None),
+            # Milliseconds since the ESC-power relay closed, or None. Below
+            # ESC_ARM_DELAY_MS the firmware holds both thrusters at neutral
+            # whatever is commanded, and a GUI that does not say so looks
+            # unresponsive for two seconds every time the vessel arms.
+            #
+            # There is deliberately no countdown to the software request's
+            # expiry here. The bridge refreshes a held request, so it never
+            # counts down while the GUI is alive; the only case where it does
+            # expire is the one where the GUI is gone and could not have shown
+            # it. The firmware announces it instead, as `[ACK] REQUEST expired`
+            # on the event stream.
+            "relay_closed_ms_ago": getattr(sample, "relay_closed_ms_ago", None),
         }
     )
     return out

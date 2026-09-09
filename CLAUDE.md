@@ -18,9 +18,11 @@ holds two bodies of work in one colcon workspace:
   this file is about that half.
 
 The GUI half was developed as a separate overlay and merged in with its history
-intact. It is **additive**: it does not modify any competition package. The one
-exception is a single `enable_gui` flag in `bringup/launch/njord.launch.py`,
-which defaults to `false` — see "Boundaries".
+intact. It is **additive** apart from two files in the competition stack: a
+single `enable_gui` flag in `bringup/launch/njord.launch.py`, defaulting to
+`false`, and a fix to `control/control/pico_bridge.py` which was filtering serial
+lines for a prefix the firmware does not write. Both are described under
+"Boundaries" and in `INTEGRATION_STATUS.md` §3.
 
 ## What it is *not*
 
@@ -90,19 +92,36 @@ are compared across languages by running the JavaScript under Node.
 - Do **not** modify `pico_bridge`, `boat_bt`, or any other competition package.
   If a change there looks necessary, raise it — do not make it. The GUI's
   presence in this workspace must not cost the navigation team anything.
+  - **One exception exists, on the `gui-integration` branch.** `pico_bridge` was
+    filtering serial lines for `STATE` while the firmware writes `[STAT]`, so
+    `/pico/status` published nothing at all. It was fixed on Auxence's explicit
+    instruction, and the change is described in `INTEGRATION_STATUS.md` §3 and
+    §2a. It is pending navigation-team review. The rule above still stands for
+    everything else, this file included: raise it, do not make it.
 - The only edit the GUI makes outside its own packages is the `enable_gui`
   launch flag in `bringup/launch/njord.launch.py`, **defaulting to false**.
   Somebody working on navigation is never made to start a web server.
 - `gui_backend` must never block or starve `pico_bridge`. That node owns the
-  serial link and runs a 20 Hz heartbeat; 600 ms of silence and the Pico drops
-  to MANUAL on its own. They stay separate processes.
+  serial link and runs a 20 Hz heartbeat. They stay separate processes.
+  The firmware failsafes are **500 ms**, not 600, and the two are different
+  events: SBUS lost outside AUTONOMOUS latches an e-stop and cuts ESC power;
+  serial lost inside AUTONOMOUS holds the thrusters at neutral without cutting
+  power or latching. A stalled GUI does not stop the boat; a lost transmitter
+  does.
 - Topic and message names for competition nodes are not hard-coded anywhere.
   `src/gui_backend/config/topics.yaml` maps a logical stream name to a topic,
   type and adapter — Q7, now answered against the real interface.
-- `/pico/status` is a `std_msgs/String` of raw firmware `STATE` lines. The
-  parser is isolated in `gui_backend/core/pico_state.py` and is `PROVISIONAL`:
-  nobody here has seen a real line. Do not treat a green Pico panel as evidence
-  the format is right.
+- `/pico/status` is a `std_msgs/String` of raw firmware `[STAT]` lines. The
+  parser is isolated in `gui_backend/core/pico_state.py` and the format is now
+  transcribed from `pico-node_v3.ino` rather than guessed. Watch the trap:
+  `Mode:` and `Mode(Ch8):` are different fields carrying different units, and
+  splitting the line on `:` conflates them.
+- Anything mirrored from the firmware — the arbitration table, the SBUS
+  thresholds, the timeouts, `ESTOP_FEEDBACK_ENABLED` — is checked against the
+  sketch by `asket_common/test/test_firmware_arbitration_matches.py`, which
+  compiles the firmware's own `arbitrate_mode()` with `g++` and compares all 24
+  cases. Two ends of this wire have now disagreed about a format twice. Add to
+  that test rather than adding an unchecked constant.
 
 ## Conventions
 

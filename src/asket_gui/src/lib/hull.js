@@ -1,5 +1,5 @@
 /**
- * Decoding the Pico's relay and ESC bytes into something a club member can read
+ * Decoding the Pico's relay and ESC state into something a club member can read
  * at 06:00 on a beach.
  *
  * `Relays · · · ·` and `ESCs e1 e1` were the raw wire values. They are precise
@@ -7,39 +7,59 @@
  * whether `e1` is normal or catastrophic, which makes them worse than useless
  * on site.
  *
- * What is known and what is not
- * -----------------------------
+ * There is one relay, and it is named
+ * -----------------------------------
  *
- * The **states** are known: a relay is closed or open, an ESC reports zero or
- * a non-zero code. Those are decoded below.
+ * The panel used to read `0/4 relays closed`. There is no fourth relay and there
+ * never was: the `4` came from `num_relays` in the *simulator's* placeholder
+ * config, and the GUI rendered whatever length of array arrived. Firmware v3 has
+ * exactly one, `ESTOP_RELAY_PIN` on GPIO21, and it cuts ESC power.
  *
- * **Which load each relay drives is not**, and neither is what each non-zero
- * ESC code means — both are hull-specific and live in `pico_bridge`, which this
- * repository must not modify (docs/open_questions.md Q7). So nothing here
- * invents a name. `RELAY_LABELS` is empty on purpose: fill it in once somebody
- * reads the wiring, and the panel starts saying "Bilge pump" instead of
- * "Relay 3" with no other change.
+ * That relay is now named, because unlike the hull wiring its function is
+ * confirmed in the firmware source. `RELAY_LABELS` is still the place to add
+ * more if the hardware ever grows them.
+ *
+ * Two thrusters, on GPIO15 and GPIO16, bidirectional 1000/1500/2000 µs.
+ *
+ * What is still not known
+ * -----------------------
+ *
+ * ESC status codes beyond 0. The firmware does not report an ESC code at all
+ * over serial — `esc_status` arrives only from `asket_sim`. Nothing here invents
+ * a meaning for a non-zero code.
  */
 
-//: PROVISIONAL (Q7): empty until the hull wiring is confirmed. Index -> name.
-//: e.g. { 0: 'Main power', 1: 'Thrusters' }
-export const RELAY_LABELS = {};
+//: GPIO21. Confirmed in pico-node_v3.ino: HIGH = ESC power on, LOW = power cut.
+export const RELAY_LABELS = { 0: 'ESC power' };
 
-//: PROVISIONAL (Q7): ESC status codes beyond 0 are hull-specific. 0 is the
-//: only value this repository can claim to know the meaning of.
+//: What the single relay does, for the operator who has to decide whether an
+//: open relay is a problem right now.
+export const RELAY_DESCRIPTIONS = {
+  0: 'Cuts power to both ESCs. Open while disarmed, which is correct.',
+};
+
+//: ESC status codes beyond 0 are hull-specific. 0 is the only value this
+//: repository can claim to know the meaning of.
 export const ESC_STATUS_LABELS = { 0: 'running' };
+
+//: The ESC arming window: the relay closes, then the firmware holds both
+//: thrusters at neutral for this long before any setpoint is applied.
+//: `ESC_ARM_DELAY_MS` in the firmware. Shown so the GUI does not look
+//: unresponsive for two seconds after arming.
+export const ESC_ARM_DELAY_MS = 2000;
 
 export function relayName(index) {
   return RELAY_LABELS[index] || `Relay ${index + 1}`;
 }
 
-/** `{ name, closed, text }` per relay. */
+/** `{ name, closed, text, description }` per relay. */
 export function decodeRelays(states) {
   return (states || []).map((closed, i) => ({
     index: i,
     name: relayName(i),
     closed: Boolean(closed),
     text: closed ? 'closed' : 'open',
+    description: RELAY_DESCRIPTIONS[i] || '',
   }));
 }
 
@@ -65,6 +85,22 @@ export function decodeEscs(codes) {
 }
 
 /**
+ * Whether the vessel is inside the ESC arming window.
+ *
+ * During it the thrusters are held at neutral no matter what is commanded. An
+ * operator who does not know that reads two seconds of no response as a fault.
+ */
+export function armingWindow(pico, sinceRelayClosedMs) {
+  if (pico?.armed !== true) return null;
+  if (sinceRelayClosedMs === null || sinceRelayClosedMs === undefined) return null;
+  if (sinceRelayClosedMs >= ESC_ARM_DELAY_MS) return null;
+  return {
+    remainingMs: Math.max(0, ESC_ARM_DELAY_MS - sinceRelayClosedMs),
+    text: 'ESCs arming — thrusters held at neutral',
+  };
+}
+
+/**
  * One line for the collapsed summary, and whether anything needs promoting out
  * of it.
  *
@@ -80,12 +116,22 @@ export function hullSummary(pico) {
   const notRunning = escs.filter((e) => !e.ok);
   const armed = pico?.armed === true;
 
+  // Singular when there is one, because "1/1 relays closed" reads as a count of
+  // something that ought to have more members.
+  const relayText = relays.length === 1
+    ? `${relays[0].name} ${relays[0].text}`
+    : `${closed}/${relays.length} relays closed`;
+
+  const parts = [];
+  if (relays.length) parts.push(relayText);
+  if (escs.length) {
+    parts.push(`${escs.length - notRunning.length}/${escs.length} thrusters running`);
+  }
+
   return {
     relays,
     escs,
-    summary: relays.length
-      ? `${closed}/${relays.length} relays closed, ${escs.length - notRunning.length}/${escs.length} thrusters running`
-      : '',
+    summary: parts.join(', '),
     alert: armed && notRunning.length > 0
       ? `${notRunning.length} of ${escs.length} thrusters not running while armed`
       : null,

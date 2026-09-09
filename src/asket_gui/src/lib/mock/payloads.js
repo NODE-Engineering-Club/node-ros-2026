@@ -97,13 +97,28 @@ export function picoPayload(world, detail) {
   Object.assign(out, {
     rc_link_ok: world.rcLinkOk,
     rc_channel8_raw_pct: world.rcChannel8,
+    // What Ch8 is selecting, as against `mode`, which is what the firmware
+    // settled on. The mock has no software clamp, so the two agree and
+    // software_clamp_active is false rather than null: the mock does know.
+    rc_mode: MODE_NAMES[world.mode] || 'UNKNOWN',
+    software_clamp_active: false,
   });
   if (detail === 'reduced') return out;
 
   Object.assign(out, {
-    relay_states: [world.armed, world.armed, world.armed, world.armed],
+    relay_states: [world.armed],   // one relay: ESC power, GPIO21
     esc_status: [world.armed ? 0 : 1, world.armed ? 0 : 1],
     hardware_killswitch_engaged: false,
+    rc_arm_high: world.armed,
+    // Raw SBUS counts. The mock does not model stick positions, so the two
+    // sticks sit at centre and the switches follow the world's own state.
+    rc_channels: {
+      throttle: 991,
+      yaw: 991,
+      arm: world.armed ? 1811 : 172,
+      mode: world.rcChannel8 < 25 ? 172 : 1811,
+    },
+    relay_closed_ms_ago: world.armed ? 60000 : null,   // long past the arm window
   });
   return out;
 }

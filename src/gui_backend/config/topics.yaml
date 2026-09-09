@@ -72,13 +72,27 @@ sources:
 
 # Where commands go. Mode requests reach the Pico through pico_bridge, which
 # this repository does not modify, so the interface is named here.
+  # Firmware acknowledgements: `[ACK] MODE MANUAL rejected rc_clamp`. Without
+  # this a refused command looks identical to a slow one — the button just
+  # times out saying nothing happened, which is true but not the reason.
+  pico_command_ack:
+    topic: /pico/command_ack
+    type: std_msgs/msg/String
+
 commands:
   mode_request:
     topic: /pico/mode_request
     type: std_msgs/msg/String
-    # pico_bridge accepts ONLY these two words. Anything else it logs as a
-    # warning and drops, so the GUI must never send anything else.
-    accepts: ["AUTO", "MANUAL"]
+    # pico_bridge accepts these words. ESTOP became real when the firmware
+    # gained `CMD MODE ESTOP`; RELEASE stops holding a request and lets it
+    # expire, which is how authority goes back to channel 8.
+    #
+    # AUTONOMOUS is listed but is refused by the firmware while
+    # SOFTWARE_UPWARD_REQUESTS_ALLOWED is 0 — the refusal comes back as
+    # `[ACK] MODE AUTONOMOUS rejected upward_disabled` and is shown to the
+    # operator. The GUI does not offer it as a button; see
+    # asket_common.mode_arbitration.requestable_modes().
+    accepts: ["AUTO", "AUTONOMOUS", "MANUAL", "ESTOP", "RELEASE"]
   set_ping_parameters:
     service: /omniscan_bridge/set_ping_parameters
     type: asket_interfaces/srv/SetPingParameters
@@ -107,15 +121,19 @@ commands:
 # ESTOP needs a firmware change and a pico_bridge change, and that decision is
 # not this repository's to make (see README, "Two things that are not settled").
 estop:
-  mode: mode_request_manual
-  # Shown on the button and in its confirmation prompt. If the firmware ever
-  # gains a real ESTOP, this is what changes alongside `mode`.
-  label: "Drop to MANUAL"
+  # The firmware now has a real software ESTOP: `CMD ESTOP` opens the ESC-power
+  # relay (GPIO21) and sets the latch, and it is accepted from any state,
+  # whatever channel 8 is doing. So the button no longer has to be labelled
+  # around a capability the vessel lacked.
+  mode: mode_request_estop
+  label: "Cut propulsion"
   effect: >-
-    Hands control back to the RC pilot. The Pico only drives the thrusters when
-    armed and in AUTONOMOUS, so this removes software authority — it does not
-    stop the boat. The hardware killswitch and RC channel 8 are the only things
-    that cut propulsion.
+    Opens the ESC power relay and latches. This does cut propulsion. It is a
+    software path and it is not the emergency stop: the hardware killswitch and
+    RC channel 8 remain the only cuts that do not depend on firmware, and
+    nothing verifies the rail actually collapsed while ESTOP_FEEDBACK_ENABLED is
+    0. Re-arming stays blocked until the operator cycles the arm switch or
+    selects ESTOP on channel 8.
 
 # Battery capacity, needed to turn a percentage into an endurance estimate.
 # PROVISIONAL (Q5).

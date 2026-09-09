@@ -82,3 +82,81 @@ def test_history_is_bounded():
     for i in range(200):
         mgr.issue("set_profile", {"n": i}, i)
     assert len(mgr.history) <= 50
+
+
+# -- refusals ---------------------------------------------------------------
+#
+# A command the firmware refuses must say why. Before the vessel had a real
+# arbitration path there was nothing to refuse a command *with*, so a clamped
+# request looked exactly like a slow one: the button sat there and then reported
+# that nothing had happened, which was true and useless.
+
+
+def _ack(mode, reason, utc_ms, accepted=False):
+    return {
+        "subject": f"MODE {mode}",
+        "mode": mode,
+        "accepted": accepted,
+        "reason": reason,
+        "raw": f"[ACK] MODE {mode} {'accepted' if accepted else 'rejected ' + reason}",
+        "utc_ms": utc_ms,
+    }
+
+
+def test_a_refused_mode_fails_immediately_with_the_reason():
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "AUTONOMOUS"}, 1000,
+                    confirm=mode_confirmed("AUTONOMOUS"))
+
+    changed = mgr.update({"pico_command_ack": _ack("AUTONOMOUS", "rc_clamp", 1100)}, 1200)
+
+    assert [c.id for c in changed] == [cmd.id]
+    assert cmd.status == STATUS_FAILED
+    assert "channel 8" in cmd.detail
+    # Not the generic timeout message: that one teaches nothing.
+    assert "no confirmation" not in cmd.detail
+
+
+def test_an_upward_refusal_says_which_constant_is_in_the_way():
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "AUTONOMOUS"}, 1000,
+                    confirm=mode_confirmed("AUTONOMOUS"))
+    mgr.update({"pico_command_ack": _ack("AUTONOMOUS", "upward_disabled", 1100)}, 1200)
+    assert cmd.status == STATUS_FAILED
+    assert "AUTONOMOUS" in cmd.detail
+
+
+def test_an_ack_from_before_the_command_does_not_fail_it():
+    """Otherwise the answer to the previous press fails the next one, before the
+    firmware has even seen it."""
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "MANUAL"}, 2000, confirm=mode_confirmed("MANUAL"))
+    mgr.update({"pico_command_ack": _ack("MANUAL", "rc_clamp", 1000)}, 2100)
+    assert cmd.status == STATUS_PENDING
+
+
+def test_a_refusal_of_a_different_mode_does_not_fail_this_one():
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "MANUAL"}, 1000, confirm=mode_confirmed("MANUAL"))
+    mgr.update({"pico_command_ack": _ack("AUTONOMOUS", "upward_disabled", 1100)}, 1200)
+    assert cmd.status == STATUS_PENDING
+
+
+def test_an_accepted_ack_is_not_a_confirmation():
+    """Safety rule 4. The firmware taking the request is not the vessel having
+    changed state — only the status stream settles that."""
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "MANUAL"}, 1000, confirm=mode_confirmed("MANUAL"))
+    mgr.update({"pico_command_ack": _ack("MANUAL", "", 1100, accepted=True)}, 1200)
+    assert cmd.status == STATUS_PENDING
+
+    mgr.update({"pico": {"mode": "MANUAL"}}, 1300)
+    assert cmd.status == STATUS_CONFIRMED
+
+
+def test_an_unknown_reason_code_is_quoted_rather_than_swallowed():
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "MANUAL"}, 1000, confirm=mode_confirmed("MANUAL"))
+    mgr.update({"pico_command_ack": _ack("MANUAL", "gremlins", 1100)}, 1200)
+    assert cmd.status == STATUS_FAILED
+    assert "gremlins" in cmd.detail

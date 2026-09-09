@@ -6,9 +6,25 @@ runnable alone:
     ros2 launch gui_backend gui.launch.py
 
 Independent on purpose. The GUI is a **separate process** from ``pico_bridge``
-and must stay one: that node owns the serial link and runs a 20 Hz heartbeat,
-and 600 ms of silence drops the Pico to MANUAL on its own. Nothing the GUI does
-— a slow client, a large export, a stalled WebSocket — may starve it.
+and must stay one: that node owns the serial link and runs a 20 Hz heartbeat.
+Nothing the GUI does — a slow client, a large export, a stalled WebSocket — may
+starve it.
+
+**The failsafe is 500 ms, and what it does depends on the mode.** Both timeouts
+in the firmware are ``500``; the 600 ms figure repeated in this repository was
+never right. The two cases are not the same event and must not be described as
+one:
+
+* **SBUS lost, outside AUTONOMOUS** — ``trigger_estop()``. The relay opens, ESC
+  power is cut, and the latch is set: re-arming is blocked until the operator
+  cycles the arm switch or selects ESTOP on channel 8.
+* **Serial lost, inside AUTONOMOUS** — both thrusters are held at neutral. Power
+  is *not* cut and nothing is latched; the vessel coasts and stays armed, and it
+  resumes the moment setpoints return.
+
+So a stalled GUI does not stop the boat, and a lost transmitter does. Anything
+that reports the two as the same "link lost" is telling the operator the wrong
+thing about what the vessel just did.
 """
 
 from ament_index_python.packages import get_package_share_directory

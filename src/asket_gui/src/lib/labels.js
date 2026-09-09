@@ -27,6 +27,10 @@ export const COMMAND_LABELS = {
 export const CONFIRM_PROMPTS = {
   set_mode_MANUAL: 'Hand control to the RC transmitter?',
   set_mode_AUTONOMOUS: 'Let the vessel drive itself?',
+  // Downward-only builds: the GUI cannot request AUTONOMOUS, so the button
+  // releases the clamp instead and the transmitter decides what happens next.
+  release_clamp:
+    'Release the software clamp? The vessel returns to whatever RC channel 8 selects, which may mean it starts driving itself.',
   cut_propulsion:
     'Cut propulsion? This is a software latch. The hardware killswitch and RC channel 8 are separate and always work.',
 };

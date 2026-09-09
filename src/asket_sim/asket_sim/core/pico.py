@@ -30,7 +30,11 @@ class PicoConfig:
     #: Probability a mode request is simply lost, so the GUI's timeout path is
     #: exercised rather than assumed.
     request_loss_probability: float = 0.0
-    num_relays: int = 4
+    #: One relay. `ESTOP_RELAY_PIN` (GPIO21) cuts ESC power, and firmware v3
+    #: has no others. This defaulted to 4 while nobody had read the firmware,
+    #: and the GUI faithfully rendered "0/4 relays closed" off the back of it.
+    num_relays: int = 1
+    #: Two thrusters, GPIO15 and GPIO16.
     num_escs: int = 2
 
 

@@ -684,4 +684,13 @@ class SimSource:
                 "label": "Cut propulsion",
                 "effect": "Latches the simulated Pico into ESTOP.",
             },
+            # The simulator has no RC clamp to arbitrate against, so it accepts
+            # every mode. Declared explicitly rather than left absent: the
+            # frontend reads this to build its buttons, and a missing key would
+            # silently give the sim the real vessel's restrictions.
+            "mode_requests": {
+                "upward_allowed": True,
+                "requestable": ["ESTOP", "MANUAL", "AUTONOMOUS"],
+                "request_timeout_s": None,
+            },
         }

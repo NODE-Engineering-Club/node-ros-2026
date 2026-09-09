@@ -18,6 +18,10 @@ import itertools
 import pytest
 
 from asket_common.mode_arbitration import (
+    ARM_BLOCKED_CONTRADICTORY,
+    ARM_BLOCKED_LATCHED,
+    ARM_BLOCKED_RC_LOW,
+    ARM_BLOCKED_UNKNOWN,
     MODE_AUTONOMOUS,
     MODE_ESTOP,
     MODE_MANUAL,
@@ -27,6 +31,7 @@ from asket_common.mode_arbitration import (
     REASON_UPWARD_DISABLED,
     SOFTWARE_UPWARD_REQUESTS_ALLOWED,
     arbitrate,
+    arming_block_reason,
     more_restrictive,
     requestable_modes,
 )
@@ -38,7 +43,7 @@ MODES = (MODE_ESTOP, MODE_MANUAL, MODE_AUTONOMOUS)
 # Written out longhand on purpose. Twenty-four rows is not too many to read, and
 # a table generated from the same logic it is checking proves nothing.
 TABLE = {
-    # --- downward-only (the default build) --------------------------------
+    # --- downward-only (SOFTWARE_UPWARD_REQUESTS_ALLOWED = 0) --------------
     (MODE_ESTOP, None, False): (MODE_ESTOP, True, ""),
     (MODE_ESTOP, MODE_ESTOP, False): (MODE_ESTOP, True, ""),
     (MODE_ESTOP, MODE_MANUAL, False): (MODE_ESTOP, False, REASON_RC_CLAMP),
@@ -51,7 +56,7 @@ TABLE = {
     (MODE_AUTONOMOUS, MODE_ESTOP, False): (MODE_ESTOP, True, ""),
     (MODE_AUTONOMOUS, MODE_MANUAL, False): (MODE_MANUAL, True, ""),
     (MODE_AUTONOMOUS, MODE_AUTONOMOUS, False): (MODE_AUTONOMOUS, False, REASON_UPWARD_DISABLED),
-    # --- upward requests enabled ------------------------------------------
+    # --- upward requests enabled (the default build) -----------------------
     (MODE_ESTOP, None, True): (MODE_ESTOP, True, ""),
     (MODE_ESTOP, MODE_ESTOP, True): (MODE_ESTOP, True, ""),
     (MODE_ESTOP, MODE_MANUAL, True): (MODE_ESTOP, False, REASON_RC_CLAMP),
@@ -179,8 +184,85 @@ def test_requestable_modes_follows_the_constant():
     assert requestable_modes(allow_upward=True) == [MODE_ESTOP, MODE_MANUAL, MODE_AUTONOMOUS]
 
 
-def test_default_build_is_downward_only():
-    """The default is the safer one. Changing it should be a deliberate act that
-    breaks this test and makes somebody think."""
-    assert SOFTWARE_UPWARD_REQUESTS_ALLOWED is False
-    assert requestable_modes() == [MODE_ESTOP, MODE_MANUAL]
+def test_default_build_lets_the_gui_request_every_mode():
+    """The GUI is the primary way this boat is driven, missions included.
+
+    Changing this should be a deliberate act that breaks this test and makes
+    somebody think — in either direction.
+    """
+    assert SOFTWARE_UPWARD_REQUESTS_ALLOWED is True
+    assert requestable_modes() == [MODE_ESTOP, MODE_MANUAL, MODE_AUTONOMOUS]
+
+
+def test_the_constant_does_not_let_software_overrule_rc():
+    """Worth stating separately now that the permissive build is the default.
+
+    Allowing upward requests widens what software may *ask for*. It does not
+    widen what channel 8 will allow, and the table above still refuses every
+    request that would be less restrictive than the switch.
+    """
+    assert arbitrate(MODE_MANUAL, MODE_AUTONOMOUS, allow_upward=True).accepted is False
+    assert arbitrate(MODE_ESTOP, MODE_MANUAL, allow_upward=True).accepted is False
+
+
+# -- arming is a separate authority ----------------------------------------
+
+
+def test_nothing_in_arbitration_speaks_to_arming():
+    """Every result is a mode. Whether the propellers may turn is channel 7, and
+    no combination of inputs here can raise it."""
+    result = arbitrate(MODE_AUTONOMOUS, MODE_AUTONOMOUS)
+    assert result.effective == MODE_AUTONOMOUS
+    assert not hasattr(result, "armed")
+
+
+def test_a_disarmed_vessel_in_autonomous_names_the_switch():
+    """The state most likely to be misread: request accepted, mode confirmed,
+    nothing moves."""
+    assert arming_block_reason(armed=False, rc_arm_high=False) == ARM_BLOCKED_RC_LOW
+    assert "channel 7" in ARM_BLOCKED_RC_LOW
+
+
+def test_an_armed_vessel_reports_nothing_blocking():
+    assert arming_block_reason(armed=True, rc_arm_high=True) is None
+    # The vessel is the authority on its own arming. If it says armed, that
+    # settles it, whatever the other inputs look like.
+    assert arming_block_reason(armed=True, rc_arm_high=False) is None
+
+
+def test_unknown_arming_makes_no_claim():
+    """Not knowing is not evidence of a block. Inventing one would put a red
+    line under a healthy vessel."""
+    assert arming_block_reason(armed=None) is None
+    assert arming_block_reason(armed=None, rc_arm_high=False) is None
+
+
+def test_a_latch_is_named_as_a_latch():
+    reason = arming_block_reason(armed=False, rc_arm_high=True, estop_latched=True)
+    assert reason == ARM_BLOCKED_LATCHED
+    assert "arm switch" in reason
+
+
+def test_a_disarmed_vessel_with_no_identifiable_cause_still_says_so():
+    """An incomplete diagnosis is not a reason to stay silent about a vessel
+    that cannot move."""
+    assert arming_block_reason(armed=False) == ARM_BLOCKED_UNKNOWN
+
+
+def test_a_contradiction_is_reported_as_a_contradiction():
+    """Channel 7 up but the vessel disarmed, with no latch. Something is wrong
+    and guessing which side would be worse than saying they disagree."""
+    reason = arming_block_reason(armed=False, rc_arm_high=True, estop_latched=False)
+    assert reason == ARM_BLOCKED_CONTRADICTORY
+    assert "disagree" in reason
+
+
+def test_every_block_reason_says_propulsion_cannot_start():
+    """Whatever the cause, the operator needs the same fact first."""
+    for reason in (
+        ARM_BLOCKED_RC_LOW,
+        ARM_BLOCKED_LATCHED,
+        ARM_BLOCKED_UNKNOWN,
+        ARM_BLOCKED_CONTRADICTORY,
+    ):
+        assert "propulsion cannot start" in reason

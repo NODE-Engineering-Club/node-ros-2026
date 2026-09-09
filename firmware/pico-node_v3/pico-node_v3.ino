@@ -120,13 +120,18 @@ const unsigned long SERIAL_FAILSAFE_TIMEOUT_MS = 500;
 // ---------------------------------------------------------------------------
 
 //  May software ever request AUTONOMOUS?
-//    0 = downward-only. The GUI may request MANUAL or ESTOP and nothing else.
-//        To return to AUTONOMOUS it stops refreshing and lets the request
-//        expire, which hands authority back to Ch8.
-//    1 = AUTONOMOUS is requestable too, still clamped by Ch8.
+//    1 = yes (default). The GUI is the primary way this boat is driven,
+//        missions included, so it may ask for any mode. Still clamped by Ch8.
+//    0 = downward-only. The GUI may request MANUAL or ESTOP and nothing else,
+//        and the way back up is to release and let Ch8 decide.
+//  Either way Ch8 clamps. This constant decides whether software may ASK, not
+//  whether RC can be overruled.
+//
+//  NOTE this has nothing to do with ARMING. Ch7 is the arm switch and is not
+//  commandable from software at all - see the arming note below update_state().
 //  Mirrored by SOFTWARE_UPWARD_REQUESTS_ALLOWED in
 //  src/asket_common/asket_common/mode_arbitration.py - change both or neither.
-#define SOFTWARE_UPWARD_REQUESTS_ALLOWED 0
+#define SOFTWARE_UPWARD_REQUESTS_ALLOWED 1
 
 const unsigned long SOFTWARE_REQUEST_TIMEOUT_MS = 5000;
 
@@ -158,7 +163,7 @@ enum OperationMode { MODE_ESTOP = 1, MODE_MANUAL = 2, MODE_AUTONOMOUS = 3 };
 //  (rej:reason) marks a request that is REJECTED rather than silently clamped -
 //  the GUI is told why instead of showing a button press that did nothing.
 //
-//  SOFTWARE_UPWARD_REQUESTS_ALLOWED = 0  (default build)
+//  SOFTWARE_UPWARD_REQUESTS_ALLOWED = 0
 //
 //    Ch8 \ req |    -     |  ESTOP  |  MANUAL          |  AUTONOMOUS
 //    ----------+----------+---------+------------------+---------------------
@@ -166,7 +171,7 @@ enum OperationMode { MODE_ESTOP = 1, MODE_MANUAL = 2, MODE_AUTONOMOUS = 3 };
 //    MANUAL    | MANUAL   | ESTOP   | MANUAL           | MANUAL (rej:upward)
 //    AUTONOMOUS| AUTONOM. | ESTOP   | MANUAL           | AUTONOM.(rej:upward)
 //
-//  SOFTWARE_UPWARD_REQUESTS_ALLOWED = 1
+//  SOFTWARE_UPWARD_REQUESTS_ALLOWED = 1  (default build)
 //
 //    Ch8 \ req |    -     |  ESTOP  |  MANUAL          |  AUTONOMOUS
 //    ----------+----------+---------+------------------+---------------------
@@ -179,6 +184,12 @@ enum OperationMode { MODE_ESTOP = 1, MODE_MANUAL = 2, MODE_AUTONOMOUS = 3 };
 //       authority, only remove it.
 //    2. The ESTOP column is ESTOP everywhere. "Cut propulsion" works from any
 //       state, in either build.
+//
+//  WHAT THIS TABLE DOES NOT DECIDE: arming. Every cell above is a MODE. Whether
+//  the propellers may turn is Ch7, and no cell here can raise it. A vessel can
+//  sit in AUTONOMOUS, with the request accepted and confirmed, and move nothing
+//  at all because the arm switch is down. That is correct, and it is the state
+//  most likely to be misread - see the arming note above update_state().
 //
 //  This table is mirrored, cell for cell, by arbitrate() in
 //  src/asket_common/asket_common/mode_arbitration.py, whose test enumerates all
@@ -548,6 +559,22 @@ OperationMode rc_mode_from_channel(uint16_t mode_ch) {
   return MODE_AUTONOMOUS;
 }
 
+// ---------------------------------------------------------------------------
+//  ARMING IS NOT COMMANDABLE FROM SOFTWARE. THIS IS DELIBERATE.
+//
+//  `want_armed` below is derived from Ch7 and from Ch7 only. There is no
+//  `CMD ARM`, and adding one is not a config flag - it is a change to the
+//  safety chain and belongs to whoever owns that.
+//
+//  The reasoning: somebody is physically present to launch this boat, and
+//  flipping the arm switch is their consent that the propellers may turn. A
+//  mode arrives over a radio link from a laptop; consent does not.
+//
+//  The consequence, which the GUI is built to make visible: a mode request can
+//  be accepted, arbitrated, confirmed in the status line, and still move
+//  nothing. An operator who cannot see why is left guessing whether the boat
+//  ignored them or the switch did.
+// ---------------------------------------------------------------------------
 void update_state() {
   uint16_t arm_ch  = sbus_channels[CH_ARM];
   uint16_t mode_ch = sbus_channels[CH_MODE];

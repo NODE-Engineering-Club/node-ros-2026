@@ -85,8 +85,24 @@ export function VesselState({ state }) {
               </Chip>
             )}
             <div className="spacer" />
-            <Chip level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}>
-              {pico?.armed === undefined ? 'Arming not sent' : pico.armed ? 'Armed' : 'Disarmed'}
+            {/* Disarmed is the correct state on a slipway, so it stays green
+                and Armed is the one that warns. What changed here is the title:
+                a disarmed vessel now says *why*, because with mode commands
+                reaching the firmware the operator will otherwise read a
+                confirmed AUTONOMOUS and a motionless boat as a fault.
+
+                `armed` is three-state. Null is "not sent" and must never render
+                as "Disarmed" — that would be a claim about the vessel nobody
+                made. */}
+            <Chip
+              level={pico?.armed === undefined || pico?.armed === null
+                ? ''
+                : pico.armed ? 'warn' : 'ok'}
+              title={pico?.arming_block || ''}
+            >
+              {pico?.armed === undefined || pico?.armed === null
+                ? 'Arming not sent'
+                : pico.armed ? 'Armed' : 'Disarmed'}
             </Chip>
           </div>
           <Rows>

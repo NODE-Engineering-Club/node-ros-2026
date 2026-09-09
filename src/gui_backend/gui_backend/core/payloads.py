@@ -21,9 +21,20 @@ from __future__ import annotations
 import math
 
 from asket_common.heading import HeadingEstimate
+from asket_common.mode_arbitration import arming_block_reason
 from asket_common.survey import SurveyPlan
 
 from .streams import DETAIL_FULL, DETAIL_MINIMAL, DETAIL_REDUCED
+
+
+def _tri(value) -> bool | None:
+    """Keep a three-state flag three-state.
+
+    ``bool(None)`` is ``False``, and that one coercion is the difference between
+    "we were not told whether the vessel is armed" and "the vessel is disarmed".
+    The second puts a red line on the screen; only one of them is a fact.
+    """
+    return None if value is None else bool(value)
 
 
 def _f(value: float | None, digits: int = 6) -> float | None:
@@ -123,8 +134,11 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
     """
     out = {
         "mode": MODE_NAMES.get(sample.mode, "UNKNOWN"),
-        "armed": bool(sample.armed),
-        "estop_latched": bool(sample.estop_latched),
+        # Three-state, not two. A truncated status line that did not carry the
+        # arming state must reach the GUI as "not sent"; `bool(None)` would make
+        # it "Disarmed", which is a claim about the vessel nobody made.
+        "armed": _tri(sample.armed),
+        "estop_latched": _tri(sample.estop_latched),
     }
     if detail == DETAIL_MINIMAL:
         return out
@@ -141,6 +155,19 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
             # when the link is poor and buttons seem not to work.
             "rc_mode": getattr(sample, "rc_mode", None),
             "software_clamp_active": getattr(sample, "software_clamp_active", None),
+            # Channel 7, the arm switch. Not commandable from software by
+            # design — see arming_block_reason. Carried this far down because a
+            # mode request can be accepted, confirmed, and still move nothing,
+            # and that is the state an operator is most likely to misread.
+            "rc_arm_high": getattr(sample, "rc_arm_high", None),
+            # Why propulsion cannot start, or null. Computed once here rather
+            # than in the browser so the GUI, the logs and the command detail
+            # all give the operator the same sentence.
+            "arming_block": arming_block_reason(
+                armed=_tri(getattr(sample, "armed", None)),
+                rc_arm_high=getattr(sample, "rc_arm_high", None),
+                estop_latched=_tri(getattr(sample, "estop_latched", None)),
+            ),
         }
     )
     if detail == DETAIL_REDUCED:
@@ -155,7 +182,6 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
             "hardware_killswitch_engaged": bool(
                 getattr(sample, "hardware_killswitch_engaged", False)
             ),
-            "rc_arm_high": getattr(sample, "rc_arm_high", None),
             "rc_channels": getattr(sample, "rc_channels", None),
             # Milliseconds since the ESC-power relay closed, or None. Below
             # ESC_ARM_DELAY_MS the firmware holds both thrusters at neutral

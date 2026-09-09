@@ -58,17 +58,21 @@ FIRMWARE_MODE_NUMBERS = {1: MODE_ESTOP, 2: MODE_MANUAL, 3: MODE_AUTONOMOUS}
 
 #: **The single constant that answers "may the GUI request AUTONOMOUS?"**
 #:
-#: ``False`` (default) — downward-only. The GUI may request MANUAL or ESTOP and
-#: nothing else. To return to AUTONOMOUS the operator stops refreshing the
-#: request and lets it expire, which hands authority back to channel 8.
+#: ``True`` (default) — the GUI may request any mode, including AUTONOMOUS.
+#: **The GUI is the primary way this boat is driven**, missions included, so
+#: refusing the one request that starts a mission would make the interface a
+#: monitor with buttons rather than a control station.
 #:
-#: ``True`` — the GUI may also request AUTONOMOUS, which matters if missions are
-#: ever to be started from the GUI. It is still clamped by RC: requesting
-#: AUTONOMOUS while channel 8 is in MANUAL is refused either way.
+#: ``False`` — downward-only. The GUI may request MANUAL or ESTOP and nothing
+#: else, and the way back up is to release the request and let channel 8 decide.
+#:
+#: Either way channel 8 still clamps: requesting AUTONOMOUS while the
+#: transmitter is in MANUAL is refused in both builds. What this constant
+#: changes is whether software may ask at all, not whether RC can be overruled.
 #:
 #: Mirrored by ``SOFTWARE_UPWARD_REQUESTS_ALLOWED`` in the firmware. Changing it
 #: in one place and not the other is a drift bug; the tests check both values.
-SOFTWARE_UPWARD_REQUESTS_ALLOWED = False
+SOFTWARE_UPWARD_REQUESTS_ALLOWED = True
 
 #: Seconds a software request survives without being refreshed. Mirrors
 #: ``SOFTWARE_REQUEST_TIMEOUT_MS`` in the firmware.
@@ -213,3 +217,58 @@ def requestable_modes(*, allow_upward: bool = SOFTWARE_UPWARD_REQUESTS_ALLOWED) 
     if allow_upward:
         return [MODE_ESTOP, MODE_MANUAL, MODE_AUTONOMOUS]
     return [MODE_ESTOP, MODE_MANUAL]
+
+
+# -- arming: a separate authority, and a separate explanation ---------------
+#
+# Arbitration decides the MODE. It does not decide whether the propellers may
+# turn — that is channel 7, and it is deliberately not commandable from
+# software. Someone is physically present to launch the boat, and flipping that
+# switch is their consent that propellers may turn. The RC authorises; the GUI
+# drives.
+#
+# The consequence is a state that is easy to misread: a mode request can be
+# accepted, and confirmed, and still move nothing. An operator who cannot see
+# why is left guessing whether the boat ignored them or the switch did. So the
+# reason is computed here, once, and shown everywhere it matters.
+
+#: Shown when channel 7 is down. The wording is deliberately about the switch,
+#: not about the request: the request worked.
+ARM_BLOCKED_RC_LOW = "RC channel 7 disarmed, propulsion cannot start"
+ARM_BLOCKED_LATCHED = (
+    "e-stop latched, propulsion cannot start until the arm switch is cycled"
+)
+ARM_BLOCKED_UNKNOWN = "the vessel reports disarmed, so propulsion cannot start"
+ARM_BLOCKED_CONTRADICTORY = (
+    "the vessel reports disarmed although channel 7 is up — propulsion cannot "
+    "start, and the two disagree"
+)
+
+
+def arming_block_reason(
+    armed: bool | None,
+    rc_arm_high: bool | None = None,
+    estop_latched: bool | None = None,
+) -> str | None:
+    """Why propulsion cannot start, or ``None`` if nothing is blocking it.
+
+    Pure, and deliberately conservative about what it claims:
+
+    * ``armed`` unknown returns ``None``. Not knowing is not evidence of a
+      block, and inventing one would put a red line under a healthy vessel.
+    * ``armed`` true returns ``None`` even if the other inputs look odd — the
+      vessel says the propellers may turn, and it is the authority on that.
+    * A disarmed vessel whose cause we cannot identify still says so, rather
+      than staying silent because the diagnosis is incomplete.
+    """
+    if armed is not True:
+        if armed is None:
+            return None
+        if rc_arm_high is False:
+            return ARM_BLOCKED_RC_LOW
+        if estop_latched is True:
+            return ARM_BLOCKED_LATCHED
+        if rc_arm_high is True:
+            return ARM_BLOCKED_CONTRADICTORY
+        return ARM_BLOCKED_UNKNOWN
+    return None

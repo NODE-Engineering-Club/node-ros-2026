@@ -102,6 +102,12 @@ export function picoPayload(world, detail) {
     // software_clamp_active is false rather than null: the mock does know.
     rc_mode: MODE_NAMES[world.mode] || 'UNKNOWN',
     software_clamp_active: false,
+    // Channel 7. The mock ties it to the world's armed state, so a disarmed
+    // simulated vessel explains itself the same way a real one does.
+    rc_arm_high: world.armed,
+    arming_block: world.armed
+      ? null
+      : 'RC channel 7 disarmed, propulsion cannot start',
   });
   if (detail === 'reduced') return out;
 
@@ -109,7 +115,6 @@ export function picoPayload(world, detail) {
     relay_states: [world.armed],   // one relay: ESC power, GPIO21
     esc_status: [world.armed ? 0 : 1, world.armed ? 0 : 1],
     hardware_killswitch_engaged: false,
-    rc_arm_high: world.armed,
     // Raw SBUS counts. The mock does not model stick positions, so the two
     // sticks sit at centre and the switches follow the world's own state.
     rc_channels: {

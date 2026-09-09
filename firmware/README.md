@@ -51,6 +51,16 @@ comment above `arbitrate_mode()`. In short: **the RC transmitter is sovereign,
 and the effective mode is the more restrictive of (Ch8, software request).**
 Software can take authority away and never add it.
 
+`SOFTWARE_UPWARD_REQUESTS_ALLOWED` is **1**: the GUI may request any mode,
+AUTONOMOUS included, because the GUI is the primary way this boat is driven.
+That widens what software may *ask for*, not what Ch8 will allow.
+
+**Arming is not commandable from software at all**, and that is deliberate
+rather than unfinished — `want_armed` comes from Ch7 and nothing else. There is
+no `CMD ARM`. Adding one is a safety-chain change, not a config flag. See
+`INTEGRATION_STATUS.md` §7, which also records a recovery scenario the team
+should think about.
+
 Three structural changes came with it, none of them optional:
 
 1. **Serial is now read on every loop, in every mode.** It used to be read only

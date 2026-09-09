@@ -8,8 +8,11 @@ assumed, and what is still open.
 **Update — the Pico firmware source has now been read.** That closed the biggest
 provisional item (§5.1, the status line format), found a bug that meant
 `/pico/status` published nothing at all (§2a), and produced a firmware change
-adding the serial mode commands the GUI's buttons needed (§7). One question is
-left for a human, in §7.
+adding the serial mode commands the GUI's buttons needed (§7).
+
+The GUI may now request any mode, including AUTONOMOUS — it is the primary way
+this boat is driven. **Arming is deliberately still RC-only**, and §7 explains
+what that costs, including one recovery scenario the team should think about.
 
 ---
 
@@ -369,7 +372,7 @@ reachable, it is a firewall, not the GUI.
 
 ---
 
-## 7. "Cut propulsion" — now real, with one question left
+## 7. "Cut propulsion" — now real, and who is allowed to ask
 
 ### What changed
 
@@ -444,29 +447,109 @@ ends of this wire disagreed about a format with nothing noticing.
 **It is not bench validation.** Nothing has been compiled for the RP2350 or
 flashed. See the bench list below.
 
-### The question left for you
+### Answered: the GUI may request any mode
 
-**Should the GUI be able to request AUTONOMOUS at all, or only downward?**
-
-Implemented as a single constant, defaulting to the stricter answer:
+**The GUI is the primary way this boat is driven, missions included.** So the
+constant defaults to permissive:
 
 ```c
-#define SOFTWARE_UPWARD_REQUESTS_ALLOWED 0      // firmware
+#define SOFTWARE_UPWARD_REQUESTS_ALLOWED 1      // firmware
 ```
 ```python
-SOFTWARE_UPWARD_REQUESTS_ALLOWED = False        # asket_common.mode_arbitration
+SOFTWARE_UPWARD_REQUESTS_ALLOWED = True         # asket_common.mode_arbitration
 ```
 
 Both must change together; a test fails if they diverge.
 
-At `0`, the GUI may request MANUAL and ESTOP only. The consequence worth knowing
-about: **the way back up is to release the clamp**, not to request AUTONOMOUS.
-The Autonomous button is kept, and on a downward-only build it sends `RELEASE` —
-the software request lapses and channel 8 decides. The panel says which of the
-two it is doing rather than leaving a button whose meaning quietly changed.
+This widens what software may *ask for*. It does not widen what channel 8 will
+allow — requesting AUTONOMOUS while the transmitter sits in MANUAL is still
+refused, in both builds. The Autonomous button is Autonomous again, and
+**Release to RC** is now its own button with its own label: releasing a software
+clamp and requesting a mode are different actions and should not have shared
+one.
 
-Set it to `1` if missions should be startable from the GUI. Requests are still
-clamped by channel 8 either way.
+### Arming is deliberately not commandable from software
+
+This is the part to read twice, because it is a decision rather than a gap.
+
+`want_armed` in the firmware is derived from **RC channel 7 and nothing else**.
+There is no `CMD ARM`, and adding one is **not a config flag** — it is a change
+to the safety chain, and it belongs to whoever owns that chain, not to this
+integration.
+
+The reasoning, stated so nobody has to reconstruct it: somebody is physically
+present to launch this boat, and flipping the arm switch is that person's
+consent that the propellers may turn. A mode arrives over a radio link from a
+laptop. Consent does not. **The RC authorises; the GUI drives.**
+
+#### What that costs, and how it is made legible
+
+It produces a state that is very easy to misread: a mode request is accepted,
+arbitrated, and confirmed in the status line — and the boat moves nothing,
+because the arm switch is down. An operator who cannot see why is left guessing
+whether the boat ignored them or the switch did.
+
+So the reason is computed once, in
+`asket_common.mode_arbitration.arming_block_reason()`, and shown everywhere it
+matters:
+
+| Where | What it says |
+|---|---|
+| Mode panel, standing line | `RC channel 7 disarmed, propulsion cannot start` — before anybody presses anything, because the state exists first |
+| Autonomous button's confirm prompt | the same sentence, on the click where it matters |
+| The command result itself | `confirmed by the vessel — but RC channel 7 disarmed, propulsion cannot start` |
+| Vessel panel, Disarmed chip | the same sentence, on hover |
+
+The Autonomous button is **not** disabled when channel 7 is down. Setting
+AUTONOMOUS from the GUI and then arming on the transmitter is the normal launch
+sequence — somebody is standing next to the boat. Disabling it would break that
+sequence; annotating it makes the order legible.
+
+A latched e-stop and a contradiction (channel 7 up, vessel disarmed) get their
+own wording rather than being flattened into the same sentence, and a vessel
+that has not told us its arming state says nothing at all — not knowing is not
+evidence of a block.
+
+#### One scenario the team should think about
+
+**A mid-mission Jetson reboot, beyond RC range, cannot be recovered.**
+
+Nothing here is hypothetical about the mechanism:
+
+1. The vessel is surveying, armed, out of transmitter range. Channel 7 is
+   physically up on a transmitter nobody is holding near the boat.
+2. The Jetson reboots — a power glitch, a watchdog, a kernel oops. `pico_bridge`
+   dies with it.
+3. The Pico loses SBUS. Outside AUTONOMOUS that latches an e-stop; inside
+   AUTONOMOUS the serial failsafe holds neutral. Either way propulsion stops.
+4. The Jetson comes back, `pico_bridge` reconnects, the GUI can request
+   AUTONOMOUS again and the firmware will accept it.
+5. **But the vessel is disarmed, or latched, and nothing in software can re-arm
+   it.** The latch clears only when the operator cycles channel 7 or selects
+   ESTOP on channel 8 — both of which need a transmitter within range of a boat
+   that is not within range of one.
+
+The vessel is then a drifting object with a working GUI, a working link, a
+working mission plan, and no way to turn a propeller. Recovery is a boat trip.
+
+This is the honest cost of the current safety chain, and it may well be the
+right cost — the alternative is software that can start propellers with nobody
+present, which is exactly what channel 7 exists to prevent. **It is not this
+integration's decision.** Options worth weighing, none implemented:
+
+- Accept it, and constrain missions to within RC range.
+- A re-arm path gated on something narrower than "software asked" — a physical
+  latch that survives reboot, an arm state the Pico retains across a *bridge*
+  restart (it already does; the Pico is not what reboots), or a hardware
+  watchdog that distinguishes a Jetson reboot from a lost transmitter.
+- A long-range arm channel, which moves the problem into the RC link rather
+  than solving it.
+
+The middle option is the interesting one, and it is worth noticing that **the
+Pico does not reboot in this scenario — only the Jetson does.** The arm state is
+still live in the firmware throughout. What kills propulsion is the SBUS
+failsafe, not the arming logic. That may make this more tractable than it first
+looks, and it is still a safety-chain change rather than a config flag.
 
 ### Before this goes near the water
 
@@ -480,19 +563,27 @@ On the bench, boat out of the water:
 1. Flash, and confirm `[STAT]` still arrives at 4 Hz and `/pico/status` now
    publishes. That alone is §2a fixed.
 2. With Ch8 in MANUAL, send `CMD MODE AUTONOMOUS` — expect
-   `[ACK] MODE AUTONOMOUS rejected upward_disabled`.
+   `[ACK] MODE AUTONOMOUS rejected rc_clamp`. The transmitter still wins even
+   though the GUI is now allowed to ask.
 3. With Ch8 in AUTONOMOUS and armed, send `CMD MODE MANUAL` — expect acceptance,
    `Mode:2` in the status line while `Mode(Ch8)` still reads high, and the GUI
-   showing a software clamp rather than a fault.
-4. Stop sending for 6 s — expect `[ACK] REQUEST expired` and a return to
-   AUTONOMOUS.
-5. `CMD ESTOP` from each of the three switch positions — expect the relay to
+   showing a software clamp rather than a fault. Then **Release to RC** — expect
+   a return to AUTONOMOUS without waiting out the timeout.
+4. Stop sending without releasing, for 6 s — expect `[ACK] REQUEST expired` and
+   the same return to AUTONOMOUS.
+5. **The arming case, and the one most worth doing carefully.** With Ch8 in
+   AUTONOMOUS and **Ch7 down**, press Autonomous in the GUI. Expect: the request
+   accepted, `Mode:3` in the status line, `Armed:N`, **nothing turning**, and the
+   GUI saying `RC channel 7 disarmed, propulsion cannot start` in the mode panel
+   and on the command result. Then raise Ch7 and confirm the vessel starts —
+   that is the intended launch sequence, not a workaround.
+6. `CMD ESTOP` from each of the three switch positions — expect the relay to
    open every time, and re-arming to stay blocked until the arm switch is cycled.
-6. Confirm `loop()` still keeps up: no missed `[STAT]` lines, and the SBUS
+7. Confirm `loop()` still keeps up: no missed `[STAT]` lines, and the SBUS
    failsafe still fires within 500 ms with the transmitter switched off.
 
-Item 6 is the one to take seriously. Serial is read every loop now, and the
-failsafes share that loop.
+Item 7 is the one to take seriously. Serial is read every loop now, and the
+failsafes share that loop. Item 5 is the one an operator will meet most often.
 
 ## 8. Branch conflict warning
 

@@ -51,7 +51,8 @@ _MODE_WORDS = {
 }
 
 #: Arrete de tenir la demande : le firmware la laisse expirer et rend la main
-#: a Ch8. C'est le seul chemin de retour quand le build est downward-only.
+#: a Ch8. Bouton "Release to RC" cote GUI. Rendre la main est une action a part
+#: entiere, distincte d'une demande de mode.
 _RELEASE_WORDS = {"RELEASE", "NONE", "CLEAR"}
 
 #: Prefixes des lignes de statut periodiques.

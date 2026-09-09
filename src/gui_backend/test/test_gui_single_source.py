@@ -258,3 +258,22 @@ def test_the_synthetic_basemap_says_so_once_not_on_every_tile():
     assert "ASKET_TILE_LABELS" in tiles
     assert "SYNTHETIC" not in tiles, "the warning belongs on the map, not per tile"
     assert "Synthetic basemap — not a chart" in source("panels", "MissionMap.jsx")
+
+
+def test_the_mock_uses_the_same_arming_wording_as_the_backend():
+    """The mock hard-codes the sentence a disarmed vessel shows. If the backend
+    ever rewords it, the two would quietly diverge and the mock would stop
+    representing what an operator actually reads."""
+    from asket_common.mode_arbitration import ARM_BLOCKED_RC_LOW
+
+    assert ARM_BLOCKED_RC_LOW in source("lib", "mock", "payloads.js")
+
+
+def test_arming_is_never_commandable_from_the_gui():
+    """There is no CMD ARM, by design. A button that tried would be a change to
+    the safety chain wearing the clothes of a feature."""
+    panel = source("panels", "ModeCommands.jsx")
+    assert "'ARM'" not in panel
+    assert "CMD ARM" not in panel
+    for word in ("MANUAL", "AUTONOMOUS", "RELEASE"):
+        assert f"mode: '{word}'" in panel or f"'{word}'" in panel

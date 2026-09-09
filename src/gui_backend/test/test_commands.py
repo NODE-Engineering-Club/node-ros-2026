@@ -160,3 +160,49 @@ def test_an_unknown_reason_code_is_quoted_rather_than_swallowed():
     mgr.update({"pico_command_ack": _ack("MANUAL", "gremlins", 1100)}, 1200)
     assert cmd.status == STATUS_FAILED
     assert "gremlins" in cmd.detail
+
+
+# -- arming is a separate authority -----------------------------------------
+#
+# The mode changes; the propellers still cannot turn, because arming is channel
+# 7 and no software request can raise it. "Confirmed by the vessel" on its own
+# is a button appearing to succeed.
+
+
+def test_a_confirmed_mode_says_when_propulsion_still_cannot_start():
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "AUTONOMOUS"}, 1000,
+                    confirm=mode_confirmed("AUTONOMOUS"))
+
+    mgr.update(
+        {"pico": {"mode": "AUTONOMOUS", "armed": False,
+                  "arming_block": "RC channel 7 disarmed, propulsion cannot start"}},
+        1100,
+    )
+
+    assert cmd.status == STATUS_CONFIRMED
+    assert "confirmed by the vessel" in cmd.detail
+    assert "channel 7" in cmd.detail
+
+
+def test_a_confirmed_mode_on_an_armed_vessel_says_nothing_extra():
+    mgr = CommandManager()
+    cmd = mgr.issue("set_mode", {"mode": "AUTONOMOUS"}, 1000,
+                    confirm=mode_confirmed("AUTONOMOUS"))
+    mgr.update({"pico": {"mode": "AUTONOMOUS", "armed": True, "arming_block": None}}, 1100)
+    assert cmd.detail == "confirmed by the vessel"
+
+
+def test_a_propulsion_cut_is_not_annotated_with_the_arming_block():
+    """A disarmed vessel is what that command was for. Appending 'propulsion
+    cannot start' would read as a fault instead of as success."""
+    mgr = CommandManager()
+    cmd = mgr.issue("cut_propulsion", {}, 1000, confirm=propulsion_cut_confirmed)
+    mgr.update(
+        {"pico": {"mode": "ESTOP", "estop_latched": True, "armed": False,
+                  "arming_block": "e-stop latched, propulsion cannot start until "
+                                  "the arm switch is cycled"}},
+        1100,
+    )
+    assert cmd.status == STATUS_CONFIRMED
+    assert cmd.detail == "confirmed by the vessel"

@@ -168,7 +168,7 @@ class CommandManager:
             if cmd.confirm and cmd.confirm(observed_state):
                 del self._pending[cmd_id]
                 cmd.status = STATUS_CONFIRMED
-                cmd.detail = "confirmed by the vessel"
+                cmd.detail = _confirmation_detail(cmd, observed_state)
                 cmd.resolved_utc_ms = now_utc_ms
                 self._archive(cmd)
                 changed.append(cmd)
@@ -194,6 +194,29 @@ class CommandManager:
     def _archive(self, cmd: Command) -> None:
         self.history.append(cmd)
         del self.history[: max(0, len(self.history) - self._history_limit)]
+
+
+def _confirmation_detail(cmd: Command, observed_state: dict) -> str:
+    """"Confirmed" is not always the whole story.
+
+    A mode request can be accepted, arbitrated and confirmed in the status line
+    while the propellers still cannot turn, because arming is channel 7 and
+    nothing in software can raise it. Reporting only "confirmed by the vessel"
+    there is the button appearing to succeed — the operator sees a green line
+    and a boat that does not move, and cannot tell which of the two to believe.
+
+    So the confirmation carries the reason as well. A propulsion cut is exempt:
+    a disarmed vessel is what that command was *for*, and appending "propulsion
+    cannot start" to it would read as a fault instead of as success.
+    """
+    confirmed = "confirmed by the vessel"
+    if cmd.name != CMD_SET_MODE:
+        return confirmed
+
+    block = (observed_state.get("pico") or {}).get("arming_block")
+    if not block:
+        return confirmed
+    return f"{confirmed} — but {block}"
 
 
 def _rejection_for(cmd: Command, ack: dict | None) -> str | None:

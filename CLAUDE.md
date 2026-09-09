@@ -87,6 +87,64 @@ swaps the socket, never the components, and two tests keep it honest: the
 negotiation table is generated from `core/streams.py`, and the payload shapes
 are compared across languages by running the JavaScript under Node.
 
+## A finding worth carrying: `/pico/status` was dead, and nothing said so
+
+Firmware v3 prints `[STAT]`. `pico_bridge` filtered incoming serial lines for
+ones starting with `STATE`. No line ever matched, so **`/pico/status` published
+nothing at all** for as long as both had existed in their current form.
+
+Fixed now (both prefixes accepted, and the bridge warns once about any line it
+cannot classify). What is worth carrying is not the fix.
+
+### Anything that depended on `/pico/status` was not working, however it looked
+
+That topic is the vessel's only report of what it is actually doing. With it
+silent, all of this was inert:
+
+- the Vessel panel's mode, arming, relay, and RC channel readouts;
+- **mode command confirmation** — `mode_confirmed` reads the Pico's report, so
+  every mode command would have run to its timeout and reported that the vessel
+  had not changed state;
+- the `pico.*` pre-flight checks, and the RC-link row that reads from the same
+  payload;
+- the link-age alarm, whose freshest input is the Pico.
+
+None of it looked broken. This GUI is built to render absence gracefully —
+"not sent" rather than a zero or a fault, which is the right behaviour and is
+tested for. The cost of that behaviour is exactly this: **a dead pipe and a
+quiet vessel are indistinguishable on screen.** A panel full of "not sent" is
+what you see when the boat is off, and it is also what you see when nothing is
+listening.
+
+### The simulator could not have caught it, and this is the part to remember
+
+`asket_sim` publishes `asket_interfaces/PicoStatus` — a structured message — on
+`/pico/status`. Real hardware publishes `std_msgs/String` carrying firmware text
+on the same topic. `adapters.pico_from_ros` accepts both shapes.
+
+So the simulated path and the real path were **different message types through
+the same name**, and only the text one was broken. Every hour spent in sim
+exercised the half that worked. No amount of `--sim` would ever have found this.
+
+Where the sim and the hardware differ in *type*, not just in values, the sim is
+not evidence about the hardware path. Prefer a check that reads the real
+artefact — the firmware source, a captured line, the actual wire format — over a
+green simulated run.
+
+### What now guards it
+
+- The bridge logs any unclassifiable serial line once, so silence is no longer
+  the failure mode.
+- `pico.state_format` FAILs on a line arriving that the parser cannot read, and
+  it checks that on **every run**, not once. `FORMAT_VERIFIED = True` is a
+  statement about the past; the runtime check is the one that matters.
+- `asket_common/test/test_firmware_arbitration_matches.py` compiles the
+  firmware's own `arbitrate_mode()` and checks every mirrored constant against
+  the sketch, because two ends of this wire have now disagreed twice.
+
+Full write-up, including what else the firmware source corrected, is in
+`INTEGRATION_STATUS.md` §2a and §5.1.
+
 ## Boundaries
 
 - Do **not** modify `pico_bridge`, `boat_bt`, or any other competition package.
@@ -111,7 +169,9 @@ are compared across languages by running the JavaScript under Node.
 - Topic and message names for competition nodes are not hard-coded anywhere.
   `src/gui_backend/config/topics.yaml` maps a logical stream name to a topic,
   type and adapter — Q7, now answered against the real interface.
-- `/pico/status` is a `std_msgs/String` of raw firmware `[STAT]` lines. The
+- `/pico/status` carries a `std_msgs/String` of raw firmware `[STAT]` lines from
+  real hardware, and an `asket_interfaces/PicoStatus` from `asket_sim` — two
+  message types on one topic, which is how the outage above went unnoticed. The
   parser is isolated in `gui_backend/core/pico_state.py` and the format is now
   transcribed from `pico-node_v3.ino` rather than guessed. Watch the trap:
   `Mode:` and `Mode(Ch8):` are different fields carrying different units, and

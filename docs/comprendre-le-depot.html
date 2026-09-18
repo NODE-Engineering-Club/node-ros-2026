@@ -43,7 +43,7 @@
   }
 
   /* — titres — */
-  h1, h2, h3, h4 {
+  h1, h2, h3, h4, h5 {
     font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
     line-height: 1.25;
     color: var(--encre);
@@ -85,6 +85,11 @@
     text-transform: uppercase;
     letter-spacing: .06em;
     font-size: .82rem;
+  }
+  h5 {
+    font-size: .95rem;
+    margin: 1.6rem 0 .3rem;
+    color: var(--encre);
   }
 
   p { margin: 0 0 1.15rem; }
@@ -300,6 +305,61 @@
   </p>
 </div>
 
+<div class="bloc danger">
+  <span class="etiquette">Lisez ceci d'abord — de quelle version du firmware parle ce document</span>
+  <p>
+    Il existe <strong>deux firmwares Pico différents</strong>, et ils ne se
+    comportent pas de la même façon. Confondre les deux rend faux à peu près
+    tout ce qu'on peut dire de la liaison série et de l'arbitrage des modes.
+  </p>
+  <div class="tableau">
+  <table>
+    <tr><th>Version</th><th>Où elle vit</th><th>État</th></tr>
+    <tr>
+      <td><code>pico-node_v3.ino</code><br><span style="font-size:.85em">en-tête <code>[REBUILT]</code></span></td>
+      <td>Dépôt <code>NODE-Engineering-Club/pico-node</code>, séparé de celui-ci</td>
+      <td><strong>C'est la version actuellement flashée dans le Pico.</strong>
+          C'est donc le bateau tel qu'il est aujourd'hui.</td>
+    </tr>
+    <tr>
+      <td><code>asket_ec_pico.ino</code><br><span style="font-size:.85em">en-tête <code>[REBUILT + FOXGLOVE]</code></span></td>
+      <td><code>firmware/pico/</code>, sur la branche <code>GPS_Fix_and_Task</code>
+          de ce dépôt (commit <code>920773f</code>, 9 août 2026)</td>
+      <td>Version plus récente, <strong>pas flashée</strong>. C'est pourtant
+          celle contre laquelle le code Jetson de ce dépôt a été écrit.</td>
+    </tr>
+  </table>
+  </div>
+  <p>
+    <strong>Ce document décrit la v3 — le bateau tel qu'il est.</strong> Partout
+    où la version FOXGLOVE se comporte différemment, la différence est signalée
+    explicitement ; c'est souvent le nœud du problème, parce que la Jetson parle
+    déjà à un firmware qui n'est pas encore dans le Pico.
+  </p>
+  <p style="margin-bottom:0">
+    <strong>Il n'existe aucune commande <code>CMD MODE …</code>, nulle part.</strong>
+    Ni dans la v3, ni dans FOXGLOVE, ni dans aucun commit de ce dépôt ou du dépôt
+    de l'interface. Une première rédaction de ce document en parlait, ainsi que
+    d'un accumulateur série non bloquant : rien de tel n'a été trouvé. Les deux
+    firmwares lisent le port série avec <code>Serial.readStringUntil()</code>,
+    qui est bloquant.
+  </p>
+</div>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Errata — première édition de ce document</span>
+  <p style="margin-bottom:0">
+    La première version de ce document a été écrite <em>avant</em> d'avoir lu
+    l'un ou l'autre firmware, à partir d'une description orale. Elle décrivait
+    donc ni l'un ni l'autre : le format des lignes d'état y était inventé, les
+    rôles des canaux 7 et 8 étaient inversés, et une « divergence » sur les
+    temporisations de failsafe y était présentée comme un défaut alors que
+    c'était simplement deux versions différentes. Tout cela est corrigé ici, et
+    chaque correction est signalée à l'endroit où elle porte. Les sections les
+    plus touchées sont la <a href="#s5">§6</a> et la <a href="#s6">§7</a>.
+  </p>
+</div>
+
 <nav class="sommaire">
   <h2>Sommaire</h2>
   <ol>
@@ -373,12 +433,14 @@
         valeur, elle est dans le dépôt.</td>
   </tr>
   <tr>
-    <td><strong>Votre brief</strong></td>
-    <td>Le brochage du Pico, les paramètres SBUS, les temporisations de
-        failsafe, les commandes <code>CMD</code>, la règle d'arbitrage, le
-        format <code>[STAT]</code>.</td>
-    <td>C'est votre matériel, donc je le prends pour argent comptant. Mais
-        <strong>je ne l'ai pas vérifié</strong>, parce que je ne peux pas.</td>
+    <td><strong>Les deux firmwares Pico</strong></td>
+    <td>Le brochage, les paramètres SBUS, les seuils des canaux, les
+        temporisations de failsafe, l'arbitrage des modes, le format exact des
+        lignes d'état.</td>
+    <td>Élevée depuis la correction de ce document. J'ai lu les deux fichiers
+        <code>.ino</code> ligne à ligne. Ce qui reste invérifié, c'est le
+        <em>comportement</em> — personne n'a mis un oscilloscope ni un
+        terminal série sur le vrai Pico.</td>
   </tr>
   <tr>
     <td><strong>Connaissances générales</strong></td>
@@ -392,24 +454,29 @@
 <div class="bloc danger">
   <span class="etiquette">Le point le plus important de cette section</span>
   <p>
-    <strong>Le firmware du Pico n'est pas dans ce dépôt.</strong> J'ai cherché :
-    aucun fichier <code>.ino</code>, aucun <code>.cpp</code> Arduino, aucune
-    table de brochage, aucun code SBUS. Le dépôt contient seulement le
-    <em>côté Jetson</em> de la liaison série.
+    <strong>Le firmware flashé n'est pas dans ce dépôt, et celui qui y est n'est
+    pas flashé.</strong> C'est la source de la plupart des surprises qui suivent.
   </p>
   <p>
-    Conséquence directe : tout ce que ce document dit sur les broches, les
-    temporisations, le format exact des lignes <code>[STAT]</code> et les
-    commandes <code>CMD</code> vient de ce que vous m'avez décrit, pas d'un
-    fichier que j'ai pu ouvrir. Là où le dépôt et votre description ne
-    s'accordent pas — et c'est le cas au moins une fois, sur les temporisations
-    — je le signale explicitement plutôt que de choisir.
+    Sur la branche <code>gui-integration</code> — celle que vous lisez — il n'y
+    a aucun fichier <code>.ino</code> du tout. Le seul de tout le dépôt est sur
+    la branche <code>GPS_Fix_and_Task</code>, et c'est la version FOXGLOVE, qui
+    n'est pas celle du Pico. La v3, elle, vit dans
+    <code>NODE-Engineering-Club/pico-node</code>.
+  </p>
+  <p>
+    Conséquence pratique : personne ne peut, depuis ce dépôt seul, savoir à quoi
+    ressemble une ligne d'état réelle. Le code Jetson a été écrit contre
+    FOXGLOVE, ce qui fait que <strong>la Jetson et le Pico ne parlent pas la
+    même langue aujourd'hui</strong> — c'est tout l'objet de la
+    <a href="#s6-bug">§7.3</a>.
   </p>
   <p style="margin-bottom:0">
     Si vous ne deviez retenir qu'une chose : <strong>le firmware est la source
-    de vérité pour tout ce qui touche au Pico</strong>, et il faudrait le
-    verser dans ce dépôt (ou dans un dépôt voisin référencé) pour que cette
-    documentation puisse un jour être vérifiée automatiquement.
+    de vérité pour tout ce qui touche au Pico</strong>, et les deux versions
+    devraient vivre au même endroit, avec un numéro de version que le Pico
+    annonce lui-même au démarrage. Aujourd'hui aucun des deux ne le fait, donc
+    rien ne permet de savoir à distance ce qui tourne dans le microcontrôleur.
   </p>
 </div>
 
@@ -430,6 +497,12 @@
     <strong>Il y a deux chemins vers les moteurs</strong> dans ce dépôt, et il
     n'est pas écrit lequel fait autorité : un passant par MAVROS et le Pixhawk,
     l'autre par le Pico. Voir <a href="#s3-control">§4.2</a>.
+  </li>
+  <li>
+    <strong>La Jetson et le Pico ne parlent pas la même langue</strong>, parce
+    que le code de la Jetson a été écrit contre une version du firmware qui
+    n'est pas celle qui est flashée. Ce n'est pas une faute de frappe, et ça
+    n'affecte pas qu'un seul champ. Voir <a href="#s6-bug">§7.3</a>.
   </li>
 </ol>
 
@@ -1691,13 +1764,14 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 
 <h2 id="s4">5. Le matériel, relié au code</h2>
 
-<div class="bloc provisoire">
+<div class="bloc info">
   <span class="etiquette">Rappel sur la provenance</span>
   <p style="margin-bottom:0">
     Le brochage, les vitesses de liaison et les temporisations de cette section
-    viennent de votre brief, pas du dépôt : <strong>le firmware du Pico n'est
-    pas ici</strong>. Ce que le dépôt confirme de son côté est signalé au fil du
-    texte. Le firmware reste la source de vérité.
+    sont transcrits des <code>#define</code> et des <code>const</code> des deux
+    firmwares Pico, qui sont d'accord entre eux sur tous ces points. Là où ils
+    divergent — et c'est surtout le protocole série, en <a href="#s6">§7</a> —
+    la divergence est signalée. Rien ici ne vient d'une description orale.
   </p>
 </div>
 
@@ -1951,40 +2025,67 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
   <dt>Relais</dt>
   <dd>
     Coupe physiquement l'alimentation de puissance des ESC. Commandé par
-    <code>GP21</code>, avec un <strong>retour d'état</strong> sur
-    <code>GP20</code> — le Pico peut donc savoir si le relais a réellement
-    changé d'état, au lieu de supposer qu'il a obéi. Cette boucle de retour est
-    ce qui sépare « j'ai demandé la coupure » de « la coupure est effective ».
+    <code>GP21</code> (<code>HIGH</code> = ESC alimentés). Une entrée
+    <code>GP20</code> est câblée en <strong>retour d'état</strong> via un pont
+    diviseur, ce qui permettrait au Pico de savoir si le relais a réellement
+    obéi au lieu de le supposer.
+    <br><br>
+    <strong>Mais ce retour est désactivé à la compilation, dans les deux
+    firmwares</strong> : <code>#define ESTOP_FEEDBACK_ENABLED 0</code>. La
+    fonction <code>check_power_feedback()</code> est appelée à chaque tour de
+    boucle et son corps entier est entre <code>#if</code>, donc elle ne fait
+    rien. Le Pico <em>croit</em> l'état du relais, il ne le vérifie pas. Le
+    commentaire du firmware dit pourquoi : <em>« disabled until hardware
+    ready »</em>. À réactiver le jour où le diviseur est câblé et testé — les
+    constantes de temporisation (<code>ESTOP_GRACE_MS 500</code>,
+    <code>ESTOP_DEBOUNCE_MS 100</code>) sont déjà là.
   </dd>
   <dt>Feu à éclats</dt>
   <dd>
-    Trois sorties (<code>GP10/11/12</code>) pour trois couleurs. C'est le
-    <strong>seul retour visible depuis la plage</strong> pour quelqu'un sans
-    portable. Les codes sont un contrat écrit, dans
-    <code>docs/light_tower.md</code> et
-    <code>config/light_tower.yaml</code> :
+    Trois sorties pour trois couleurs : <code>GP12</code> rouge,
+    <code>GP11</code> jaune, <code>GP10</code> vert. C'est le <strong>seul
+    retour visible depuis la plage</strong> pour quelqu'un sans portable.
     <br><br>
-    <em>Rouge fixe</em> = propulsion coupée, approche sûre.
-    <em>Rouge clignotant rapide</em> = liaison perdue en autonome.
-    <em>Bleu fixe</em> = autonome, ne pas approcher.
-    <em>Ambre</em> = manuel ou au repos.
-    Un <em>éclat vert</em> toutes les deux secondes se superpose : enregistrement
-    en cours. Pas de vert alors qu'une mission tourne = le levé n'est pas
-    enregistré.
+    Ce que le firmware fait réellement, dans <code>set_light()</code>, identique
+    dans les deux versions et tenant en quatre lignes : une seule couleur
+    allumée à la fois, toujours fixe, jamais clignotante.
+    <em>Rouge</em> = désarmé <strong>ou</strong> ESTOP.
+    <em>Jaune</em> = armé en MANUEL.
+    <em>Vert</em> = armé en AUTONOME.
+    C'est tout.
   </dd>
   <dt>Buzzer</dt>
   <dd><code>GP13</code>. Alertes sonores — armement, coupure, défaut.</dd>
 </dl>
 
-<div class="bloc provisoire">
-  <span class="etiquette">Feu à éclats : un contrat sans mise en œuvre visible</span>
+<div class="bloc danger">
+  <span class="etiquette">Correction — <code>docs/light_tower.md</code> décrit un feu qui n'existe pas</span>
+  <p>
+    Le dépôt contient un contrat écrit, <code>docs/light_tower.md</code> et
+    <code>config/light_tower.yaml</code>, qui annonce du rouge clignotant
+    rapide pour la perte de liaison, du <em>bleu</em> fixe pour l'autonome, de
+    l'ambre pour le manuel, et un éclat vert toutes les deux secondes superposé
+    pour signaler que l'enregistrement tourne.
+  </p>
+  <p>
+    <strong>Aucune de ces quatre choses n'est dans le firmware.</strong> Il n'y
+    a pas de sortie bleue — les trois broches sont rouge, jaune, vert. Il n'y a
+    aucun clignotement : <code>set_light()</code> écrit trois
+    <code>digitalWrite</code> et rend la main. Et il n'y a aucune superposition
+    possible, puisqu'une seule couleur est allumée à la fois et que le Pico
+    ignore complètement si un enregistrement est en cours — cette information
+    n'existe que côté Jetson et ne descend jamais sur le câble.
+  </p>
   <p style="margin-bottom:0">
-    Les codes couleur sont définis et l'interface les affiche pour que
-    l'opérateur sache ce que la plage est censée voir. Mais le pilotage du feu
-    est le travail du firmware du Pico, <strong>que ce dépôt ne contient
-    pas</strong>. Personne n'a donc vérifié que le contrat écrit ici et le
-    comportement réel du matériel coïncident. À contrôler visuellement avant le
-    premier déploiement : c'est une vérification de trente secondes.
+    C'est un vrai problème opérationnel, pas une coquette de documentation :
+    quelqu'un qui a lu <code>light_tower.md</code> et qui voit un feu vert en
+    conclura « enregistrement en cours » alors que le firmware lui dit « armé en
+    autonome, ne pas approcher ». <strong>Le sens le plus dangereux possible du
+    malentendu.</strong> Il faut trancher : soit aligner
+    <code>light_tower.md</code> sur les trois couleurs fixes existantes, soit
+    implémenter le contrat dans le firmware — ce qui suppose d'abord que la
+    Jetson puisse lui dire qu'elle enregistre, donc une commande descendante qui
+    n'existe pas aujourd'hui.
   </p>
 </div>
 
@@ -2025,13 +2126,14 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
     <td><code>GP20</code></td>
     <td>Retour d'état du relais</td>
     <td>Entrée logique</td>
-    <td>Permet de vérifier l'état réel plutôt que de le supposer</td>
+    <td><strong>Câblé mais désactivé à la compilation</strong>
+        (<code>ESTOP_FEEDBACK_ENABLED 0</code>), dans les deux firmwares</td>
   </tr>
   <tr>
-    <td><code>GP10</code>, <code>GP11</code>, <code>GP12</code></td>
-    <td>Feu à éclats</td>
+    <td><code>GP12</code> / <code>GP11</code> / <code>GP10</code></td>
+    <td>Feu — rouge / jaune / vert</td>
     <td>Sorties logiques</td>
-    <td>Une par couleur</td>
+    <td>Une seule allumée à la fois, toujours fixe. Pas de bleu, pas de clignotement.</td>
   </tr>
   <tr>
     <td><code>GP13</code></td>
@@ -2061,14 +2163,27 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 </div>
 
 <div class="bloc info">
-  <span class="etiquette">Ce qui est confirmé par le dépôt</span>
+  <span class="etiquette">Ce que les deux sources confirment ensemble</span>
+  <p>
+    Les numéros de broches ci-dessus sont les <code>#define</code> du firmware,
+    identiques dans les deux versions. Et sur trois points le
+    <code>pico_bridge.py</code> de la Jetson dit exactement la même chose que le
+    firmware, ce qui est rassurant : la liaison est en <strong>USB CDC
+    115200</strong> avec des lignes terminées par <code>\n</code> ; les valeurs
+    de poussée sont normalisées entre −1 et 1 et converties par
+    <code>1500 + v × 500 µs</code> ; et les moteurs ne sont appliqués que si le
+    Pico est armé, en AUTONOMOUS, et 2 s après la fermeture du relais.
+  </p>
   <p style="margin-bottom:0">
-    Le <code>pico_bridge.py</code> du dépôt confirme trois choses : la liaison
-    est bien en <strong>USB CDC 115200</strong> avec des lignes terminées par
-    <code>\n</code> ; les valeurs de poussée sont normalisées entre −1 et 1 et
-    converties par <code>1500 + v × 500 µs</code> ; et, textuellement,
-    <em>« Moteurs appliqués côté Pico SEULEMENT si armé + AUTONOMOUS + 2 s après
-    relais »</em>. Le reste du brochage vient de vous.
+    La conversion de poussée mérite un mot, parce qu'elle est plus tolérante
+    qu'il n'y paraît. <code>process_motor_command()</code> — rigoureusement
+    identique dans les deux firmwares — remplace crochets, virgules et
+    points-virgules par des espaces, puis lit deux flottants. Si les deux valeurs
+    tiennent dans ±1,5 il les traite comme normalisées ; sinon comme des
+    microsecondes brutes. Donc <code>0.350,-0.120</code>,
+    <code>0.350 -0.120</code> et <code>[0.350; -0.120]</code> font la même chose,
+    et <code>1600,1400</code> aussi mais par l'autre branche. Une seule valeur
+    est appliquée aux deux moteurs.
   </p>
 </div>
 
@@ -2256,28 +2371,72 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 
 <h3>Canal 8 et canal 7</h3>
 
-<p>
-  <strong>Le canal 8 porte l'autorisation de propulsion.</strong> C'est ce que
-  le dépôt confirme de plusieurs façons : le champ s'appelle
-  <code>rc_channel8_raw_pct</code>, l'interface le montre en permanence et passe
-  en alarme sous 25 %, et <code>pico_bridge</code> parle de « la zone Ch8
-  HAUT » comme de celle où l'autonomie est permise. Canal 8 bas, la propulsion
-  est coupée, et aucun logiciel ne peut y changer quoi que ce soit.
-</p>
-
-<p>
-  <strong>Le canal 7 sélectionne le mode</strong> — manuel ou autonome. Il
-  décide qui tient les manettes : l'opérateur, ou l'ordinateur.
-</p>
-
 <div class="bloc provisoire">
-  <span class="etiquette">À confirmer dans le firmware</span>
+  <span class="etiquette">Correction — la première édition inversait les deux</span>
   <p style="margin-bottom:0">
-    Le rôle du canal 8 est étayé par le dépôt. Celui du canal 7 vient
-    uniquement de votre brief : aucun fichier ici ne le mentionne, et
-    l'interface ne l'affiche pas. Les seuils exacts (à partir de quelle valeur
-    un canal est « haut » ?) sont eux aussi dans le firmware. Si vous vérifiez
-    une seule chose de cette section sur le banc, que ce soit celle-là.
+    Elle annonçait le canal 8 comme une simple autorisation de propulsion et le
+    canal 7 comme le sélecteur de mode. C'est l'inverse, et la lecture du
+    firmware ne laisse aucune ambiguïté : <code>const int CH_ARM = 6; // Ch7</code>
+    et <code>const int CH_MODE = 7; // Ch8</code>. Les indices sont à partir de
+    zéro dans le tableau SBUS, d'où le décalage d'un entre le nom du canal et
+    son numéro.
+  </p>
+</div>
+
+<p>
+  <strong>Le canal 8 est le sélecteur de mode, à trois positions.</strong> Il ne
+  dit pas « propulsion permise ou non » : il choisit lequel des trois modes le
+  bateau occupe. Le firmware lit la valeur SBUS brute et la découpe en trois
+  zones :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Canal 8 (valeur SBUS brute)</th><th>Mode</th><th>Ce que ça veut dire</th></tr>
+  <tr>
+    <td>&lt; 700</td>
+    <td><strong><code>MODE_ESTOP</code></strong></td>
+    <td>Arrêt. Désarmement forcé, relais ouvert, feu rouge. Aucun logiciel ne peut en sortir.</td>
+  </tr>
+  <tr>
+    <td>700 – 1400</td>
+    <td><strong><code>MODE_MANUAL</code></strong></td>
+    <td>L'opérateur pilote aux manettes. Les ordres série ne sont même pas lus.</td>
+  </tr>
+  <tr>
+    <td>&gt; 1400</td>
+    <td><strong><code>MODE_AUTONOMOUS</code></strong></td>
+    <td>Le logiciel peut commander les moteurs — à condition d'être armé, et en v3 c'est la seule condition.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  <strong>Le canal 7 est l'armement, à deux positions</strong> : au-dessus de
+  1000 (<code>ARM_THRESHOLD</code>), armé ; en dessous, désarmé. Désarmé, le
+  relais s'ouvre et les moteurs sont au neutre quoi qu'il arrive. Le firmware
+  refuse par ailleurs d'armer en ESTOP :
+  <code>want_armed = arm_high &amp;&amp; (new_mode != MODE_ESTOP)</code>.
+</p>
+
+<p>
+  Les valeurs brutes vont de <strong>172 à 1811</strong>, avec 991 au centre —
+  c'est l'échelle SBUS standard sur 11 bits, expliquée en
+  <a href="#s4-sbus">§5.3</a>. Les seuils 700 et 1400 découpent donc la course
+  en trois tiers à peu près égaux, ce qui correspond à un inverseur trois
+  positions ordinaire.
+</p>
+
+<div class="bloc danger">
+  <span class="etiquette">Conséquence pour l'interface : la pastille « Ch8 » ment sur son unité</span>
+  <p style="margin-bottom:0">
+    Côté interface, le champ s'appelle <code>rc_channel8_raw_pct</code> et passe
+    en alarme sous 25 %, comme s'il s'agissait d'un pourcentage. Le firmware
+    n'envoie jamais de pourcentage : il envoie le compte SBUS brut, entre 172 et
+    1811. Un bateau parfaitement sain afficherait donc « 1811 % ». C'est un des
+    trois défauts de <code>pico_state.py</code> détaillés en
+    <a href="#s6-bug">§7.3</a> — et celui-là est silencieux, parce qu'une valeur
+    trop grande ne déclenche aucune alarme.
   </p>
 </div>
 
@@ -2293,45 +2452,102 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 <table>
   <tr><th>Délai</th><th>Déclencheur</th><th>Action</th><th>Pourquoi cette action</th></tr>
   <tr>
-    <td><strong>≈ 500 ms</strong></td>
-    <td>Plus d'ordre de vitesse frais</td>
-    <td>Poussée ramenée au neutre (1500 µs)</td>
-    <td>Le bateau ne doit pas continuer sur sa lancée parce qu'un programme s'est figé. On s'arrête, on reste armé, on attend.</td>
+    <td><strong>500 ms</strong><br><code>SBUS_FAILSAFE_TIMEOUT_MS</code></td>
+    <td>Plus de trame SBUS — <em>et seulement hors mode autonome</em></td>
+    <td><code>trigger_estop("SBUS timeout")</code> : désarmement, relais ouvert</td>
+    <td>Hors autonome, c'est la radio qui pilote. Si la radio se tait, plus personne ne pilote. On coupe.</td>
   </tr>
   <tr>
-    <td><strong>≈ 600 ms</strong></td>
-    <td>Plus rien du tout de la Jetson</td>
-    <td>Retour en MANUEL</td>
-    <td>Le silence complet signifie que l'ordinateur ne pilote plus. Rendre la main à l'opérateur est plus sûr que rester dans un mode autonome que plus personne n'alimente.</td>
+    <td><strong>500 ms</strong><br><code>SERIAL_FAILSAFE_TIMEOUT_MS</code></td>
+    <td>Plus d'ordre moteur frais — <em>et seulement en mode autonome</em></td>
+    <td>Poussée ramenée au neutre (1500 µs). <strong>Le relais reste fermé.</strong></td>
+    <td>Le bateau ne doit pas continuer sur sa lancée parce qu'un programme s'est figé. Mais couper le courant ferait perdre la radio aussi, et il faut deux secondes pour réarmer les ESC. On s'arrête, on reste armé, on attend.</td>
   </tr>
 </table>
 </div>
 
 <p>
-  Le premier est une mesure de prudence ; le second est un changement
-  d'autorité. Et la différence dépend du mode : en manuel, il n'y a rien à
-  reprendre puisque l'opérateur pilote déjà.
+  <strong>Les deux valent 500 ms, dans les deux firmwares.</strong> Ils ne se
+  déclenchent jamais en même temps parce qu'ils s'excluent par le mode : le
+  premier ne regarde que hors-autonome, le second que l'autonome. Et les deux
+  sont sous un <code>if (armed)</code> — désarmé, il n'y a rien à protéger.
 </p>
 
 <p>
-  C'est pour ça que <code>pico_bridge</code> émet un <strong>battement de
-  cœur</strong> en continu, à 20 Hz : quand il n'a pas de consigne fraîche, il
-  envoie quand même <code>PING</code>. Il maintient la liaison vivante sans rien
-  commander. Son code documente le besoin : <em>« ≥ 2 Hz requis (timeouts
-  Pico 500/600 ms) »</em>.
+  La différence d'action est la partie intéressante. Perdre la radio est grave :
+  c'est la seule autorité souveraine, donc on coupe le courant. Perdre la Jetson
+  l'est moins : la radio est toujours là, l'opérateur peut basculer en manuel en
+  tournant un inverseur. Ramener au neutre suffit, et couper le relais serait
+  <em>moins</em> sûr, puisqu'il faudrait ensuite ré-attendre la fenêtre de deux
+  secondes avant de pouvoir manœuvrer.
 </p>
 
 <div class="bloc danger">
-  <span class="etiquette">Une divergence à trancher</span>
+  <span class="etiquette">Correction — il n'y a pas de « divergence 500 / 600 ms »</span>
+  <p>
+    La première édition de ce document présentait un écart entre 500 et 600 ms
+    comme une contradiction entre deux documents, et concluait que
+    <em>« deux documents qui donnent des chiffres différents pour le même
+    mécanisme sont un défaut en soi »</em>. C'était faux, et pour une raison qui
+    mérite d'être dite : <strong>les deux chiffres sont exacts, ils ne
+    décrivent simplement pas le même firmware.</strong>
+  </p>
+  <p>
+    Le 600 ms est <code>HEARTBEAT_TIMEOUT_MS</code>, et il n'existe <strong>que
+    dans la version FOXGLOVE</strong>. Ce n'est même pas un failsafe : c'est la
+    fenêtre pendant laquelle FOXGLOVE considère la Jetson « vivante »
+    (<code>serial_link_live()</code>), ce qui conditionne le droit de passer en
+    autonome. Dans la v3 flashée, ni la constante ni la fonction ni la notion
+    n'existent.
+  </p>
   <p style="margin-bottom:0">
-    Votre brief parle de <strong>deux failsafes à 500 ms</strong> qui se
-    comportent différemment selon le mode. Le dépôt, lui, mentionne deux
-    temporisations <strong>différentes : 500 <em>et</em> 600 ms</strong>. Il est
-    possible que ce soit la même chose décrite autrement, ou que le commentaire
-    du dépôt soit périmé. Je ne peux pas trancher sans le firmware. Notez-le :
-    dans un système de sécurité, deux documents qui donnent des chiffres
-    différents pour le même mécanisme sont un défaut en soi, indépendamment de
-    savoir lequel a raison.
+    Le commentaire de <code>pico_bridge.py</code> — <em>« ≥ 2 Hz requis
+    (timeouts Pico 500/600 ms) »</em> — est donc correct… pour FOXGLOVE. C'est
+    une trace de plus du fait que le code Jetson a été écrit contre une version
+    qui n'est pas dans le Pico.
+  </p>
+</div>
+
+<div class="bloc danger">
+  <span class="etiquette">Et le battement de cœur ne bat pas, sur la v3</span>
+  <p>
+    <code>pico_bridge</code> émet un <strong>battement de cœur</strong> en
+    continu à 20 Hz : quand il n'a pas de consigne fraîche, il envoie quand même
+    <code>PING</code>. L'intention est juste. Sur la v3, elle ne produit rien,
+    pour deux raisons superposées.
+  </p>
+  <p>
+    <strong>D'abord, la v3 ne lit le port série que dans un cas très étroit.</strong>
+    Sa boucle principale contient littéralement :
+  </p>
+  <pre style="margin:.6rem 0"><code>if (current_mode == MODE_AUTONOMOUS &amp;&amp; armed) handle_serial_input();</code></pre>
+  <p>
+    Hors de ce cas — désarmé, en manuel, en ESTOP — <em>rien n'est lu du
+    tout</em>. Les lignes envoyées par la Jetson s'accumulent dans le tampon USB
+    au lieu d'être consommées. Ce qu'il advient ensuite dépend de la profondeur
+    du tampon TinyUSB, qui ne se lit pas dans le fichier <code>.ino</code> : ou
+    bien l'écriture côté Jetson finit par bloquer, ou bien des octets sont
+    perdus, ou bien les premières lignes lues après le passage en autonome sont
+    des ordres <em>périmés</em>. Les trois sont mauvais et aucun n'est
+    documenté. <strong>À mettre sur le banc avant l'eau</strong> : brancher,
+    laisser <code>pico_bridge</code> tourner deux minutes en manuel, puis
+    basculer en autonome et regarder si le premier ordre appliqué est le bon.
+  </p>
+  <p style="margin-bottom:0">
+    <strong>Ensuite, <code>PING</code> n'est pas un battement de cœur pour la v3.</strong>
+    Elle ne connaît aucun verbe : <code>handle_serial_input()</code> passe toute
+    ligne à <code>process_motor_command()</code>, qui cherche deux nombres.
+    <code>PING</code> n'en contient pas, donc la fonction échoue, le Pico répond
+    <code>Invalid cmd: PING</code>, et surtout
+    <code>last_serial_command_ms</code> <strong>n'est pas rafraîchi</strong>.
+    Autrement dit : sur la v3, seul un vrai ordre moteur repousse le failsafe
+    série. Un bateau autonome qui attend sagement à l'arrêt, avec
+    <code>pico_bridge</code> en train de pinguer à 20 Hz, verrait son failsafe
+    série expirer au bout de 500 ms — sans conséquence visible ici, puisque
+    l'action est justement « rester au neutre », mais la logique ne fait pas ce
+    qu'on croit. Dans FOXGLOVE, à l'inverse, <em>toute</em> ligne valide compte
+    comme battement de cœur, y compris <code>PING</code>, et c'est exactement
+    l'écart que la v3 ne rattrape pas.
   </p>
 </div>
 
@@ -2410,15 +2626,85 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
   table » mais « restreint-il, ou étend-il ? ». S'il étend, la réponse est non.
 </p>
 
+<h4>Comment chaque firmware l'applique réellement</h4>
+
+<p>
+  La règle est respectée dans les deux versions, mais elles n'ont pas le même
+  nombre de sources à arbitrer, et c'est toute la différence.
+</p>
+
+<p>
+  <strong>La v3, flashée, n'arbitre rien — parce qu'il n'y a qu'une source.</strong>
+  Son <code>update_state()</code> tient en trois lignes : il lit le canal 8, en
+  déduit le mode, lit le canal 7, en déduit l'armement. La Jetson n'a
+  <em>aucun</em> mot à dire sur le mode. Elle ne peut pas demander l'autonome ;
+  c'est l'opérateur qui la lui accorde en tournant l'inverseur. La règle
+  « restreindre, jamais étendre » est donc satisfaite trivialement : le logiciel
+  ne peut rien étendre puisqu'il ne peut rien demander.
+</p>
+
+<p>
+  <strong>FOXGLOVE ajoute la deuxième source, et l'arbitre explicitement.</strong>
+  C'est la version qui mérite d'être lue, parce qu'elle montre la règle à
+  l'œuvre. Son <code>update_state()</code> découpe le canal 8 en trois zones,
+  comme la v3, mais la troisième n'accorde plus l'autonomie d'office :
+</p>
+
+<pre><code>if (mode_ch &lt; MODE_LOW_MAX) {
+  new_mode = MODE_ESTOP;           // ZONE 1 : ESTOP matériel, priorité absolue
+} else if (mode_ch &lt; MODE_MID_MAX) {
+  new_mode = MODE_MANUAL;          // ZONE 2 : MANUEL forcé. La Jetson ne peut rien ici.
+} else {
+  // ZONE 3 : autonomie PERMISE — pas accordée. Manuel par défaut,
+  // jusqu'à ce que la Jetson la demande, et seulement tant qu'elle est vivante.
+  if (serial_wants_auto &amp;&amp; serial_link_live()) new_mode = MODE_AUTONOMOUS;
+  else                                          new_mode = MODE_MANUAL;
+}
+if (sbus_failsafe_flag) new_mode = MODE_ESTOP;</code></pre>
+
+<p>
+  Trois choses à y voir. La zone 3 dit <em>permise</em>, pas <em>accordée</em> :
+  l'opérateur ouvre une porte, il ne pousse pas le bateau à travers. La
+  condition est un <strong>et</strong> : vouloir l'autonome ne suffit pas, il
+  faut aussi que la liaison soit fraîche, sinon un plantage de la Jetson
+  laisserait le bateau en autonome sans personne aux commandes. Et la dernière
+  ligne écrase tout le reste — c'est la forme même de « restreindre, jamais
+  étendre » : elle ne peut que dégrader le mode, jamais l'améliorer, et elle est
+  écrite <em>après</em> pour qu'aucune branche ne puisse la contourner.
+</p>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Ce que ça veut dire pour vous, aujourd'hui</span>
+  <p style="margin-bottom:0">
+    Le bouton de mode de l'interface, le topic
+    <code>/pico/mode_request</code>, les lignes <code>MODE AUTO</code> et
+    <code>MODE MANUAL</code> de <code>pico_bridge</code> : toute cette chaîne
+    existe et fonctionne côté Jetson, et <strong>tombe dans le vide</strong> sur
+    le Pico tel qu'il est flashé. Elle attend FOXGLOVE. Tant que la v3 est dans
+    le microcontrôleur, la seule façon de mettre le bateau en autonome est de
+    tourner l'inverseur du canal 8 sur la radiocommande.
+  </p>
+</div>
+
 <h3>Ce que le bouton « Couper la propulsion » fait réellement</h3>
 
 <div class="bloc danger">
   <span class="etiquette">Question ouverte — votre décision</span>
   <p>
-    <code>pico_bridge</code> n'accepte que deux mots : <code>AUTO</code> et
-    <code>MANUAL</code>. Tout le reste est journalisé comme avertissement et
-    jeté. <strong>Il n'existe aucun chemin d'arrêt logiciel</strong> dans le
-    pont. Le bouton de l'interface n'a donc littéralement rien à envoyer.
+    <strong>Une précision d'abord, parce que la première édition de ce document
+    disait le contraire.</strong> Elle affirmait qu'il n'existe « aucun arrêt
+    d'urgence logiciel dans le firmware ». C'est mal formulé :
+    <code>MODE_ESTOP</code> existe bel et bien, dans les deux versions, avec
+    désarmement, ouverture du relais et feu rouge. Ce qui n'existe pas, c'est un
+    <em>chemin série</em> pour y entrer. L'ESTOP est réel, mais on n'y accède
+    qu'en tournant le canal 8 sur la radiocommande. Et c'est délibéré : voir les
+    trois couches, plus haut.
+  </p>
+  <p>
+    Côté Jetson, <code>pico_bridge</code> n'accepte que deux mots :
+    <code>AUTO</code> et <code>MANUAL</code>. Tout le reste est journalisé comme
+    avertissement et jeté. Le bouton de l'interface n'a donc rien d'autre à
+    envoyer.
   </p>
   <p>
     En attendant votre arbitrage, il demande <code>MANUAL</code>. C'est ce qu'il
@@ -2435,11 +2721,28 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
     propulsion » qui se contenterait de changer le mode serait la chose la plus
     dangereuse de tout l'écran.
   </p>
+  <div class="bloc danger" style="margin:1rem 0">
+    <span class="etiquette">Sur la v3, il fait encore moins que ça</span>
+    <p style="margin-bottom:0">
+      Le raisonnement ci-dessus suppose que le Pico comprend
+      <code>MODE MANUAL</code>. La v3 ne le comprend pas : elle passe la ligne à
+      <code>process_motor_command()</code>, qui n'y trouve pas de nombre et
+      renvoie <code>Invalid cmd: MODE MANUAL</code>. Et elle ne l'aurait de
+      toute façon pas lue, puisqu'elle ne lit le port série qu'en autonome et
+      armé — c'est-à-dire précisément le cas où l'on voudrait que le bouton
+      serve. <strong>Aujourd'hui, ce bouton ne fait rien du tout.</strong>
+      L'interface ne ment pas pour autant : elle attendra une confirmation qui
+      n'arrivera pas et affichera un échec, ce qui est le comportement correct.
+      Mais il faut le savoir avant de compter dessus sur une plage.
+    </p>
+  </div>
   <p style="margin-bottom:0">
     Les deux options — ajouter un vrai <code>MODE ESTOP</code> au firmware et au
     pont, ou assumer définitivement la bascule de mode — sont détaillées dans
     <code>INTEGRATION_STATUS.md</code> §7. Je ne les ai délibérément pas
-    tranchées.
+    tranchées. Il y en a maintenant une troisième, plus simple et gratuite :
+    <strong>flasher FOXGLOVE</strong>, qui rend au moins la bascule de mode
+    fonctionnelle. Elle ne donne toujours pas d'ESTOP logiciel.
   </p>
 </div>
 
@@ -2545,27 +2848,28 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 
   <line class="ad" x1="107" y1="184" x2="631" y2="184"/>
   <text class="m" x="200" y="179" fill="#0b4f8f">MODE AUTO</text>
-  <text class="s" x="440" y="179">seuls AUTO et MANUAL sont acceptés</text>
+  <text class="s" x="440" y="179">compris par FOXGLOVE seulement — la v3 répond « Invalid cmd »</text>
 
   <text class="lb" x="200" y="216" fill="#16613a">MONTANT — 4 FOIS PAR SECONDE</text>
 
   <line class="au" x1="633" y1="238" x2="109" y2="238"/>
-  <text class="m" x="200" y="233" fill="#16613a">[STAT] …</text>
-  <text class="s" x="440" y="233">état complet du bateau</text>
+  <text class="m" x="200" y="233" fill="#16613a">[STAT] Mode:3 Armed:Y …</text>
+  <text class="s" x="440" y="233">v3 — la version flashée</text>
 
   <line class="au" x1="633" y1="270" x2="109" y2="270"/>
-  <text class="m" x="200" y="265" fill="#16613a">[EVT] …</text>
-  <text class="s" x="440" y="265">événements ponctuels : armement, coupure, défaut</text>
+  <text class="m" x="200" y="265" fill="#16613a">STATE mode=3 armed=1 …</text>
+  <text class="s" x="440" y="265">FOXGLOVE — la version que la Jetson attend</text>
 
-  <rect x="150" y="286" width="440" height="30" rx="3" fill="#fdf1ef" stroke="#a6210f" stroke-width="1.4"/>
+  <rect x="120" y="286" width="500" height="30" rx="3" fill="#fdf1ef" stroke="#a6210f" stroke-width="1.4"/>
   <text class="s" x="370" y="305" text-anchor="middle" fill="#a6210f" font-weight="bold">
-    pico_bridge ne garde que les lignes commençant par « STATE ». Aucune n'arrive.
+    pico_bridge ne garde que « STATE… ». Le Pico dit « [STAT]… ». Aucune ligne ne passe.
   </text>
 </svg>
 <figcaption>
   <strong>Le dialogue complet.</strong> Le sens descendant fonctionne : le
-  bateau bouge. Le sens montant est inerte, pour la raison en rouge en bas —
-  détaillée juste après.
+  bateau bouge, parce que la ligne <code>L,R</code> est écrite et lue à
+  l'identique par les deux versions. Le sens montant est inerte, pour la raison
+  en rouge en bas — détaillée juste après.
 </figcaption>
 </figure>
 
@@ -2585,13 +2889,20 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
   <tr>
     <td><code>PING</code></td>
     <td>20 Hz, quand la consigne a plus de 300 ms</td>
-    <td>Maintient la liaison vivante sans rien commander. Sans lui, le Pico
-        retomberait en MANUEL au bout de 600 ms.</td>
+    <td>Censé maintenir la liaison vivante sans rien commander. Vrai sur
+        FOXGLOVE, où toute ligne valide rafraîchit le battement de cœur de
+        600 ms. <strong>Sans effet sur la v3</strong>, qui ne connaît aucun
+        verbe et répond <code>Invalid cmd: PING</code> — voir
+        <a href="#s5">§6</a>.</td>
   </tr>
   <tr>
     <td><code>MODE AUTO</code><br><code>MODE MANUAL</code></td>
     <td>Sur demande, via <code>/pico/mode_request</code></td>
-    <td>Change de mode. <strong>Aucun autre mot n'est accepté.</strong></td>
+    <td>Change de mode — <strong>sur FOXGLOVE uniquement</strong>, qui répond
+        <code>[ACK] MODE AUTO requested</code>. La v3 ne connaît pas ces mots.
+        Et même sur FOXGLOVE, la demande n'est honorée que si le canal 8 est
+        déjà en zone haute. <strong>Aucun autre mot n'est accepté</strong>,
+        dans aucune version.</td>
   </tr>
   <tr>
     <td><code>0,0</code></td>
@@ -2609,49 +2920,106 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 
 <h4>Pico → Jetson</h4>
 
+<div class="bloc provisoire">
+  <span class="etiquette">Correction — la première édition inventait ce tableau</span>
+  <p style="margin-bottom:0">
+    Elle donnait comme exemple
+    <code>[STAT] mode=AUTO armed=1 rc=1 ch8=100 vbat=25.9 ibat=4.2</code> et en
+    détaillait les champs. <strong>Cette ligne ne correspond à aucun des deux
+    firmwares.</strong> Il n'y a nulle part de champ <code>rc</code>, ni
+    <code>vbat</code>, ni <code>ibat</code> ; le mode n'est pas un mot mais un
+    entier ; et la v3 n'utilise pas du tout la syntaxe <code>clé=valeur</code>.
+    Ce qui suit est transcrit des deux sources.
+  </p>
+</div>
+
 <p>
-  C'est ici que je dois être prudent : <strong>le format exact vient de votre
-  brief.</strong> La forme générale est une ligne étiquetée :
+  Les deux firmwares émettent une ligne d'état <strong>toutes les 250 ms</strong>
+  (soit 4 Hz), depuis la boucle principale, sans qu'on la demande. Mais ils ne
+  l'écrivent pas de la même façon. C'est tout le problème.
 </p>
 
-<pre><code>[STAT] mode=AUTO armed=1 rc=1 ch8=100 vbat=25.9 ibat=4.2</code></pre>
+<h5>v3 — la version flashée</h5>
+
+<pre><code>[STAT] Mode:3 Armed:Y Relay:ON Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):1811 Mode(Ch8):1811</code></pre>
 
 <div class="tableau">
 <table>
-  <tr><th>Champ</th><th>Sens</th><th>Ce que l'interface en fait</th></tr>
-  <tr><td><code>mode</code></td><td>Mode confirmé : AUTO ou MANUAL</td><td>La pastille de mode. <strong>Jamais</strong> ce qui a été demandé — toujours ce que le Pico rapporte.</td></tr>
-  <tr><td><code>armed</code></td><td>Armé ou non</td><td>Pastille « Armé / Désarmé ».</td></tr>
-  <tr><td><code>rc</code></td><td>Liaison radio présente</td><td>Pastille « RC connectée / perdue ». Absent = « non transmis », jamais « perdue ».</td></tr>
-  <tr><td><code>ch8</code></td><td>Lecture brute du canal 8, en %</td><td>Affichée en permanence. Alarme sous 25 %.</td></tr>
-  <tr><td><code>vbat</code>, <code>ibat</code></td><td>Tension et courant batterie</td><td>Panneau Énergie, autonomie estimée.</td></tr>
+  <tr><th>Champ</th><th>Valeurs</th><th>Sens</th></tr>
+  <tr><td><code>Mode:</code></td><td><code>1</code>, <code>2</code>, <code>3</code></td><td>Entier, pas un mot. 1 = ESTOP, 2 = MANUEL, 3 = AUTONOME.</td></tr>
+  <tr><td><code>Armed:</code></td><td><code>Y</code> / <code>N</code></td><td>Armé ou non.</td></tr>
+  <tr><td><code>Relay:</code></td><td><code>ON</code> / <code>OFF</code></td><td>Ce que le Pico <em>croit</em> avoir commandé — le retour réel est désactivé (<a href="#s4-liste">§5.1</a>).</td></tr>
+  <tr><td><code>Thr(Ch3):</code>, <code>Yaw(Ch4):</code></td><td>172 – 1811</td><td>Manettes gaz et lacet, en comptes SBUS bruts.</td></tr>
+  <tr><td><code>Arm(Ch7):</code>, <code>Mode(Ch8):</code></td><td>172 – 1811</td><td>Les deux inverseurs, en comptes SBUS bruts. Seuils en <a href="#s5">§6</a>.</td></tr>
+</table>
+</div>
+
+<h5>FOXGLOVE — la version que la Jetson attend</h5>
+
+<pre><code>STATE mode=3 armed=1 relay=1 wantauto=1 link=1 estoplatch=0 thr=991 yaw=991 ch7=1811 ch8=1811 sbusok=2400 sbusbad=0 sbusfs=0 sbuslost=0</code></pre>
+
+<p>
+  Même information, plus six champs, et une syntaxe <code>clé=valeur</code>
+  délibérément analysable — le commentaire du firmware dit
+  <em>« machine-readable line. Fields are key=value, space separated »</em>.
+  Les champs supplémentaires valent la peine d'être connus, parce que ce sont
+  eux qui rendraient le diagnostic possible depuis la plage :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Champ</th><th>Sens</th><th>Pourquoi il compte</th></tr>
+  <tr><td><code>wantauto</code></td><td>La Jetson a-t-elle demandé l'autonome ?</td><td>Sépare <em>demandé</em> de <em>obtenu</em>. Avec <code>mode</code>, on sait si le refus vient du canal 8 ou de la liaison.</td></tr>
+  <tr><td><code>link</code></td><td>La Jetson est-elle considérée vivante ?</td><td>C'est le battement de cœur de 600 ms vu du Pico. Zéro alors que <code>pico_bridge</code> tourne = problème de câble ou de port.</td></tr>
+  <tr><td><code>estoplatch</code></td><td>Le verrou de coupure est-il actif ?</td><td>Explique un bateau qui refuse de s'armer alors que tout a l'air correct.</td></tr>
+  <tr><td><code>sbusok</code>, <code>sbusbad</code>,<br><code>sbusfs</code>, <code>sbuslost</code></td><td>Compteurs de trames radio : bonnes, corrompues, failsafe, perdues</td><td>La seule mesure de <strong>qualité</strong> de la liaison radio du système. Un <code>sbusbad</code> qui monte annonce une perte de portée avant qu'elle n'arrive.</td></tr>
 </table>
 </div>
 
 <p>
-  Les lignes <code>[EVT]</code> signalent des événements ponctuels — armement,
-  coupure, défaut — plutôt qu'un état périodique. La distinction compte : un
-  état peut être manqué sans conséquence (le suivant arrive dans 250 ms), un
-  événement manqué est perdu pour toujours.
+  <strong>Ce qui n'est dans aucune des deux :</strong> la tension et le courant
+  batterie. Le Pico ne les mesure pas et n'en parle jamais. Le panneau Énergie
+  de l'interface est alimenté par une tout autre source (voir
+  <code>topics.yaml</code>), et si vous cherchiez la batterie du côté du Pico,
+  elle n'y est pas. Il n'y a pas non plus de lignes d'événement — pas de
+  <code>[EVT]</code>, pas de journal d'armement : l'état périodique est tout ce
+  que le Pico dit de lui-même.
 </p>
 
-<h4>Les commandes <code>CMD</code></h4>
+<h4>Les commandes <code>CMD</code> : elles n'existent pas</h4>
 
-<div class="bloc provisoire">
-  <span class="etiquette">Je ne peux pas documenter ce que je n'ai pas lu</span>
+<div class="bloc danger">
+  <span class="etiquette">Recherché, et non trouvé</span>
   <p>
-    Votre brief mentionne de nouvelles commandes <code>CMD</code> avec accusés
-    de réception. Elles sont dans le firmware v3 ; le
-    <code>pico_bridge.py</code> de ce dépôt ne les connaît pas — il n'envoie que
-    <code>L,R</code>, <code>PING</code> et <code>MODE …</code>.
+    Une commande <code>CMD MODE …</code>, une fonction d'arbitrage dédiée et un
+    accumulateur série non bloquant devaient avoir été écrits par une session
+    précédente et commités quelque part, probablement sous <code>firmware/</code>.
+    <strong>Ils n'y sont pas.</strong> J'ai cherché dans tous les commits de
+    toutes les branches des deux dépôts : la chaîne <code>CMD MODE</code>
+    n'apparaît nulle part, et le seul <code>.ino</code> de tout l'historique est
+    le FOXGLOVE de la branche <code>GPS_Fix_and_Task</code>.
+  </p>
+  <p>
+    Le plus proche de ce souvenir est FOXGLOVE, et la ressemblance est
+    trompeuse. Elle a bien une <strong>fonction d'arbitrage</strong> — le
+    <code>update_state()</code> à trois zones montré en <a href="#s5">§6</a>, et
+    c'est du bon travail. Mais ses verbes sont <code>MODE AUTO</code> et
+    <code>MODE MANUAL</code>, pas <code>CMD MODE …</code>. Et elle lit toujours
+    le port série avec <code>Serial.readStringUntil('\n')</code>, qui est
+    bloquant : <strong>il n'y a pas d'accumulateur non bloquant</strong>.
+    L'en-tête de la v3 annonce pourtant <em>« Non-blocking throughout: no
+    delay() anywhere, millis() only »</em> — ce qui est vrai des temporisations
+    et faux de la lecture série.
   </p>
   <p style="margin-bottom:0">
-    Je peux décrire la <em>forme</em> qu'un tel mécanisme doit avoir, pas son
-    vocabulaire. Une commande avec accusé, c'est : un identifiant unique par
-    commande, un accusé qui le cite, et un délai au-delà duquel l'absence
-    d'accusé est traitée comme un échec — <strong>pas</strong> comme un succès.
-    C'est exactement ce que l'interface fait déjà pour les changements de mode
-    (voir <a href="#s7">§8</a>). Le vocabulaire exact doit être lu dans le
-    firmware, et <code>pico_bridge</code> devra être étendu pour le parler.
+    Si ce patch existe, il est sur une machine et pas dans un dépôt. C'est le
+    genre de chose qui se perd. En attendant, voici la forme qu'un tel mécanisme
+    doit avoir, parce qu'elle ne dépend pas du vocabulaire : un identifiant
+    unique par commande, un accusé qui le cite, et un délai au-delà duquel
+    l'absence d'accusé est traitée comme un <strong>échec</strong> — jamais
+    comme un succès. C'est exactement ce que l'interface fait déjà pour les
+    changements de mode (voir <a href="#s7">§8</a>) ; c'est le Pico qui ne tient
+    pas encore sa part.
   </p>
 </div>
 
@@ -2661,6 +3029,24 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
   Voici l'histoire complète, parce qu'elle enseigne plus que n'importe quel
   avertissement abstrait.
 </p>
+
+<div class="bloc info">
+  <span class="etiquette">Ce n'est pas une faute de frappe, c'est un décalage de version</span>
+  <p style="margin-bottom:0">
+    La première édition de ce document présentait le problème comme une erreur
+    isolée dans une ligne de <code>pico_bridge.py</code>. La lecture des deux
+    firmwares montre autre chose, et de plus instructif : <strong>le code Jetson
+    est parfaitement correct — pour FOXGLOVE.</strong> Le préfixe
+    <code>STATE</code>, la syntaxe <code>clé=valeur</code>, le battement de cœur
+    de 600 ms, les verbes <code>MODE AUTO</code> / <code>MODE MANUAL</code> :
+    les quatre correspondent exactement à ce que FOXGLOVE fait, et à rien de ce
+    que la v3 fait. Personne n'a mal recopié un mot. Quelqu'un a écrit la
+    Jetson contre une version du firmware, et quelqu'un d'autre en a flashé une
+    autre. <strong>Le vrai défaut est qu'aucun des deux ne peut s'en
+    apercevoir</strong>, parce que rien n'annonce sa version et rien ne compte
+    les lignes rejetées.
+  </p>
+</div>
 
 <h4>Ce que fait le code</h4>
 
@@ -2676,9 +3062,11 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
         self._status_pub.publish(String(data=line))</code></pre>
 
 <p>
-  Le firmware émet <code>[STAT] …</code>. Le pont cherche <code>STATE…</code>.
-  <code>"[STAT] mode=AUTO".startswith("STATE")</code> est
-  <strong>faux</strong> — la ligne commence par un crochet.
+  La v3 émet <code>[STAT] Mode:3 …</code>. Le pont cherche <code>STATE…</code>.
+  Et <code>"[STAT] Mode:3 Armed:Y".startswith("STATE")</code> est
+  <strong>faux</strong> — la ligne commence par un crochet. Deux caractères
+  suffisent : le <code>[</code>, et le <code>E</code> manquant de
+  <code>STAT</code>.
 </p>
 
 <p>
@@ -2697,8 +3085,8 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 <ul>
   <li>Le mode affiché ne vient de nulle part — le bateau ne dit jamais dans quel mode il est.</li>
   <li>L'état armé/désarmé est inconnu.</li>
-  <li>L'état de la liaison RC et du canal 8 est inconnu.</li>
-  <li>La tension batterie venant du Pico est inconnue.</li>
+  <li>La position des deux inverseurs de la radiocommande est inconnue, donc la pastille « Ch8 » n'affiche rien.</li>
+  <li>L'état du relais, le verrou de coupure et la qualité de la liaison radio sont inconnus.</li>
   <li>Et surtout : <strong>la règle de sécurité n° 4 — « l'état affiché est toujours l'état confirmé » — ne peut pas être satisfaite</strong>, parce qu'aucune confirmation n'arrive jamais. Un changement de mode partirait et resterait « en attente » indéfiniment, puis échouerait.</li>
 </ul>
 
@@ -2735,21 +3123,83 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 </ol>
 
 <div class="bloc danger">
-  <span class="etiquette">Et il y a une deuxième occurrence du même bug</span>
+  <span class="etiquette">Et il y a une deuxième occurrence du même bug, plus trois autres</span>
   <p>
     L'analyseur que j'ai écrit côté interface,
     <code>gui_backend/core/pico_state.py</code>, commence par :
   </p>
   <pre style="margin:.6rem 0"><code>if not body.upper().startswith("STATE"):
     return state   # non reconnue</code></pre>
-  <p style="margin-bottom:0">
-    <strong>Exactement la même erreur.</strong> Il a été écrit contre le
+  <p>
+    <strong>Exactement la même hypothèse.</strong> Il a été écrit contre le
     <code>pico_bridge</code> existant, qui filtrait sur <code>STATE</code>, donc
-    il a hérité de l'hypothèse. Corriger <code>pico_bridge</code> seul ne
-    suffira pas : les lignes traverseraient alors le pont et seraient rejetées
-    un cran plus loin. <strong>Les deux fichiers doivent être corrigés
-    ensemble.</strong> Je le signale ici parce que c'est précisément le genre de
-    chose qu'on ne découvre autrement qu'à l'eau.
+    il en a hérité. Corriger <code>pico_bridge</code> seul ne suffira pas : les
+    lignes traverseraient alors le pont et seraient rejetées un cran plus loin.
+    <strong>Les deux fichiers doivent être corrigés ensemble.</strong>
+  </p>
+  <p>
+    Mais la vérification contre le vrai FOXGLOVE — celui pour lequel cet
+    analyseur était pourtant écrit — en révèle trois de plus. C'est-à-dire que
+    <strong>même en flashant FOXGLOVE demain, l'interface serait encore
+    fausse.</strong> Voici ce qui se passe, champ par champ, sur une vraie ligne
+    FOXGLOVE :
+  </p>
+  <div class="tableau">
+  <table>
+    <tr><th>Ce qui arrive</th><th>Ce que l'analyseur en fait</th><th>Gravité</th></tr>
+    <tr>
+      <td><code>mode=3</code></td>
+      <td>Il cherche un <em>mot</em> — <code>AUTO</code>, <code>MANUAL</code>… —
+          et reçoit un entier. Aucune correspondance, le champ part dans
+          <code>unknown_keys</code> et <code>mode</code> reste <code>None</code>.</td>
+      <td><strong>Grave.</strong> Le mode est le champ le plus important de tout
+          le flux. L'interface afficherait « inconnu » en permanence, et aucun
+          changement de mode ne pourrait jamais être confirmé — le symptôme
+          serait <em>identique</em> à celui du bug de préfixe, ce qui rend le
+          diagnostic trompeur.</td>
+    </tr>
+    <tr>
+      <td><code>ch8=1811</code></td>
+      <td>Rangé tel quel dans un champ nommé
+          <code>rc_channel8_raw_pct</code>, qui alarme sous 25.</td>
+      <td><strong>Grave et silencieux.</strong> Un compte SBUS lu comme un
+          pourcentage. 1811 ne déclenche jamais l'alarme — pas même quand le
+          canal descend à 200, ce qui est la position ESTOP. L'alarme est donc
+          non seulement fausse : elle est <em>muette précisément dans le cas
+          qu'elle doit signaler</em>.</td>
+    </tr>
+    <tr>
+      <td><code>relay</code>, <code>link</code>,
+          <code>wantauto</code>, <code>estoplatch</code>,
+          <code>thr</code>, <code>yaw</code>, <code>ch7</code>,
+          <code>sbus*</code></td>
+      <td>Aucun alias ne les reconnaît. Tous rangés dans
+          <code>unknown_keys</code> et jamais affichés.</td>
+      <td><strong>Occasion manquée.</strong> Onze champs jetés, dont les quatre
+          compteurs SBUS qui sont la seule mesure de qualité radio du système, et
+          <code>estoplatch</code> qui explique à lui seul le « pourquoi il refuse
+          de s'armer » le plus fréquent. Rien n'est cassé — c'est juste inutilisé.</td>
+    </tr>
+    <tr>
+      <td><code>vbat</code>, <code>ibat</code></td>
+      <td>Attendus par l'analyseur, et n'arrivent jamais.</td>
+      <td><strong>Inoffensif, par construction.</strong> Ils restent
+          <code>None</code>, voyagent en <code>null</code> et s'affichent « non
+          transmis » — jamais zéro, jamais une panne. C'est le seul endroit de
+          cette liste où le principe « absent ≠ zéro ≠ défaut » a fait son
+          travail tout seul.</td>
+    </tr>
+  </table>
+  </div>
+  <p style="margin-bottom:0">
+    Une remarque sur le troisième défaut, parce qu'elle est presque plus
+    importante que lui : l'analyseur considère la ligne comme
+    <strong>correctement analysée</strong> dès qu'<em>un seul</em> champ a été
+    compris. Sur une ligne FOXGLOVE, <code>armed=1</code> suffit. Le résultat
+    serait donc <code>parsed=True</code>, avec un mode inconnu et un canal 8
+    absurde — une ligne déclarée bonne qui ne l'est pas. Le drapeau devrait
+    exiger que les champs <em>essentiels</em> aient été lus, pas n'importe
+    lesquels.
   </p>
 </div>
 
@@ -2827,29 +3277,78 @@ rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></p
 
 <h4>Comment corriger, concrètement</h4>
 
+<p>
+  <strong>Décider d'abord quelle version du firmware fait foi.</strong> Tout le
+  reste en découle, et tant que ce n'est pas tranché, chaque correction risque
+  d'être écrite contre la mauvaise cible.
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Option</th><th>Ce que ça coûte</th><th>Ce que ça donne</th></tr>
+  <tr>
+    <td><strong>Flasher FOXGLOVE</strong></td>
+    <td>Une manipulation, et une relecture de ce qui a changé depuis la v3 —
+        ce n'est pas un firmware que quelqu'un a validé sur l'eau.</td>
+    <td>Le préfixe redevient bon, la bascule de mode depuis l'interface
+        fonctionne, et onze champs de diagnostic apparaissent. Il reste les
+        trois défauts de <code>pico_state.py</code> ci-dessus à corriger.</td>
+  </tr>
+  <tr>
+    <td><strong>Garder la v3</strong> et adapter la Jetson</td>
+    <td>Réécrire le filtre et l'analyseur pour <code>[STAT] Clé:Valeur</code>,
+        et accepter qu'aucune commande de mode ne parte de l'interface.</td>
+    <td>Le sens montant fonctionne. Le bouton de mode doit être retiré ou
+        clairement désactivé, sans quoi il promet ce qu'il ne peut pas tenir.</td>
+  </tr>
+</table>
+</div>
+
+<p>Ensuite, dans cet ordre :</p>
+
 <ol>
   <li>
-    Sur la Jetson, Pico branché, lancer <code>pico_bridge</code> à la main et
-    regarder le port série brut pour capturer de vraies lignes.
+    Sur la Jetson, Pico branché, capturer de vraies lignes en court-circuitant
+    ROS — la commande <code>python3 -c "import serial…"</code> de la
+    <a href="#s8">§9</a>. Deux minutes, et ça règle la question de ce que le
+    Pico dit vraiment, définitivement.
   </li>
   <li>
-    Corriger le filtre dans <code>pico_bridge.py</code> pour accepter le vrai
-    préfixe — idéalement en acceptant les deux, et en comptant les lignes
-    ignorées plutôt qu'en les jetant en silence.
+    Corriger le filtre dans <code>pico_bridge.py</code> : accepter
+    <strong>les deux</strong> préfixes, et surtout <strong>compter</strong> les
+    lignes ignorées et journaliser ce compteur. C'est la correction la plus
+    importante des cinq, parce que c'est la seule qui aurait permis de trouver
+    le problème toute seule.
   </li>
   <li>
-    Corriger <code>parse_state_line()</code> dans
-    <code>gui_backend/core/pico_state.py</code> de la même façon.
+    Corriger <code>parse_state_line()</code> : les deux syntaxes, le mode comme
+    entier <em>et</em> comme mot, le canal 8 en comptes SBUS et non en pourcent
+    (renommer le champ, sinon quelqu'un refera l'erreur), et des alias pour les
+    onze champs FOXGLOVE aujourd'hui jetés.
   </li>
   <li>
-    Coller les vraies lignes dans <code>test_pico_state.py</code>, ajuster les
-    noms de champs, et passer <code>FORMAT_VERIFIED</code> à <code>True</code>.
+    Coller les vraies lignes capturées dans <code>test_pico_state.py</code>,
+    vérifier que le seuil d'alarme du canal 8 se déclenche bien en position
+    ESTOP, et passer <code>FORMAT_VERIFIED</code> à <code>True</code>.
   </li>
   <li>
     Décider où <code>pico_bridge</code> doit être démarré, et trancher la
     question des deux chemins vers les moteurs (<a href="#s3-control">§4.2</a>).
   </li>
 </ol>
+
+<div class="bloc bon">
+  <span class="etiquette">Et une sixième, qui vaut les cinq autres</span>
+  <p style="margin-bottom:0">
+    <strong>Faire annoncer sa version au firmware.</strong> Une ligne au
+    démarrage, <code>[VER] pico-node 3</code>, et un champ <code>ver=</code>
+    dans l'état périodique. Le pont la lit, l'interface l'affiche à côté du mode,
+    et le contrôle pré-vol échoue si elle ne correspond pas à ce que la Jetson
+    sait analyser. Le problème de toute cette section — deux logiciels qui ne
+    parlent pas la même langue et n'ont aucun moyen de s'en rendre compte —
+    disparaît pour de bon, au lieu d'être corrigé une fois.
+  </p>
+</div>
 
 <a class="haut" href="#">↑ Sommaire</a>
 
@@ -3184,9 +3683,14 @@ curl -s http://&lt;ip-jetson&gt;:8090/api/tiles/info</code></pre>
 </p>
 <ol>
   <li>
-    <strong>Canal 8 en position basse.</strong> La radio interdit la propulsion.
-    Aucun logiciel n'y peut rien, et c'est voulu. Regardez la pastille Ch8 dans
-    le panneau Bateau.
+    <strong>Canal 7 en position basse — le bateau n'est pas armé.</strong>
+    C'est de loin la cause la plus fréquente, et la plus facile à oublier
+    puisque rien à l'écran ne l'affiche aujourd'hui.
+  </li>
+  <li>
+    <strong>Canal 8 en position basse — mode ESTOP.</strong> La radio interdit
+    la propulsion et ouvre le relais. Aucun logiciel n'y peut rien, et c'est
+    voulu.
   </li>
   <li>
     <strong>Coupe-circuit physique enclenché.</strong> Même logique.
@@ -3254,9 +3758,22 @@ python3 -c "import serial; s=serial.Serial('/dev/ttyACM0',115200); [print(s.read
   </p>
 </div>
 
-<p>Une fois ce bug corrigé, les causes redeviennent :</p>
+<div class="bloc danger">
+  <span class="etiquette">Et sur la v3, ça échouera même après correction du bug</span>
+  <p style="margin-bottom:0">
+    La v3 flashée ne connaît aucun verbe de mode : elle répond
+    <code>Invalid cmd: MODE AUTO</code>, et ne lit même pas le port série tant
+    qu'elle n'est pas déjà armée en autonome. <strong>Le seul moyen de changer
+    de mode aujourd'hui est l'inverseur du canal 8 sur la radiocommande</strong>
+    (<a href="#s5">§6</a>). Corriger le bug de préfixe rendra l'affichage juste,
+    pas le bouton fonctionnel.
+  </p>
+</div>
+
+<p>Sur FOXGLOVE, et une fois le bug corrigé, les causes redeviennent :</p>
 <ol>
-  <li>Le canal 7 impose le mode manuel — le logiciel ne peut pas étendre l'autorité.</li>
+  <li>Le canal 8 n'est pas en zone haute — il impose ESTOP ou MANUEL, et le logiciel ne peut pas étendre l'autorité.</li>
+  <li>La liaison série est considérée morte par le Pico (<code>link=0</code>), donc l'autonomie est refusée même canal 8 haut.</li>
   <li>Un mot non reconnu a été envoyé : seuls <code>AUTO</code> et <code>MANUAL</code> passent.</li>
   <li><code>pico_bridge</code> ne tourne pas.</li>
 </ol>
@@ -3458,6 +3975,11 @@ mount | grep media          # ce qui est réellement monté</code></pre>
     <td>Gazebo ne peut pas tourner utilement sans GPU.</td>
   </tr>
   <tr>
+    <td>Les deux firmwares Pico</td>
+    <td><strong>Lus, pas exécutés</strong></td>
+    <td>Les deux <code>.ino</code> ont été lus ligne à ligne, et c'est ce qui a permis de corriger ce document. Mais lire n'est pas mesurer : les temporisations, la profondeur du tampon USB et le comportement du feu restent à vérifier au banc.</td>
+  </tr>
+  <tr>
     <td>Quoi que ce soit contre le vrai matériel</td>
     <td class="danger"><strong>Jamais</strong></td>
     <td>Aucune ligne de ce travail n'a jamais vu un bateau, un Pico, un sonar ou un lidar réel.</td>
@@ -3475,9 +3997,14 @@ mount | grep media          # ce qui est réellement monté</code></pre>
 <table>
   <tr><th>Quoi</th><th>Où</th><th>Ce qu'il faut faire</th></tr>
   <tr>
-    <td><strong>Format des lignes <code>[STAT]</code></strong></td>
-    <td><code>gui_backend/core/pico_state.py</code></td>
-    <td>Le plus urgent. Capturer de vraies lignes, corriger les deux analyseurs, lever <code>FORMAT_VERIFIED</code>.</td>
+    <td><strong>Format des lignes d'état du Pico</strong></td>
+    <td><code>gui_backend/core/pico_state.py</code><br><code>control/control/pico_bridge.py</code></td>
+    <td>Le plus urgent. Les deux fichiers attendent <code>STATE clé=valeur</code> (FOXGLOVE) ; le Pico émet <code>[STAT] Clé:Valeur</code> (v3). Trancher la version, corriger les deux analyseurs, capturer de vraies lignes, lever <code>FORMAT_VERIFIED</code>. Détail en <a href="#s6-bug">§7.3</a>.</td>
+  </tr>
+  <tr>
+    <td><strong>Codes du feu à éclats</strong></td>
+    <td><code>docs/light_tower.md</code><br><code>config/light_tower.yaml</code></td>
+    <td>Le contrat écrit (bleu, clignotements, éclat vert d'enregistrement) ne correspond à rien de ce que le firmware fait — trois couleurs fixes, pas de bleu. Aligner l'un sur l'autre. Le sens du malentendu est dangereux : voir <a href="#s4-liste">§5.1</a>.</td>
   </tr>
   <tr>
     <td><strong>Géométrie de montage du sonar</strong> (Q2)</td>
@@ -3516,9 +4043,16 @@ mount | grep media          # ce qui est réellement monté</code></pre>
 
 <ol>
   <li>
-    <strong>Le bug <code>[STAT]</code> / <code>STATE</code>, aux deux endroits.</strong>
-    Tant qu'il est là, tout le sens montant est mort et aucune commande de mode
-    ne peut être confirmée.
+    <strong>Quelle version du firmware fait foi.</strong> La v3 est flashée,
+    FOXGLOVE est celle contre laquelle la Jetson a été écrite. Rien ne peut être
+    corrigé proprement avant que cette question soit tranchée — et c'est une
+    décision de quelques minutes, pas un chantier.
+  </li>
+  <li>
+    <strong>Le bug <code>[STAT]</code> / <code>STATE</code>, aux deux endroits,
+    plus les trois défauts de <code>pico_state.py</code>.</strong> Tant qu'ils
+    sont là, tout le sens montant est mort, aucune commande de mode ne peut être
+    confirmée, et l'alarme du canal 8 reste muette même en position ESTOP.
   </li>
   <li>
     <strong>Qui lance <code>pico_bridge</code>, et les deux chemins vers les
@@ -3527,9 +4061,17 @@ mount | grep media          # ce qui est réellement monté</code></pre>
     avant de mettre à l'eau.
   </li>
   <li>
-    <strong>Que doit faire « Couper la propulsion ».</strong> Ajouter un vrai
-    <code>MODE ESTOP</code> au firmware, ou assumer la bascule de mode. Décision
-    humaine, documentée dans <code>INTEGRATION_STATUS.md</code> §7.
+    <strong>Que doit faire « Couper la propulsion ».</strong> Le mode
+    <code>MODE_ESTOP</code> existe dans le firmware, mais seule la
+    radiocommande peut l'atteindre. Ajouter un verbe série qui y mène, ou
+    assumer définitivement la bascule de mode. Décision humaine, documentée dans
+    <code>INTEGRATION_STATUS.md</code> §7.
+  </li>
+  <li>
+    <strong>Aligner <code>light_tower.md</code> et le firmware.</strong> Un feu
+    vert veut dire « autonome, ne pas approcher » pour le Pico et
+    « enregistrement en cours » pour la documentation. Trente minutes, et c'est
+    de la sécurité des personnes.
   </li>
   <li>
     <strong>Mesurer la géométrie de montage.</strong> Trente minutes avec un
@@ -3553,20 +4095,35 @@ mount | grep media          # ce qui est réellement monté</code></pre>
 <h3>Ce que ce document ne prétend pas être</h3>
 
 <p>
-  Il a été écrit en lisant le code, pas en faisant naviguer le bateau. Tout ce
-  qu'il dit sur ROS, les paquets et l'interface est vérifiable dans les
-  fichiers. Tout ce qu'il dit sur le Pico est une reformulation de ce que vous
-  m'avez décrit, et deux endroits au moins mériteraient une vérification sur le
-  banc :
+  Il a été écrit en lisant du code, pas en faisant naviguer le bateau. Ce qu'il
+  dit sur ROS, les paquets, l'interface et le Pico est vérifiable dans des
+  fichiers — y compris, depuis cette révision, les deux firmwares. Ce qui reste
+  invérifié n'est plus « ce que le code dit » mais <strong>« ce que le matériel
+  fait »</strong>, et c'est une autre catégorie de doute :
 </p>
 
 <ul>
   <li>
-    Les temporisations de failsafe — votre brief dit 500 ms pour les deux, le
-    dépôt dit 500 et 600.
+    <strong>La profondeur du tampon USB.</strong> La v3 ne lit le port série
+    qu'en autonome et armé ; ce qu'il advient des lignes envoyées le reste du
+    temps ne se lit pas dans le <code>.ino</code>. Voir <a href="#s5">§6</a>.
   </li>
   <li>
-    Le rôle du canal 7, qui n'apparaît nulle part dans le code.
+    <strong>Le comportement réel du feu.</strong> Le firmware n'allume qu'une
+    couleur fixe à la fois ; il reste à vérifier que les trois broches vont bien
+    aux couleurs annoncées, et qu'elles sont visibles à la distance à laquelle
+    quelqu'un se tiendra.
+  </li>
+  <li>
+    <strong>Les seuils SBUS contre votre radiocommande.</strong> 700 et 1400
+    supposent une échelle 172–1811 standard. Une radio configurée avec des
+    courses réduites pourrait ne jamais atteindre la zone haute — et le symptôme
+    serait « l'autonome ne s'enclenche pas », sans rien à l'écran pour le dire.
+  </li>
+  <li>
+    <strong>Les temporisations mesurées</strong>, plutôt que lues : 500 ms dans
+    le code n'est 500 ms sur l'eau que si la boucle principale tourne assez
+    vite, ce que personne n'a chronométré.
   </li>
 </ul>
 
@@ -3585,7 +4142,9 @@ mount | grep media          # ce qui est réellement monté</code></pre>
   <code>docs/SETUP.md</code> (les étapes matérielles qui ne peuvent pas être
   faites depuis le dépôt), <code>docs/safety.md</code> (les règles de sécurité),
   <code>docs/open_questions.md</code> (les neuf questions et leur état),
-  <code>docs/light_tower.md</code> (les codes du feu à éclats).
+  <code>docs/light_tower.md</code> (les codes du feu à éclats — <strong>à lire
+  avec la réserve de la <a href="#s4-liste">§5.1</a></strong> : le firmware n'en
+  applique aucun).
 </p>
 
 <a class="haut" href="#">↑ Sommaire</a>

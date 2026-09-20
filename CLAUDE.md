@@ -33,6 +33,7 @@ which defaults to `false` — see "Boundaries".
 ```
 src/
   asket_interfaces/   msg/srv definitions shared by everything below
+  asket_common/       ROS-free shared maths: geo, heading, survey, mode arbitration
   asket_sim/          simulated data sources (stage 0) — a permanent feature
   omniscan_bridge/    Cerulean Ping Protocol -> ROS 2
   mission_recorder/   mission directories, trajectory/diagnostics/event logs, export
@@ -40,8 +41,15 @@ src/
   gui_backend/        FastAPI + WebSocket, subscription & bandwidth negotiation
   asket_gui/          React + MapLibre frontend, served by gui_backend
   asket_bringup/      launch files (`sim:=true` switches the whole system)
+firmware/             pico-node_v4 (the ONE firmware) + host-side tests
 docs/                 architecture, safety rules, light tower codes, open questions
 ```
+
+**One firmware in this tree, always.** `firmware/pico-node_v4/` is it. Two
+Pico firmwares that nothing could tell apart is what cost this project months
+of silently dead `/pico/status`; `ver=` in the `STATE` line exists to make that
+impossible, and a second sketch directory would quietly undo it. If you are
+adding a firmware, you are replacing this one and bumping `FW_VERSION`.
 
 ## The one structural rule
 
@@ -99,6 +107,22 @@ are compared across languages by running the JavaScript under Node.
 - Topic and message names for competition nodes are not hard-coded anywhere.
   `src/gui_backend/config/topics.yaml` maps a logical stream name to a topic,
   type and adapter — Q7, now answered against the real interface.
+- **`asket_common/mode_arbitration.py` is a mirror of the firmware's
+  `update_state()`, not an independent implementation.** If you change one,
+  change the other: `test_firmware_arbitration_matches.py` compiles the real
+  sketch and compares all 448 cells, and it will fail rather than let the two
+  drift. The same file pins every constant that Python holds only because it
+  cannot be read off the wire.
+- **There is no serial path into `MODE_ESTOP`, deliberately.** `MODE_ESTOP`
+  exists in the firmware and works; a serial verb reaching it is a safety-chain
+  change and belongs on the bench with the boat out of the water, as its own
+  step. A test fails if one appears, so reversing this is a decision somebody
+  makes on purpose rather than a thing that happens. Same for
+  `BENCH_NO_RC_OVERRIDE`. See `INTEGRATION_STATUS.md` §7 and §14.
+- **Arming is RC channel 7 and nothing else**, and is not commandable from
+  software. Where that makes the vessel look broken, say why rather than hiding
+  it: `arming_block_reason()` computes the sentence once and the panels render
+  it. See `INTEGRATION_STATUS.md` §15.
 - `/pico/status` is a `std_msgs/String` of raw firmware `STATE` lines. The
   parser is isolated in `gui_backend/core/pico_state.py` and is `PROVISIONAL`:
   nobody here has seen a real line. Do not treat a green Pico panel as evidence

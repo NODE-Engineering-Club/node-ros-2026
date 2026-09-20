@@ -1,25 +1,27 @@
-> **If you are reading this on a branch in `auxenceIAAC/GUI_NAMIBIA`, you are
-> looking at a transfer artefact.**
+> **This work is home.** It lives in `auxenceIAAC/node-ros-2026`, branch
+> `gui-integration`, which is where you should be reading it.
 >
-> This work's real home is **`auxenceIAAC/node-ros-2026`**, branch
-> `gui-integration`. It was pushed to `transfer/gui-integration` on the GUI
-> repository only because the session that produced it could read the fork but
-> had no credential to push to it. The branch carries the whole Njord
-> workspace, which does not belong in the GUI repository — delete it once the
-> commits are in the fork.
+> The hop through `auxenceIAAC/GUI_NAMIBIA` is over. Earlier sessions were
+> authorised only for the GUI repository and pushed to
+> `transfer/gui-integration` there because they could not push to the fork;
+> that branch's tip was `7db23c0`, and it is now merged here. The transfer
+> branch is kept until Auxence has seen it landed, then deleted — nothing
+> needs to be taken from it again.
 >
-> ```bash
-> # In a clone of auxenceIAAC/node-ros-2026:
-> git remote add transfer https://github.com/auxenceIAAC/GUI_NAMIBIA.git
-> git fetch transfer transfer/gui-integration
-> git checkout -b gui-integration transfer/gui-integration
-> git push -u origin gui-integration
-> git remote remove transfer
+> **It was not taken as-is, and that matters if you are comparing histories.**
+> The fork's `gui-integration` had not been idle: it carried three commits of
+> its own (`b9ab96a`, `432b623`, `226f6c4`) building a *different*
+> reconciliation of the same dead-`/pico/status` problem — v3 firmware kept, a
+> parser accepting both `[STAT]` and `STATE`, and serial `CMD MODE` /
+> `CMD ESTOP` verbs. The two lines contradict each other, so the merge
+> (`9ff9a15`) was resolved wholly in v4's favour: its tree is exactly
+> `7db23c0`'s. Both parents remain reachable, so the v3 reasoning is still
+> readable — it is simply not what this workspace builds.
 >
-> # Then drop the hop:
-> git push https://github.com/auxenceIAAC/GUI_NAMIBIA.git \
->   --delete transfer/gui-integration
-> ```
+> Two things were then ported forward from that line, rewritten against v4
+> rather than transplanted: `asket_common.mode_arbitration` with its firmware
+> cross-check (§14), and the arming-block explanation (§15). The serial ESTOP
+> verb was deliberately left behind; see §7.
 >
 > Nothing was pushed to `NODE-Engineering-Club/node-ros-2026`.
 
@@ -52,8 +54,9 @@ the Jetson (§5.1).
 
 | | State |
 |---|---|
-| Merge, both histories intact | **verified** — 127 club + 15 GUI + 1 merge = 143 commits |
-| GUI Python test suite (no ROS) | **verified** — 517 passed, 1 skipped |
+| Merge, both histories intact | **verified** — 150 commits, both parents reachable from `9ff9a15` |
+| GUI Python test suite (no ROS) | **verified** — 561 passed, 1 skipped |
+| Firmware arbitration vs. the Python mirror | **verified** — 448 cells, cell for cell, against the compiled sketch (§14) |
 | Adapter and STATE-parser unit tests | **verified** — rewritten against the real v4 format |
 | Serial path end to end, no hardware | **verified** — real bytes on a pty, parsed by the real parser (§10) |
 | Firmware behaviour, host-compiled | **verified** — `make -C firmware/test`, 23 checks (§8) |
@@ -625,3 +628,137 @@ firmware. It is superseded by `firmware/pico-node_v4/`. Do not flash it.
 `scripts/deploy-pi.sh` targets `pi@boat.local` and looks stale — this project
 moved to a Jetson. Left untouched: it needs somebody who knows the current
 deployment to decide what it should be.
+
+---
+
+## 14. Mode arbitration, and the check that keeps it honest
+
+Ported forward from the fork's v3 line of work (see the banner at the top), and
+**rewritten against v4 rather than transplanted**. This section exists because
+copying it across unchanged would have been the most plausible mistake
+available, and it would have rebuilt the exact failure this project has now hit
+twice: two ends of a contract disagreeing with nothing noticing.
+
+v3 and v4 do not arbitrate the same way.
+
+| | v3 | v4 |
+|---|---|---|
+| Rule | the more restrictive of (channel 8, software request) | three zones, and the top one grants **permission** |
+| Top zone | AUTONOMOUS unless clamped | MANUAL until the Jetson asks **and** the heartbeat is fresh |
+| Software ESTOP | `CMD ESTOP`, accepted from any state | **none** — see §7 |
+| Shape | a pure `arbitrate_mode()` | `update_state()`, reading globals |
+
+So `asket_common/mode_arbitration.py` now mirrors `update_state()` statement
+for statement — including the order of its last three lines, because the
+failsafe override, the latch clear and the latch application are all
+order-dependent and rearranging them changes what the boat does.
+
+### How it is checked
+
+v3's `arbitrate_mode()` was pure and could be lifted out of the `.ino` and
+compiled on its own. v4's cannot. Rather than refactor the firmware for
+testability — a firmware edit, and those belong on the bench with the boat out
+of the water — `firmware/test/arbitration_table.cpp` compiles the **whole
+sketch** against the stub Arduino core that `firmware/test/` already provides,
+sets its globals directly, and prints the decision table.
+
+`src/asket_common/test/test_firmware_arbitration_matches.py` drives the Python
+mirror through the same inputs and compares `(mode, armed, latch-out)` on every
+one.
+
+**448 cells**: 7 channel-8 values (both zone interiors and both boundaries) ×
+4 channel-7 values × request × heartbeat × receiver failsafe × latch.
+
+```bash
+make -C firmware/test table      # the table alone
+pytest src/asket_common          # the comparison, and the constant mirrors
+```
+
+The check was confirmed able to fail, in both directions, before being trusted:
+removing the heartbeat requirement from the Python mirror breaks 112 cells;
+dropping the latch application breaks it; widening `MODE_LOW_MAX` from 700 to
+800 *in the firmware* breaks it twice over; adding a serial ESTOP verb to the
+firmware trips a dedicated guard. A cross-check nobody has seen fail is a
+cross-check nobody should believe.
+
+Beyond the table, every constant that exists in Python only because it cannot
+be read off the wire is pinned to the sketch: the three channel thresholds, the
+heartbeat timeout, the SBUS range, both 500 ms failsafes, and `FW_VERSION`
+against `PROTOCOL_VERSION`. Where a value is spelled in two Python places as
+well — `CH8_ESTOP_MAX` and `CH7_ARM_MIN` in `pico_state` — all three are
+compared, because a two-way check passes happily while the third quietly
+disagrees.
+
+### Two guards that protect decisions rather than code
+
+`test_the_firmware_still_has_no_serial_estop_verb` and
+`test_the_bench_override_flag_has_not_come_back` both fail on a change that is
+otherwise perfectly reasonable-looking. That is deliberate. The absence of a
+serial path into `MODE_ESTOP` (§7) and the absence of `BENCH_NO_RC_OVERRIDE`
+(§8) are decisions with reasons; if somebody reverses one, they should have to
+delete a test that explains why, on purpose, rather than discover later that
+nothing objected.
+
+---
+
+## 15. Why the propellers will not turn, said out loud
+
+The other thing ported forward, and the one an operator meets most often.
+
+**Arming is RC channel 7 and nothing else.** There is no software path to it,
+and that is a decision rather than a gap: somebody is physically present to
+launch this boat, and flipping that switch is their consent that the propellers
+may turn. A mode arrives over a radio link from a laptop; consent does not. The
+RC authorises; the GUI drives.
+
+The cost is a state that reads exactly like a fault. A mission is permitted by
+channel 8, requested, granted, confirmed in the `STATE` line — and nothing
+moves, because the arm switch is down. An operator who cannot see why is left
+guessing whether the boat ignored them or the switch did, and those two send
+you to different places on the beach.
+
+So `arming_block_reason()` computes it once, `pico_payload` ships it as a
+sentence (or not at all), and it appears in the four places somebody could be
+looking:
+
+| Where | What it says |
+|---|---|
+| Mode panel, standing line | `RC channel 7 disarmed, propulsion cannot start` — above the buttons, because the state exists before anybody presses one |
+| Autonomous button's confirm prompt | the same sentence, on the click where it matters |
+| The command result | `Confirmed by the vessel — but RC channel 7 disarmed, propulsion cannot start` |
+| Vessel panel, Disarmed chip | the same sentence, on hover |
+
+**The Autonomous button is deliberately not disabled** while channel 7 is down.
+Selecting AUTONOMOUS and then arming on the transmitter is the normal launch
+sequence, with somebody standing next to the boat. Disabling the button would
+break that sequence; annotating it makes the order legible.
+
+Four causes are kept distinct rather than flattened: channel 7 down, a latched
+e-stop (which names the way out — cycle the arm switch), a contradiction
+(channel 7 up and the vessel disarmed anyway), and a disarmed vessel whose
+cause cannot be identified. A vessel that has not reported its arming state
+gets **no line at all**: not knowing is not evidence of a block, and it is the
+state every panel starts in.
+
+The sentence exists in two languages, because mock mode is how this GUI gets
+reviewed and a reviewer must see the wording the boat will actually send. That
+is a drift risk like any other, so `test_mock_payload_shapes.py` compares both
+the four strings **and** the decision across Python and the JS mock — a mock
+that says "blocked" where the backend says "fine" teaches the wrong reflex.
+
+### One scenario that section 7's decision leaves open
+
+**A mid-mission Jetson reboot, beyond RC range, cannot be recovered.** The
+vessel loses SBUS, the failsafe stops propulsion, the Jetson comes back, the
+GUI can request AUTONOMOUS again — and the vessel is disarmed or latched, with
+nothing in software able to re-arm it. The latch clears only when the operator
+cycles channel 7 or selects ESTOP on channel 8, both of which need a
+transmitter within range of a boat that is not within range of one.
+
+Recovery is a boat trip. This is the honest cost of the current safety chain
+and it may well be the right cost — the alternative is software that can start
+propellers with nobody present, which is what channel 7 exists to prevent.
+**It is not this integration's decision.** Worth noticing, for whoever takes
+it: the Pico does not reboot in that scenario, only the Jetson does, so the arm
+state is live in the firmware throughout. What kills propulsion is the SBUS
+failsafe, not the arming logic.

@@ -222,6 +222,23 @@ class PicoState:
             return None
         return self.rc_channel8_raw < CH8_ESTOP_MAX
 
+    @property
+    def ch7_arm_high(self) -> bool | None:
+        """Whether channel 7 is above the firmware's arming threshold.
+
+        The counterpart to :attr:`ch8_asserting_estop`, and made here for the
+        same reason: the comparison belongs in one place, on the raw SBUS
+        scale, next to the constant it uses.
+
+        This is what the *switch* is asking for, which is not the same thing as
+        :attr:`armed` — what the vessel actually did. The two differ whenever a
+        latched e-stop is holding the vessel down, and telling them apart is
+        the whole of ``arming_block_reason()``.
+        """
+        if self.rc_channel7_raw is None:
+            return None
+        return self.rc_channel7_raw > CH7_ARM_MIN
+
 
 def parse_state_line(line: str) -> PicoState:
     """Turn one raw ``STATE ...`` line into a :class:`PicoState`.

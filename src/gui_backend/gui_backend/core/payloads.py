@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 
 from asket_common.heading import HeadingEstimate
+from asket_common.mode_arbitration import arming_block_reason
 from asket_common.survey import SurveyPlan
 
 from .streams import DETAIL_FULL, DETAIL_MINIMAL, DETAIL_REDUCED
@@ -189,6 +190,22 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
             "sbus_frames_bad": _opt_int(getattr(sample, "sbus_frames_bad", None)),
             "sbus_failsafe": _opt_bool(getattr(sample, "sbus_failsafe", None)),
             "sbus_frame_lost": _opt_bool(getattr(sample, "sbus_frame_lost", None)),
+            # Why the propellers cannot turn, in one sentence, or absent when
+            # nothing is blocking them.
+            #
+            # Arming is channel 7 and nothing else — deliberately not
+            # commandable from software, because somebody is physically present
+            # to launch this boat and flipping that switch is their consent.
+            # The cost is a state that reads as a fault: a mission permitted,
+            # engaged and confirmed in the STATE line, and the vessel moves
+            # nothing. The reason is computed once, in asket_common, so the
+            # panel, the chip and the log cannot drift into three different
+            # explanations of the same switch.
+            "arming_block": arming_block_reason(
+                _opt_bool(sample.armed),
+                rc_arm_high=_opt_bool(getattr(sample, "ch7_arm_high", None)),
+                estop_latched=_opt_bool(sample.estop_latched),
+            ),
         }
     )
     return out

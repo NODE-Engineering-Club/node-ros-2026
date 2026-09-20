@@ -63,10 +63,31 @@ export function VesselState({ state }) {
               <span className={`mode-badge mode-${mode}`}>{MODE_LABELS[mode] || mode}</span>
             </Value>
             <div className="spacer" />
-            <Chip level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}>
+            <Chip
+              level={pico?.armed === undefined ? '' : pico.armed ? 'warn' : 'ok'}
+              title={pico?.arming_block || undefined}
+            >
               {pico?.armed === undefined ? 'Arming not sent' : pico.armed ? 'Armed' : 'Disarmed'}
             </Chip>
           </div>
+          {/*
+            Why the propellers cannot turn, standing — not only after somebody
+            presses something, because the state exists before they do.
+
+            Arming is RC channel 7 and nothing else; there is no software path
+            to it, deliberately. The cost is a state that reads as a fault: the
+            mode is right, the vessel confirms it, and nothing turns. Without
+            this line an operator cannot tell whether the boat ignored them or
+            the switch did, and the two send you to different places.
+
+            The backend sends the sentence or sends nothing; this never
+            composes one, so the panel and the log cannot disagree.
+          */}
+          {pico?.arming_block && (
+            <p className="warnline" style={{ margin: '0 0 8px' }}>
+              {pico.arming_block}
+            </p>
+          )}
           <Rows>
             <Row label="Position">
               <Value ageMs={vesselAge} rateHz={vesselRate} showAge={false}>

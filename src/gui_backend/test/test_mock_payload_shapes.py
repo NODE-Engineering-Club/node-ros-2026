@@ -132,3 +132,62 @@ def test_detail_levels_actually_shrink_the_mock_payload():
         full = set(keys["full"][stream])
         minimal = set(keys["minimal"][stream])
         assert minimal < full, f"{stream} does not shrink at minimal detail"
+
+
+def test_the_arming_block_wording_matches_across_languages():
+    """The one sentence in this payload that is prose rather than a number.
+
+    ``arming_block`` is computed in Python by
+    ``asket_common.mode_arbitration.arming_block_reason()`` and mirrored in the
+    mock so that mock mode shows a reviewer the wording the boat will actually
+    send. Two copies of a sentence is a drift risk like any other, so the four
+    strings are compared here rather than trusted.
+    """
+    from asket_common import mode_arbitration as ma
+
+    script = textwrap.dedent(
+        f"""
+        const P = await import('{GUI}/src/lib/mock/payloads.js');
+        console.log(JSON.stringify(P.ARM_BLOCK_STRINGS));
+        """
+    )
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    js = json.loads(out)
+
+    assert js["rc_low"] == ma.ARM_BLOCKED_RC_LOW
+    assert js["latched"] == ma.ARM_BLOCKED_LATCHED
+    assert js["unknown"] == ma.ARM_BLOCKED_UNKNOWN
+    assert js["contradictory"] == ma.ARM_BLOCKED_CONTRADICTORY
+
+
+def test_the_mock_agrees_with_python_on_who_is_blocked():
+    """Not just the wording — the decision. A mock that says "blocked" where
+    the backend says "fine" teaches an operator the wrong reflex."""
+    from asket_common.mode_arbitration import arming_block_reason
+
+    cases = [
+        (True, True, False), (True, False, True), (False, False, False),
+        (False, True, True), (False, True, False), (None, False, True),
+        (None, None, None), (False, None, None),
+    ]
+    script = textwrap.dedent(
+        f"""
+        const P = await import('{GUI}/src/lib/mock/payloads.js');
+        const cases = {json.dumps(cases)};
+        console.log(JSON.stringify(cases.map(
+          ([a, r, e]) => P.armingBlockReason(a, r, e)
+        )));
+        """
+    )
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    js = json.loads(out)
+
+    for (armed, rc_high, latched), got in zip(cases, js):
+        want = arming_block_reason(armed, rc_arm_high=rc_high, estop_latched=latched)
+        assert got == want, f"armed={armed} rc={rc_high} latched={latched}"

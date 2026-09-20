@@ -30,6 +30,19 @@ export function ModeCommands({ state, connection }) {
 
   const offline = !state.connected;
 
+  // Why the propellers cannot turn, as the backend computed it. Arming is RC
+  // channel 7 and nothing else — there is no software path to it, deliberately
+  // — so a mode command here can be accepted, engaged and confirmed by the
+  // vessel while nothing moves.
+  //
+  // The button is **not** disabled when this is set. Selecting AUTONOMOUS and
+  // then arming on the transmitter is the normal launch sequence, with
+  // somebody standing next to the boat; disabling would break that sequence,
+  // whereas saying so makes the order legible.
+  const armingBlock = pico?.arming_block || '';
+
+  const withArmingBlock = (prompt) => (armingBlock ? `${prompt} ${armingBlock}.` : prompt);
+
   // The vessel declares what a propulsion cut can do here; the GUI does not
   // assume it. Falls back to the honest minimum before the hello arrives.
   const declared = state.hello?.source?.estop;
@@ -44,6 +57,16 @@ export function ModeCommands({ state, connection }) {
 
   return (
     <Panel title="Mode">
+      {/* Standing, above the buttons, because the state exists before
+          anybody presses one. Without it an operator who presses
+          Autonomous, sees the vessel confirm AUTONOMOUS, and watches
+          nothing turn has no way to tell whether the boat ignored them
+          or the arm switch did. */}
+      {armingBlock && (
+        <p className="warnline" style={{ marginTop: 0, marginBottom: 8 }}>
+          {armingBlock}
+        </p>
+      )}
       <div className="button-row">
         <ConfirmButton
           label={COMMAND_LABELS.set_mode_MANUAL}
@@ -54,7 +77,7 @@ export function ModeCommands({ state, connection }) {
         />
         <ConfirmButton
           label={COMMAND_LABELS.set_mode_AUTONOMOUS}
-          prompt={CONFIRM_PROMPTS.set_mode_AUTONOMOUS}
+          prompt={withArmingBlock(CONFIRM_PROMPTS.set_mode_AUTONOMOUS)}
           pending={pendingFor('set_mode', 'AUTONOMOUS')}
           disabled={offline || mode === 'AUTONOMOUS'}
           onConfirm={() => connection.command('set_mode', { mode: 'AUTONOMOUS' })}
@@ -91,7 +114,7 @@ export function ModeCommands({ state, connection }) {
           }
           style={{ marginBottom: 0 }}
         >
-          {describe(latest)}
+          {describe(latest, armingBlock)}
         </p>
       )}
 
@@ -103,13 +126,19 @@ export function ModeCommands({ state, connection }) {
   );
 }
 
-function describe(command) {
+function describe(command, armingBlock = '') {
   const what =
     command.name === 'cut_propulsion'
       ? COMMAND_LABELS.cut_propulsion
       : `Mode → ${command.args?.mode ?? ''}`;
   const status = COMMAND_STATUS_LABELS[command.status] || command.status;
-  return command.status === 'failed'
-    ? `${what}: ${status}. ${command.detail || ''}`
-    : `${what}: ${status}`;
+  if (command.status === 'failed') return `${what}: ${status}. ${command.detail || ''}`;
+  // "Confirmed by the vessel" and "nothing is turning" are both true at once
+  // whenever the arm switch is down, and an operator reading only the first
+  // has been told the truth and misled anyway. The two are reported together
+  // or the confirmation is a half-answer.
+  if (command.status === 'confirmed' && armingBlock) {
+    return `${what}: ${status} — but ${armingBlock}`;
+  }
+  return `${what}: ${status}`;
 }

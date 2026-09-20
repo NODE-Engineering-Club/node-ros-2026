@@ -91,6 +91,43 @@ const MODE_AUTONOMOUS = 2;
 // percentage — mirrors CH8_ESTOP_MAX in world.js, pico.py and pico_state.py.
 const CH8_ESTOP_MAX = 700;
 
+// Ch7 above this is "armed" in the firmware. Mirrors ARM_THRESHOLD in the
+// sketch and CH7_ARM_MIN in pico_state.py.
+const CH7_ARM_MIN = 1000;
+
+// Why the propellers cannot turn. The real backend computes this in
+// `asket_common.mode_arbitration.arming_block_reason()` and ships the sentence;
+// the mock has to produce the same sentences or a reviewer reads wording in
+// mock mode that the boat will never send.
+//
+// `test_mock_payload_shapes.py` compares these four strings against the Python
+// constants, so this is a mirror that cannot drift quietly.
+const ARM_BLOCKED_RC_LOW = 'RC channel 7 disarmed, propulsion cannot start';
+const ARM_BLOCKED_LATCHED =
+  'e-stop latched, propulsion cannot start until the arm switch is cycled';
+const ARM_BLOCKED_UNKNOWN = 'the vessel reports disarmed, so propulsion cannot start';
+const ARM_BLOCKED_CONTRADICTORY =
+  'the vessel reports disarmed although channel 7 is up — propulsion cannot '
+  + 'start, and the two disagree';
+
+export function armingBlockReason(armed, rcArmHigh, estopLatched) {
+  if (armed === true) return null;
+  // Not knowing is not evidence of a block: an unarmed-because-unheard-from
+  // vessel gets no red line. This is the state every panel starts in.
+  if (armed === null || armed === undefined) return null;
+  if (rcArmHigh === false) return ARM_BLOCKED_RC_LOW;
+  if (estopLatched === true) return ARM_BLOCKED_LATCHED;
+  if (rcArmHigh === true) return ARM_BLOCKED_CONTRADICTORY;
+  return ARM_BLOCKED_UNKNOWN;
+}
+
+export const ARM_BLOCK_STRINGS = {
+  rc_low: ARM_BLOCKED_RC_LOW,
+  latched: ARM_BLOCKED_LATCHED,
+  unknown: ARM_BLOCKED_UNKNOWN,
+  contradictory: ARM_BLOCKED_CONTRADICTORY,
+};
+
 export function picoPayload(world, detail) {
   const out = {
     mode: MODE_NAMES[world.mode] || 'UNKNOWN',
@@ -122,6 +159,11 @@ export function picoPayload(world, detail) {
     sbus_frames_bad: 0,
     sbus_failsafe: !world.rcLinkOk,
     sbus_frame_lost: false,
+    arming_block: armingBlockReason(
+      world.armed,
+      world.rcChannel7 > CH7_ARM_MIN,
+      world.estopLatched,
+    ),
   });
   return out;
 }

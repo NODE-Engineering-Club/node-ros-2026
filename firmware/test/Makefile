@@ -22,10 +22,15 @@ sketch.inc: ../pico-node_v4/pico-node_v4.ino
 fwtest: harness.cpp ArduinoStub.h sketch.inc
 	$(CXX) $(CXXFLAGS) -o $@ harness.cpp
 
+# Dumps the full decision table for the Python cross-check to compare
+# against asket_common.mode_arbitration. Asserts nothing itself.
+table: arbitration_table.cpp ArduinoStub.h sketch.inc
+	$(CXX) $(CXXFLAGS) -o fwtable arbitration_table.cpp
+
 run: fwtest
 	./fwtest
 
 clean:
-	rm -f fwtest sketch.inc
+	rm -f fwtest fwtable sketch.inc
 
-.PHONY: all run clean
+.PHONY: all run clean table

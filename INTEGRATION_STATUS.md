@@ -55,7 +55,7 @@ the Jetson (§5.1).
 | | State |
 |---|---|
 | Merge, both histories intact | **verified** — 150 commits, both parents reachable from `9ff9a15` |
-| GUI Python test suite (no ROS) | **verified** — 561 passed, 1 skipped |
+| GUI Python test suite (no ROS) | **verified** — 562 passed, 1 skipped |
 | Firmware arbitration vs. the Python mirror | **verified** — 448 cells, cell for cell, against the compiled sketch (§14) |
 | Adapter and STATE-parser unit tests | **verified** — rewritten against the real v4 format |
 | Serial path end to end, no hardware | **verified** — real bytes on a pty, parsed by the real parser (§10) |
@@ -688,6 +688,18 @@ against `PROTOCOL_VERSION`. Where a value is spelled in two Python places as
 well — `CH8_ESTOP_MAX` and `CH7_ARM_MIN` in `pico_state` — all three are
 compared, because a two-way check passes happily while the third quietly
 disagrees.
+
+### The field-rename gap, now closed
+
+`ver=` protects against the firmware changing shape *wholesale*: a parser that
+does not know the version rejects the line. It does **not** protect against one
+field being renamed inside a version — the parser matches whole keys, so a
+renamed field silently becomes `None` and the panel reads "not sent" for a
+vessel that is transmitting perfectly well.
+
+That is a quieter version of §2a and the same species of bug, so every key in
+`pico_state._FIELDS` is now asserted against the sketch's own `STATE` print.
+Renaming `estoplatch` fails the test by name.
 
 ### Two guards that protect decisions rather than code
 

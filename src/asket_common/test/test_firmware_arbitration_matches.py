@@ -302,3 +302,32 @@ def test_mode_numbering_is_bridged_by_name_not_by_offset():
     assert "enum OperationMode { MODE_ESTOP = 1, MODE_MANUAL = 2, MODE_AUTONOMOUS = 3 };" in (
         source
     )
+
+
+def test_the_firmware_prints_every_key_the_parser_expects():
+    """The other half of the v3/v4 disaster, and the half still unguarded.
+
+    ``ver=`` protects against the firmware changing shape *wholesale* — a
+    parser that does not know the version rejects the line. It does not protect
+    against a single field being renamed inside a version: the parser matches
+    whole keys, so a renamed field becomes ``None`` and the panel shows "not
+    sent" for a vessel that is sending perfectly well.
+
+    That is quieter than the original bug and the same species of it: a dead
+    field and a quiet vessel are indistinguishable on a screen built to render
+    absence gracefully. So every key the parser expects is asserted against the
+    sketch's own ``STATE`` print. If you rename one, bump ``FW_VERSION`` — and
+    this test will remind you.
+    """
+    from gui_backend.core.pico_state import _FIELDS
+
+    source = _sketch()
+    start = source.index('Serial.print(F("STATE ver="))')
+    end = source.index("last_status = now;", start)
+    printed = source[start:end]
+
+    missing = [key for key in _FIELDS if f'{key}=' not in printed and key != "ver"]
+    assert not missing, (
+        f"the firmware's STATE line no longer prints: {missing}. "
+        "Either restore the field or bump FW_VERSION and update the parser."
+    )

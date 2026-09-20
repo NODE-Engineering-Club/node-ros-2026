@@ -1,3 +1,28 @@
+> **If you are reading this on a branch in `auxenceIAAC/GUI_NAMIBIA`, you are
+> looking at a transfer artefact.**
+>
+> This work's real home is **`auxenceIAAC/node-ros-2026`**, branch
+> `gui-integration`. It was pushed to `transfer/gui-integration` on the GUI
+> repository only because the session that produced it could read the fork but
+> had no credential to push to it. The branch carries the whole Njord
+> workspace, which does not belong in the GUI repository — delete it once the
+> commits are in the fork.
+>
+> ```bash
+> # In a clone of auxenceIAAC/node-ros-2026:
+> git remote add transfer https://github.com/auxenceIAAC/GUI_NAMIBIA.git
+> git fetch transfer transfer/gui-integration
+> git checkout -b gui-integration transfer/gui-integration
+> git push -u origin gui-integration
+> git remote remove transfer
+>
+> # Then drop the hop:
+> git push https://github.com/auxenceIAAC/GUI_NAMIBIA.git \
+>   --delete transfer/gui-integration
+> ```
+>
+> Nothing was pushed to `NODE-Engineering-Club/node-ros-2026`.
+
 # GUI integration — status
 
 The mission GUI overlay merged into the Njord workspace on `gui-integration`.
@@ -5,14 +30,21 @@ The mission GUI overlay merged into the Njord workspace on `gui-integration`.
 **Read this before merging anywhere.** It says what was verified, what was
 assumed, and what is still open.
 
-**Update — the Pico firmware source has now been read.** That closed the biggest
-provisional item (§5.1, the status line format), found a bug that meant
-`/pico/status` published nothing at all (§2a), and produced a firmware change
-adding the serial mode commands the GUI's buttons needed (§7).
+Since the first version of this document, one round of work has closed the
+largest open item and found several more:
 
-The GUI may now request any mode, including AUTONOMOUS — it is the primary way
-this boat is driven. **Arming is deliberately still RC-only**, and §7 explains
-what that costs, including one recovery scenario the team should think about.
+- **§8** — the Pico firmware. Two versions had diverged, the flashed one was not
+  the one the Jetson parsed, and nothing could tell them apart. `pico-node_v4`
+  merges them and announces its version; pre-flight now **fails** on a mismatch.
+- **§9** — the two paths to the motors. Decided: the Pico. Enforced by the
+  launch file, not by luck.
+- **§10** — the simulator now produces real serial text, so the layer where the
+  mismatch lived is exercised by the test suite.
+- **§11** — four other live defects found on the way, including a crash on the
+  first real status line and a channel-8 alarm that could never fire.
+
+One thing still needs a human decision (§7) and one still needs a capture from
+the Jetson (§5.1).
 
 ---
 
@@ -20,14 +52,16 @@ what that costs, including one recovery scenario the team should think about.
 
 | | State |
 |---|---|
-| Merge, both histories intact | **verified** — 122 club + 15 GUI + merges = 141 commits |
-| GUI Python test suite (no ROS) | **verified** — 608 passed, 1 skipped |
-| Status-line parser, against the real format | **verified** — see §5.1 |
-| Mode arbitration, all 24 RC × request cases | **verified** — in Python *and* in the firmware's own C++, see §7 |
+| Merge, both histories intact | **verified** — 127 club + 15 GUI + 1 merge = 143 commits |
+| GUI Python test suite (no ROS) | **verified** — 517 passed, 1 skipped |
+| Adapter and STATE-parser unit tests | **verified** — rewritten against the real v4 format |
+| Serial path end to end, no hardware | **verified** — real bytes on a pty, parsed by the real parser (§10) |
+| Firmware behaviour, host-compiled | **verified** — `make -C firmware/test`, 23 checks (§8) |
+| Motor-path exclusivity | **verified** — every argument combination, and checked against a reintroduced collision (§9) |
 | Frontend production build | **verified** — builds into `gui_backend/static/` |
+| Firmware against a real Pico | **NOT VERIFIED** — nothing here has been flashed or run on hardware |
 | `colcon build --symlink-install` | **NOT VERIFIED** — see §6 |
 | Gazebo end-to-end | **NOT VERIFIED** — see §6 |
-| **Firmware on hardware** | **NOT VERIFIED** — not compiled for RP2350, never flashed. See §7 |
 
 The build and the Gazebo run were attempted in a sandbox with no GPU and a
 Python 3.11/3.12 mismatch against ROS Jazzy. They failed on a **competition**
@@ -68,47 +102,13 @@ club's tests. Both are now scoped to the GUI packages by name.
 
 ---
 
-## 2a. `/pico/status` was publishing nothing at all
-
-**The firmware writes `[STAT]`. `pico_bridge` filtered for lines starting with
-`STATE`.** No line has ever matched, so `/pico/status` has published nothing for
-as long as both have existed in their current form, and every Pico-derived field
-in the GUI has been rendering "not sent".
-
-```python
-# control/control/pico_bridge.py, before
-if line.startswith("STATE"):
-    self._status_pub.publish(String(data=line))
-```
-
-```cpp
-// pico-node_v3.ino
-Serial.print(F("[STAT] Mode:"));   Serial.print(current_mode);
-```
-
-Fixed by accepting both prefixes. The bridge now also classifies every line it
-reads instead of dropping what it does not recognise: status to `/pico/status`,
-acknowledgements to `/pico/command_ack`, transitions and e-stops to
-`/pico/events`, and anything it cannot place is logged once with the raw text.
-Silence is what let this survive; a line nobody claims is now a warning.
-
-This is the second time the two ends of this wire have disagreed about a format
-without anything noticing, which is why §7's arbitration is checked by compiling
-the firmware's own function — see there.
-
----
-
 ## 3. Competition packages touched
 
-**Two files now, not one.** This changed, and it changed a promise made earlier
-in this document, so it is spelled out rather than folded into a diffstat.
+**One file, 27 additive lines, nothing removed.**
 
 ```
-src/bringup/launch/njord.launch.py   | 27 +++++++++++++++++++++++++++
-src/control/control/pico_bridge.py   | rewritten in place
+src/bringup/launch/njord.launch.py | 27 +++++++++++++++++++++++++++
 ```
-
-### `bringup/launch/njord.launch.py` — unchanged from before
 
 - `enable_gui` launch argument, **default `false`**, following the existing
   per-subsystem flag pattern.
@@ -116,36 +116,6 @@ src/control/control/pico_bridge.py   | rewritten in place
 - An `IncludeLaunchDescription` of `gui_backend/launch/gui.launch.py`, guarded
   by that flag.
 - One import (`FindPackageShare`).
-
-### `control/control/pico_bridge.py` — a boundary deliberately crossed
-
-`CLAUDE.md` says, in as many words: *do not modify `pico_bridge`; if a change
-there looks necessary, raise it — do not make it.* That rule was written to keep
-the GUI from costing the navigation team anything, and it is a good rule.
-
-It was crossed here **on Auxence's explicit instruction**, after the firmware
-source showed the node was not working: it filtered for `STATE` while the
-firmware writes `[STAT]`, so `/pico/status` published nothing at all (§2a). A
-node that publishes nothing is not a boundary worth protecting.
-
-What changed, and nothing else:
-
-- Accepts both `[STAT]` and `STATE` prefixes. **This is the fix for §2a.**
-- Classifies every line it reads instead of dropping the unrecognised: status,
-  `[ACK]`, events, boot banners, and a one-time warning for anything left over.
-- Publishes `/pico/command_ack` and `/pico/events` alongside `/pico/status`.
-- Accepts `ESTOP` and `RELEASE` on `/pico/mode_request` as well as
-  `AUTO`/`MANUAL`, and holds a request by re-sending it at 1 Hz so the
-  firmware's 5 s expiry does not drop it.
-
-What did **not** change: the 20 Hz heartbeat, the skid-steer mix, the serial
-write path, the neutral-on-exit behaviour, and every existing parameter name and
-default. The two pre-existing `E221` lint warnings were left alone — they are the
-author's alignment style, and competition packages are linted by `ament_flake8`
-with its own configuration, not by this repository's `.flake8`.
-
-**This needs a navigation-team review before it merges**, which is exactly what
-the boundary rule exists to force.
 
 Nothing else under `src/control`, `src/perception`, `src/sensors`,
 `src/mission`, `src/vision`, `src/description`, `src/boat_bt`, `src/fusion`,
@@ -179,10 +149,8 @@ Configured in `src/gui_backend/config/topics.yaml`. Nothing is hard-coded.
 | Lidar filtered | `/obstacles/lidar` | `sensor_msgs/PointCloud2` | `obstacles_from_pointcloud` | verified |
 | Obstacles fused | `/obstacles/fused` | `sensor_msgs/PointCloud2` | `obstacles_from_pointcloud` | verified, optional |
 | Commanded effort | `/control/effort` | `geometry_msgs/Twist` | — | wired, unused |
-| Vessel status | `/pico/status` | `std_msgs/String` | `pico_from_ros` | **verified against firmware source — see §5.1**. Was publishing nothing at all; see §2a |
-| Command acks | `/pico/command_ack` | `std_msgs/String` | `parse_ack_line` | new, see §7 |
-| Firmware events | `/pico/events` | `std_msgs/String` | `parse_event_line` | new, see §5.1 |
-| Mode request | `/pico/mode_request` | `std_msgs/String` | — | verified. Now reaches the firmware — it previously went nowhere, see §7 |
+| Vessel status | `/pico/status` | `std_msgs/String` | `pico_from_ros` | **ASSUMED — see §5** |
+| Mode request | `/pico/mode_request` | `std_msgs/String` | — | verified against `pico_bridge` |
 
 ### Decisions worth knowing about
 
@@ -223,49 +191,30 @@ Everything below is greppable:
 grep -rn PROVISIONAL src/
 ```
 
-### 5.1 The Pico status line format — **closed**
+### 5.1 The Pico `STATE` line format — now transcribed, still not captured
 
-Was the most important provisional item. The firmware source has now been read,
-so the format is transcribed rather than guessed:
+The format is no longer a guess. It is transcribed field by field from
+`firmware/pico-node_v4/pico-node_v4.ino`, and the simulator emits it over a real
+serial port so the parser is exercised on every test run (§10).
 
-```
-[STAT] Mode:2 Armed:Y Relay:ON Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):172 Mode(Ch8):172
-```
-
-| Field | Values |
-|---|---|
-| `Mode` | `1` ESTOP, `2` MANUAL, `3` AUTONOMOUS |
-| `Armed` | `Y` / `N` |
-| `Relay` | `ON` / `OFF` |
-| `Thr(Ch3)` `Yaw(Ch4)` `Arm(Ch7)` `Mode(Ch8)` | raw SBUS, 172–1811, centre 991 |
+What remains open is narrower but real: **nobody has read a line off a physical
+Pico.** Reading a firmware's source is not the same as reading its output.
 
 - Parser: `src/gui_backend/gui_backend/core/pico_state.py` — still the only file
-  in the repository that knows the wire format.
-- `FORMAT_VERIFIED = True`.
-- **The trap:** `Mode` appears twice, as `Mode:` and as `Mode(Ch8):`. Splitting
-  on `:` conflates a mode enum (1–3) with a raw SBUS count (172–1811), and the
-  result looks entirely plausible. The parser matches whole keys, and a test
-  drives a line where the two deliberately disagree so a parser that mixed them
-  up cannot pass.
-- The behavioural tests are unchanged and still there — never raise, never
-  invent, absent stays absent — because knowing the format does not make a
-  serial link stop truncating lines.
+  that knows the wire format, and now single-format on purpose.
+- `FORMAT_VERIFIED = False`.
+- Pre-flight `pico.state_format` returns **WARN every run** until that flag is
+  set, and **FAIL** on a line the parser cannot read.
+- Pre-flight `pico.firmware_version` is **critical and FAILs** on a mismatch.
 
-**`Mode(Ch8)` turned out to matter as much as `Mode`.** One is what the firmware
-settled on, the other is what the operator's switch is asking for. They differ
-whenever software is clamping the vessel, and an operator who cannot see both
-has no way to tell a clamp from a fault. Both now reach the GUI.
+To close it, on the Jetson with the Pico connected:
 
-**The pre-flight still checks, every run**, that the lines actually arriving
-parse. A flag set once is a promise about the past; a firmware change that alters
-the format would otherwise produce a panel full of nulls that reads as a quiet
-vessel rather than a broken parser. `pico.state_format` FAILs on an unreadable
-line and WARNs on an unrecognised field.
+```bash
+ros2 topic echo /pico/status --field data
+```
 
-Event lines are captured too, into `/pico/events` and from there the mission
-event log: `>>> MODE: E-STOP`, `>>> ARMED: MANUAL|AUTONOMOUS`,
-`>>> DISARMED (manual|auto)`, `[E-STOP] <reason>`, `Invalid cmd: <line>`, and
-the `[ACK]` lines added in §7.
+Paste a few real lines into `src/gui_backend/test/test_pico_state.py`, check
+them against `parse_state_line`, and set `FORMAT_VERIFIED = True`.
 
 ### 5.2 The rest
 
@@ -276,15 +225,7 @@ the `[ACK]` lines added in §7.
 | Battery capacity and hotel load (Q5) | `src/gui_backend/config/topics.yaml` | 1200 Wh / 85 W assumed. |
 | EKF heading accuracy | `src/asket_common/asket_common/heading.py` | 3.0° nominal. The EKF publishes a pose covariance — somebody should confirm `robot_localization` is filling it in rather than leaving the default, then use it. Until then the panel marks the figure "assumed". |
 | `OS3D_POINT_SET` layout (Q8) | `src/omniscan_bridge/core/ping_protocol.py` | From Cerulean's published docs, never run against a real device. |
-| ESC status codes (Q7) | `src/asket_gui/src/lib/hull.js` | Codes beyond `0` stay uninterpreted. The firmware reports no ESC code over serial at all — `esc_status` arrives only from `asket_sim`. |
-| E-stop power feedback | firmware `ESTOP_FEEDBACK_ENABLED` | **0.** Nothing verifies the ESC rail actually collapsed when the relay was commanded open. Pre-flight `pico.estop_feedback` WARNs every run until it is 1. |
-
-**Closed by reading the firmware:** the relay count. The GUI showed
-`0/4 relays closed`; there is one relay, `ESTOP_RELAY_PIN` on GPIO21, cutting ESC
-power. The `4` came from `num_relays` in `asket_sim`'s placeholder config and the
-GUI faithfully rendered whatever length of array arrived. Both ends corrected,
-and the relay is now named because its function is confirmed in firmware source
-rather than guessed.
+| Relay and ESC meanings (Q7) | `src/asket_gui/src/lib/hull.js` | `RELAY_LABELS` is empty on purpose — no relay is given a name nobody has confirmed. |
 
 ---
 
@@ -316,13 +257,24 @@ colcon test --packages-select control perception sensors mission fusion \
 colcon test-result --verbose
 ```
 
-### 6.2 GUI tests without ROS
+### 6.2 Tests without ROS and without hardware
 
 These run anywhere, including a laptop:
 
 ```bash
 pytest                                            # GUI packages only
 python3 -m flake8 --max-line-length=100 src/gui_backend src/system_test
+make -C firmware/test                             # the Pico firmware, host-compiled
+```
+
+The firmware tests need only a C++ compiler — no Pico, no Arduino toolchain.
+See §8.
+
+To watch the simulated Pico talk, without ROS or a boat:
+
+```bash
+python3 -m asket_sim.core.fake_pico_serial        # prints a port
+cat /dev/pts/N                                    # the port it printed
 ```
 
 ### 6.3 Gazebo
@@ -331,6 +283,21 @@ python3 -m flake8 --max-line-length=100 src/gui_backend src/system_test
 source install/setup.bash
 ros2 launch bringup njord.launch.py use_sim:=true enable_vision:=false enable_gui:=true
 ```
+
+### 6.3b Which organ drives the motors
+
+```bash
+ros2 launch bringup njord.launch.py                      # motor_path:=pico, the default
+ros2 launch bringup njord.launch.py motor_path:=pixhawk  # the old path
+```
+
+Inside Podman, pass the **resolved** serial device, not the symlink:
+
+```bash
+ros2 launch bringup njord.launch.py pico_device:=/dev/ttyACM0
+```
+
+See §9.
 
 Then open **http://\<jetson\>:8090** from the laptop.
 
@@ -346,10 +313,8 @@ What to check, in order:
 4. **Obstacles fused** — absent with `enable_vision:=false`; that is correct,
    and the panel should say "not sent" rather than showing zero.
 5. **Pre-flight** — press Run pre-flight. Expect **two amber warnings**:
-   `Sonar mounting geometry` (§5.2), correct until somebody measures the boat,
-   and `E-stop power feedback` (§5.2), correct until `ESTOP_FEEDBACK_ENABLED`
-   is 1. `Pico status format` should now **pass** — it warned on every run while
-   the format was a guess, and it is no longer a guess.
+   `Sonar mounting geometry` (§5.2) and `Pico status format` (§5.1). Both are
+   correct until somebody measures the boat and captures a STATE line.
 6. **The Pico stream stays absent in sim** — expected. There is no Pico in
    Gazebo, so the vessel panel's mode and armed state read "not sent".
 
@@ -372,220 +337,266 @@ reachable, it is a firewall, not the GUI.
 
 ---
 
-## 7. "Cut propulsion" — now real, and who is allowed to ask
+## 7. Open question: what should "Cut propulsion" do?
 
-### What changed
+**This needs a decision. It is not mine to make, and it was explicitly left out
+of this round: a serial ESTOP verb is a safety-chain change and belongs on the
+bench, with the boat out of the water, as its own step.**
 
-The old §7 asked what the button should do, because `pico_bridge` accepted only
-`AUTO` and `MANUAL` and there was no software ESTOP anywhere in the stack. The
-firmware source settled it: **`handle_serial_input()` only ever parsed motor
-setpoints.** There was no serial command path at all, so `/pico/mode_request`
-had never done anything, in any mode.
+### The problem
 
-So the firmware was changed rather than the button relabelled. Option A from the
-old §7, in substance.
+`pico_bridge` accepts exactly two mode words — `AUTO` and `MANUAL` — and logs a
+warning for anything else. The GUI's "Cut propulsion" button has nothing to
+send.
 
-```
-CMD MODE ESTOP | MANUAL | AUTONOMOUS     a software mode request
-CMD ESTOP                                relay open + latch, accepted from any state
-[ACK] <subject> accepted                 one acknowledgement per command
-[ACK] <subject> rejected <reason>        ...or the reason it was refused
-```
+One correction to how this section used to read: `MODE_ESTOP` **does** exist in
+the firmware, in all three versions, with disarm, relay open and a red light.
+What does not exist is a *serial path into it*. The ESTOP is real; only the
+transmitter can reach it. That is deliberate — see the three layers in
+`docs/safety.md`.
 
-### The governing rule
+### What it does in the interim
 
-**The RC transmitter is sovereign.** The effective mode is the *more restrictive*
-of (channel 8, active software request), ordering `ESTOP < MANUAL < AUTONOMOUS`.
-Software can take authority away and never add it. `CMD ESTOP` is the one
-request accepted from any state, in any build, because it can only ever restrict.
+It requests **`MANUAL`**.
 
-A held request **expires after 5 s** without a refresh, so a GUI that dies
-holding an ESTOP cannot lock the vessel out until somebody power-cycles the Pico.
-`pico_bridge` refreshes at 1 Hz while a request is held and stops on `RELEASE`.
-The **latch** is deliberately not on that clock: `trigger_estop()` still clears
-only when the operator cycles the arm switch or selects ESTOP on channel 8.
+That is the safest thing available, for a specific reason. From `pico_bridge`'s
+own docstring:
 
-The full table is written into the sketch as a comment above `arbitrate_mode()`.
+> *Moteurs appliqués côté Pico SEULEMENT si armé + AUTONOMOUS + 2s après relais.*
 
-### Three structural changes that were not optional
+The Pico drives the thrusters only when armed **and** in AUTONOMOUS. Requesting
+MANUAL therefore removes software authority over the thrusters entirely and
+hands the boat back to the RC pilot.
 
-1. **Serial is now read every loop, in every mode.** It used to be read only
-   inside `if (current_mode == MODE_AUTONOMOUS && armed)`. "Request ESTOP while
-   in MANUAL" was therefore *unimplementable* without moving it — nothing sent
-   in any other state was ever read. Motor setpoints still apply only in
-   `AUTONOMOUS && armed && past the arm window`, and are dropped silently
-   otherwise so a setpoint sent just before a mode change cannot land after it.
-2. **`Serial.readStringUntil()` is gone.** It blocks up to its timeout, which was
-   survivable while that function ran rarely and is not now it runs every loop.
-   Replaced by a non-blocking accumulator.
-3. **Output is queued.** `Serial.print()` blocks once the USB CDC buffer fills,
-   which would stall `loop()` and with it the failsafes. `emit_line()` queues,
-   `flush_serial_out()` drains only as far as `availableForWrite()` allows.
-   (There was no `availableForWrite()` discipline in v3 to inherit — that call
-   appeared nowhere in the repository.)
+**It does not stop the boat.** The hardware killswitch and RC channel 8 remain
+the only things that cut propulsion, exactly as the safety rules require.
 
-A fourth, found on the way: **`PING` was printing `Invalid cmd: PING` at 20 Hz**
-whenever the vessel was in AUTONOMOUS and armed. The bridge's heartbeat fell
-through to the motor parser, which cannot read it. It is now recognised and
-ignored — deliberately *without* refreshing `last_serial_command_ms`, since PING
-means "no fresh setpoint" and the neutral failsafe should still fire.
+### How that is made visible
 
-### How it was tested without a boat
+The button is **not** labelled "Cut propulsion" against this stack. The backend
+declares what a propulsion cut can actually do in the `hello` message, and the
+frontend labels the button from that rather than assuming a capability the
+vessel may not have:
 
-`arbitrate_mode()` is pure — no globals, no clock, no I/O. So
-`src/asket_common/test/test_firmware_arbitration_matches.py` lifts the C++ out of
-the `.ino`, compiles it with `g++ -Wall -Wextra -Werror`, and drives **all 24**
-RC × request × configuration combinations against the Python mirror in
-`asket_common.mode_arbitration`. Both must agree cell for cell. The same file
-checks that the mirrored constants — the upward flag, the request timeout, the
-SBUS thresholds, the arm delay, the e-stop feedback flag — still match the
-sketch, and that the firmware still prints every key the parser expects.
-
-That is the drift guard, and it exists because §2a was the *second* time the two
-ends of this wire disagreed about a format with nothing noticing.
-
-**It is not bench validation.** Nothing has been compiled for the RP2350 or
-flashed. See the bench list below.
-
-### Answered: the GUI may request any mode
-
-**The GUI is the primary way this boat is driven, missions included.** So the
-constant defaults to permissive:
-
-```c
-#define SOFTWARE_UPWARD_REQUESTS_ALLOWED 1      // firmware
-```
-```python
-SOFTWARE_UPWARD_REQUESTS_ALLOWED = True         # asket_common.mode_arbitration
+```yaml
+# src/gui_backend/config/topics.yaml
+estop:
+  mode: mode_request_manual
+  label: "Drop to MANUAL"
+  effect: >-
+    Hands control back to the RC pilot. The Pico only drives the thrusters when
+    armed and in AUTONOMOUS, so this removes software authority — it does not
+    stop the boat. The hardware killswitch and RC channel 8 are the only things
+    that cut propulsion.
 ```
 
-Both must change together; a test fails if they diverge.
+That `effect` sentence is rendered under the button. A button reading "Cut
+propulsion" that quietly dropped the mode instead would be the most dangerous
+thing on the screen.
 
-This widens what software may *ask for*. It does not widen what channel 8 will
-allow — requesting AUTONOMOUS while the transmitter sits in MANUAL is still
-refused, in both builds. The Autonomous button is Autonomous again, and
-**Release to RC** is now its own button with its own label: releasing a software
-clamp and requesting a mode are different actions and should not have shared
-one.
+In `asket_sim` the button keeps its real meaning, because the simulated Pico
+does model a soft latch. The two are declared separately on purpose.
 
-### Arming is deliberately not commandable from software
+### The two options
 
-This is the part to read twice, because it is a decision rather than a gap.
+**A — Add a `MODE ESTOP` path to firmware and `pico_bridge`.** The button means
+what it says. Costs a firmware change plus a `pico_bridge` change, and
+`pico_bridge` is a competition package this branch does not touch. Someone has
+to own the firmware side and decide what ESTOP does at the Pico: neutral PWM,
+relays open, or a latch that needs a physical reset.
 
-`want_armed` in the firmware is derived from **RC channel 7 and nothing else**.
-There is no `CMD ARM`, and adding one is **not a config flag** — it is a change
-to the safety chain, and it belongs to whoever owns that chain, not to this
-integration.
+**B — Keep the mode drop, permanently.** No firmware change. The GUI keeps
+saying what it does. The soft ESTOP concept disappears from the GUI's
+vocabulary, which is arguably more honest: the hardware killswitch is the ESTOP,
+and having a second thing called ESTOP that is weaker invites confusion at
+exactly the wrong moment.
 
-The reasoning, stated so nobody has to reconstruct it: somebody is physically
-present to launch this boat, and flipping the arm switch is that person's
-consent that the propellers may turn. A mode arrives over a radio link from a
-laptop. Consent does not. **The RC authorises; the GUI drives.**
+I have deliberately not chosen. Whichever you pick, `estop.mode`, `estop.label`
+and `estop.effect` in `topics.yaml` are the only things that change on the GUI
+side.
 
-#### What that costs, and how it is made legible
+---
 
-It produces a state that is very easy to misread: a mode request is accepted,
-arbitrated, and confirmed in the status line — and the boat moves nothing,
-because the arm switch is down. An operator who cannot see why is left guessing
-whether the boat ignored them or the switch did.
+## 8. Firmware, and the version check that closes this class of bug
 
-So the reason is computed once, in
-`asket_common.mode_arbitration.arming_block_reason()`, and shown everywhere it
-matters:
+### What was wrong
 
-| Where | What it says |
+Two Pico firmwares had diverged and nobody could tell which was flashed.
+
+| | `pico-node_v3` | `asket_ec_pico` |
+|---|---|---|
+| Header | `[REBUILT]` | `[REBUILT + FOXGLOVE]` |
+| Lives in | `NODE-Engineering-Club/pico-node` | this repo, `GPS_Fix_and_Task`, `920773f` |
+| Status line | `[STAT] Mode:3 Armed:Y …` | `STATE mode=3 armed=1 …` |
+| Flashed? | **yes** | no |
+| What the Jetson expected | — | **this one** |
+
+`pico_bridge` filtered for lines starting `STATE`; the Pico emitted `[STAT]`.
+Every status line was dropped **silently** — no counter, no log — and the
+downlink kept working, so the boat moved and nothing looked broken. Nobody
+subscribed to `/pico/status` before the GUI existed, and nothing launched
+`pico_bridge` anyway.
+
+### What is here now
+
+`firmware/pico-node_v4/` merges the two. Its README has the full derivation;
+the short version:
+
+- **From FOXGLOVE:** `STATE key=value` with all its fields, the three-zone
+  `update_state()`, the heartbeat, `MODE AUTO` / `MODE MANUAL`, and a real SBUS
+  frame-validation fix (below).
+- **From v3:** its comments. Nothing else — `update_motors()`, `updateBeeper()`
+  and `startBeeps()` are byte-identical between the two files, so the pivot,
+  the non-blocking beeper and the proportional mix were already in FOXGLOVE.
+- **New:** `[VER] pico-node 4` at startup and `ver=4` first in every `STATE`
+  line; a non-blocking serial reader.
+- **Dropped:** `BENCH_NO_RC_OVERRIDE`, a FOXGLOVE compile flag that removed the
+  hardware E-stop's authority outright.
+
+### The version check
+
+This is the part that matters more than any individual fix.
+
+| Layer | What it does |
 |---|---|
-| Mode panel, standing line | `RC channel 7 disarmed, propulsion cannot start` — before anybody presses anything, because the state exists first |
-| Autonomous button's confirm prompt | the same sentence, on the click where it matters |
-| The command result itself | `confirmed by the vessel — but RC channel 7 disarmed, propulsion cannot start` |
-| Vessel panel, Disarmed chip | the same sentence, on hover |
+| Firmware | `[VER] pico-node 4` at boot, `ver=4` first in every `STATE` line |
+| `pico_bridge` | logs the version; **counts** rejected lines and logs an error if it sees 20 with none kept |
+| `pico_state.py` | `PROTOCOL_VERSION = 4`; sets `version_mismatch` on anything else |
+| Pre-flight | `pico.firmware_version` is **critical** and **FAILs** on a mismatch |
+| GUI | shows the version beside the mode; a mismatch force-opens the Vessel panel |
 
-The Autonomous button is **not** disabled when channel 7 is down. Setting
-AUTONOMOUS from the GUI and then arming on the transmitter is the normal launch
-sequence — somebody is standing next to the boat. Disabling it would break that
-sequence; annotating it makes the order legible.
+FAIL rather than WARN, deliberately: a version this software does not know is a
+firmware whose field layout is unknown, so every other row in the report may
+have been read against the wrong layout. A confident GO is then the most
+dangerous output the check could produce.
 
-A latched e-stop and a contradiction (channel 7 up, vessel disarmed) get their
-own wording rather than being flattened into the same sentence, and a vessel
-that has not told us its arming state says nothing at all — not knowing is not
-evidence of a block.
+**If you flash something other than v4, pre-flight will ground the boat.** That
+is intended. Bump `FW_VERSION`, `PROTOCOL_VERSION`, `FIRMWARE_VERSION` in
+`asket_sim/core/pico.py` and `EXPECTED_FIRMWARE_VERSION` in `checks.py`
+together — a test asserts all four agree, and another reads the `.ino` to check
+the thresholds still match.
 
-#### One scenario the team should think about
+### The SBUS fix, which was not asked for and is worth knowing about
 
-**A mid-mission Jetson reboot, beyond RC range, cannot be recovered.**
+v3 validated frames with `sbus_frame[24] != 0x00`. Byte 24 is the SBUS **end
+byte**: `0x00` on Futaba, but `0x04` / `0x14` / `0x24` / `0x34` on FrSky and
+others. Against such a receiver v3 rejects **100% of frames**, silently, with
+the channels frozen at their last value.
 
-Nothing here is hypothetical about the mechanism:
+Demonstrated by compiling v3 against the test stub:
 
-1. The vessel is surveying, armed, out of transmitter range. Channel 7 is
-   physically up on a transmitter nobody is holding near the boat.
-2. The Jetson reboots — a power glitch, a watchdog, a kernel oops. `pico_bridge`
-   dies with it.
-3. The Pico loses SBUS. Outside AUTONOMOUS that latches an e-stop; inside
-   AUTONOMOUS the serial failsafe holds neutral. Either way propulsion stops.
-4. The Jetson comes back, `pico_bridge` reconnects, the GUI can request
-   AUTONOMOUS again and the firmware will accept it.
-5. **But the vessel is disarmed, or latched, and nothing in software can re-arm
-   it.** The latch clears only when the operator cycles channel 7 or selects
-   ESTOP on channel 8 — both of which need a transmitter within range of a boat
-   that is not within range of one.
+```
+v3, end byte 0x00 -> ch8 decoded as 1811  (frame ACCEPTED)
+v3, end byte 0x04 -> ch8 decoded as 0     (frame REJECTED)
+```
 
-The vessel is then a drifting object with a working GUI, a working link, a
-working mission plan, and no way to turn a propeller. Recovery is a boat trip.
+FOXGLOVE had already fixed it. v4 keeps the fix. **Worth checking which end
+byte your receiver actually sends** — if it is not `0x00`, this explains more
+than one past symptom.
 
-This is the honest cost of the current safety chain, and it may well be the
-right cost — the alternative is software that can start propellers with nobody
-present, which is exactly what channel 7 exists to prevent. **It is not this
-integration's decision.** Options worth weighing, none implemented:
+---
 
-- Accept it, and constrain missions to within RC range.
-- A re-arm path gated on something narrower than "software asked" — a physical
-  latch that survives reboot, an arm state the Pico retains across a *bridge*
-  restart (it already does; the Pico is not what reboots), or a hardware
-  watchdog that distinguishes a Jetson reboot from a lost transmitter.
-- A long-range arm channel, which moves the problem into the RC link rather
-  than solving it.
+## 9. Decided: the Pico is the motor path
 
-The middle option is the interesting one, and it is worth noticing that **the
-Pico does not reboot in this scenario — only the Jetson does.** The arm state is
-still live in the firmware throughout. What kills propulsion is the SBUS
-failsafe, not the arming logic. That may make this more tractable than it first
-looks, and it is still a safety-chain change rather than a config flag.
+`actuator_driver` and `pico_bridge` both subscribe to `/control/effort`. They
+never collided only because nothing started `pico_bridge` — which is not
+arbitration, and ends the moment somebody runs it by hand to make the GUI work.
 
-### Before this goes near the water
+**Decision: the Pico drives the motors.** The Pixhawk stays as a navigation
+source (GNSS, IMU, heading) and commands nothing.
 
-The firmware change is staged at `firmware/pico-node_v3/` with a patch that
-applies cleanly to `NODE-Engineering-Club/pico-node` at `6efc583`. **Read
-`firmware/README.md` first** — that directory is a staging copy and a second copy
-of firmware source is the exact condition that caused §2a.
+`njord.launch.py` now enforces it with one argument:
 
-On the bench, boat out of the water:
+```bash
+ros2 launch bringup njord.launch.py                      # motor_path:=pico, the default
+ros2 launch bringup njord.launch.py motor_path:=pixhawk  # the old path, intact
+```
 
-1. Flash, and confirm `[STAT]` still arrives at 4 Hz and `/pico/status` now
-   publishes. That alone is §2a fixed.
-2. With Ch8 in MANUAL, send `CMD MODE AUTONOMOUS` — expect
-   `[ACK] MODE AUTONOMOUS rejected rc_clamp`. The transmitter still wins even
-   though the GUI is now allowed to ask.
-3. With Ch8 in AUTONOMOUS and armed, send `CMD MODE MANUAL` — expect acceptance,
-   `Mode:2` in the status line while `Mode(Ch8)` still reads high, and the GUI
-   showing a software clamp rather than a fault. Then **Release to RC** — expect
-   a return to AUTONOMOUS without waiting out the timeout.
-4. Stop sending without releasing, for 6 s — expect `[ACK] REQUEST expired` and
-   the same return to AUTONOMOUS.
-5. **The arming case, and the one most worth doing carefully.** With Ch8 in
-   AUTONOMOUS and **Ch7 down**, press Autonomous in the GUI. Expect: the request
-   accepted, `Mode:3` in the status line, `Armed:N`, **nothing turning**, and the
-   GUI saying `RC channel 7 disarmed, propulsion cannot start` in the mode panel
-   and on the command result. Then raise Ch7 and confirm the vessel starts —
-   that is the intended launch sequence, not a workaround.
-6. `CMD ESTOP` from each of the three switch positions — expect the relay to
-   open every time, and re-arming to stay blocked until the arm switch is cycled.
-7. Confirm `loop()` still keeps up: no missed `[STAT]` lines, and the SBUS
-   failsafe still fires within 500 ms with the transmitter switched off.
+Both nodes' conditions read that one argument and test it for different values,
+so **no combination of launch arguments starts both**. `actuator_driver` is not
+deleted; reverting is one argument, not an edit under time pressure.
 
-Item 7 is the one to take seriously. Serial is read every loop now, and the
-failsafes share that loop. Item 5 is the one an operator will meet most often.
+`src/system_test/test/test_motor_path_exclusive.py` parses the launch file and
+evaluates both conditions across every combination of the arguments involved.
+It was checked against a deliberately reintroduced collision and fails on it.
 
-## 8. Branch conflict warning
+`pico_bridge` also gained a `pico_device` launch argument, defaulting to
+`/dev/ttyACM0`. **Podman resolves symlinks at launch: pass the container the
+resolved `ttyACMn`, not `/dev/pico`.**
+
+---
+
+## 10. The simulator now produces real serial text
+
+`asket_sim` published a structured `PicoStatus` straight onto the topic. That is
+exactly why the `[STAT]`/`STATE` mismatch was invisible: the text layer did not
+exist in simulation, so the layer where firmware and Jetson disagreed was never
+exercised.
+
+`asket_sim/core/fake_pico_serial.py` now puts real bytes on a real pty, the way
+`fake_sonar_server` already does for the sonar. It speaks what v4 speaks —
+`[VER]`, `STATE key=value` at 4 Hz, `L,R`, `PING`, `MODE AUTO` / `MODE MANUAL`,
+`[ACK]`, `Invalid cmd:` — and applies the same three-zone arbitration, so the
+GUI cannot pass a test the boat would fail.
+
+```bash
+python3 -m asket_sim.core.fake_pico_serial   # prints a port you can cat
+```
+
+`src/gui_backend/test/test_pico_serial_end_to_end.py` drives the whole chain
+with no ROS and no hardware: pty → line splitting → `STATE` filter → parser →
+payload. It is the test that did not exist.
+
+### Host-side firmware tests
+
+```bash
+make -C firmware/test
+```
+
+Compiles the sketch against a stub Arduino core and drives it with synthetic
+SBUS frames and serial input: mode arbitration in all three Ch8 zones, the
+ESTOP path down to the relay pin, the serial reader on partial and over-long
+lines, the light convention, the shape of the `STATE` line. It says nothing
+about timing, electrical behaviour or the real USB stack.
+
+---
+
+## 11. Other defects found and fixed on the way
+
+Not asked for, found while doing the above, all of them live:
+
+- **`pico_payload` crashed on a real line.** It called
+  `int(sample.rc_channel8_raw_pct)` on a field that is `None` whenever the line
+  did not carry it. The first real `STATE` line would have taken the backend
+  down. `bool(sample.rc_link_ok)` had the matching quieter bug: `bool(None)` is
+  `False`, so a field that was never sent rendered as **"RC lost"** — the worst
+  lie this panel can tell. Both now preserve `None`.
+
+- **The channel 8 alarm never fired.** The field was named
+  `rc_channel8_raw_pct` and the GUI alarmed below 25, but what arrives is a raw
+  SBUS count of 172–1811. Every real value cleared the threshold, *including
+  200*, which is the bottom of the travel and the exact position the alarm
+  existed for. Renamed to `rc_channel8_raw` everywhere (message, payload,
+  parser, checks, mock) and the comparison moved to the firmware's own
+  threshold, `< 700`, made once in `pico_state` rather than re-derived in the
+  GUI.
+
+- **The light tower contract described a tower that does not exist.**
+  `docs/light_tower.md` promised blue, blink patterns and a green recording
+  flash. The firmware has three solid colours. Green meant "recording" in the
+  document and "autonomous and armed, propellers may start" in the firmware —
+  the dangerous direction. Both the document and
+  `asket_bringup/config/light_tower.yaml` now mirror `set_light()`, and the
+  yaml says in its header that it is a mirror and not a source.
+
+- **Mode numbering differs between firmware and GUI.** The firmware counts
+  `ESTOP=1, MANUAL=2, AUTONOMOUS=3`; `PicoStatus.msg` counts from 0. They are
+  bridged by name, never by adding one, and both files now say so. An
+  off-by-one here turns MANUAL into AUTONOMOUS on screen.
+
+---
+
+## 12. Branch conflict warning
 
 Checked against the club repo at time of writing:
 
@@ -600,13 +611,16 @@ integration touches.**
 | `piddebugg`, `Nav2-testing` | 1 | `pico_bridge.py`, `njord.launch.py` |
 
 If `GPS_Fix_and_Task` merges first, expect a conflict in `njord.launch.py`
-(mechanical — my addition is 27 self-contained lines) and **check its
-`pico_bridge` changes against §5.1**, since anything altering the STATE contract
-changes what the parser has to read.
+(mechanical, but larger than before — this round adds the `motor_path` argument
+and a `pico_bridge` node) and **check its `pico_bridge` changes against §5.1 and
+§8**, since anything altering the STATE contract changes what the parser reads.
+
+That branch also carries `firmware/pico/asket_ec_pico.ino`, the FOXGLOVE
+firmware. It is superseded by `firmware/pico-node_v4/`. Do not flash it.
 
 ---
 
-## 9. Also flagged
+## 13. Also flagged
 
 `scripts/deploy-pi.sh` targets `pi@boat.local` and looks stale — this project
 moved to a Jetson. Left untouched: it needs somebody who knows the current

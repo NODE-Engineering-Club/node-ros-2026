@@ -25,6 +25,21 @@ export const MODE_MANUAL = 1;
 export const MODE_AUTONOMOUS = 2;
 export const MODE_NAMES = { 0: 'ESTOP', 1: 'MANUAL', 2: 'AUTONOMOUS' };
 
+// Raw SBUS counts, as pico-node_v4 reports them. Eleven bits clamped to this
+// range with 991 at centre — NOT percentages. Mirrors SBUS_MIN/MID/MAX in
+// asket_sim/core/pico.py and gui_backend/core/pico_state.py; a test compares
+// the payloads these produce against the backend's, so the three cannot drift.
+export const SBUS_MIN = 172;
+export const SBUS_MID = 991;
+export const SBUS_MAX = 1811;
+
+// The firmware's own thresholds, on that scale. Ch8 below this is MODE_ESTOP.
+export const CH8_ESTOP_MAX = 700;
+export const CH7_ARM_MIN = 1000;
+
+// FW_VERSION in firmware/pico-node_v4/pico-node_v4.ino.
+export const FIRMWARE_VERSION = 4;
+
 const wrap180 = (deg) => ((deg + 180) % 360 + 360) % 360 - 180;
 const wrap360 = (deg) => ((deg % 360) + 360) % 360;
 const bearingOf = (east, north) => wrap360((Math.atan2(east, north) * 180) / Math.PI);
@@ -158,7 +173,18 @@ export class MockWorld {
     this.estopLatched = false;
     this.pendingMode = null;
     this.rcLinkOk = true;
-    this.rcChannel8 = 100;
+    // Raw SBUS counts, as the firmware reports them: 172..1811, 991 at centre.
+    // Not percentages. The firmware's thresholds are on this scale — Ch8 below
+    // 700 is ESTOP, Ch7 above 1000 is armed — and an earlier version of this
+    // file used 0..100, which is how a threshold of "< 25" came to be applied
+    // to a raw count and never fire.
+    this.rcChannel8 = SBUS_MAX;
+    this.rcChannel7 = SBUS_MAX;
+    this.firmwareVersion = FIRMWARE_VERSION;
+    // Counted rather than faked: a radio that has stopped delivering frames
+    // looks like this number standing still, and that is the only warning the
+    // system gives before the link actually drops.
+    this.sbusFramesOk = 0;
 
     this.remainingWh = this.cfg.batteryCapacityWh * 0.95;
     this.consumedWh = 0;
@@ -227,7 +253,7 @@ export class MockWorld {
     this.t += dt;
     this.#applyFaults(dt);
     this.#stepVessel(dt);
-    this.#stepPico();
+    this.#stepPico(dt);
     this.#stepBattery(dt);
     this.#stepLink(dt);
     this.#stepSonar(dt);
@@ -299,7 +325,10 @@ export class MockWorld {
     this.velocity = { e: ve, n: vn };
   }
 
-  #stepPico() {
+  #stepPico(dt = 0) {
+    // One decoded frame every 14 ms, as a real receiver delivers them.
+    if (this.rcLinkOk) this.sbusFramesOk += Math.max(1, Math.round(dt / 0.014));
+
     if (!this.pendingMode) return;
     if (this.t < this.pendingMode.at) return;
     const { mode } = this.pendingMode;
@@ -307,7 +336,7 @@ export class MockWorld {
 
     // Hardware wins: no software request leaves ESTOP while the RC channel is
     // asserting it. Software can observe the killswitch; it can never move it.
-    const blocked = this.rcChannel8 < 25;
+    const blocked = this.rcChannel8 < CH8_ESTOP_MAX;
     if (blocked && mode !== MODE_ESTOP) return;
 
     this.mode = mode;

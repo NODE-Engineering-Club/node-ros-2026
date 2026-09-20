@@ -660,23 +660,35 @@ stream at a different topic is a config change.
 The Obstacles panel's raw/filtered toggle is backed by the real pair:
 `scan_raw` against `obstacles/lidar`, which filters beyond 10 m.
 
-## Two things that are not settled
+## The firmware, and what depends on it
 
-**The `STATE` line format is unverified.** `/pico/status` is a `std_msgs/String`
-carrying raw firmware lines, republished by `pico_bridge` without parsing. The
-parser lives in one function —
-`src/gui_backend/gui_backend/core/pico_state.py` — and is marked `PROVISIONAL`
-because nobody here has seen a real line. The pre-flight check says so on every
-run until somebody captures one and confirms the format. Do not read a green
-Pico panel as evidence that the format is right.
+**The Pico runs `firmware/pico-node_v4/`, and the stack refuses to fly against
+anything else.** That is not pedantry. Two firmwares had diverged, the flashed
+one emitted `[STAT] Mode:3 …` while the Jetson filtered for `STATE…`, every
+status line was dropped silently, and the downlink kept working — so the boat
+moved and nothing looked broken, for months.
+
+v4 announces itself (`[VER] pico-node 4` at boot, `ver=4` first in every status
+line), `pico_bridge` logs it and counts lines it rejects, and the pre-flight
+check `pico.firmware_version` **fails** on a mismatch. See
+`firmware/README.md` for how v4 was built and what was deliberately dropped.
+
+**The `STATE` line format is transcribed, not captured.** It is taken field by
+field from the `.ino`, and `asket_sim` now emits it over a real serial port so
+the parser is exercised on every test run. What is still missing is a line read
+off a physical Pico: `FORMAT_VERIFIED` stays `False` and the pre-flight says so
+every run. Do not read a green Pico panel as proof the format is right.
+
+## One thing that is not settled
 
 **"Cut propulsion" cannot cut propulsion.** `pico_bridge` accepts only `AUTO`
-and `MANUAL`; there is no software ESTOP path in the firmware bridge. The
-button currently requests `MANUAL`, which removes autonomous authority — the
-Pico applies motor commands only when armed *and* in AUTONOMOUS — and the
-button says exactly that on screen rather than claiming to stop the boat. The
-real decision (add a `MODE ESTOP` path to firmware and bridge, or keep it as a
-mode drop) is open.
+and `MANUAL`. The firmware *does* have `MODE_ESTOP` — disarm, relay open, red
+light — but only the transmitter can reach it, which is deliberate: see
+`docs/safety.md`. The button currently requests `MANUAL`, which removes
+autonomous authority (the Pico drives the thrusters only when armed *and* in
+AUTONOMOUS), and it says exactly that on screen rather than claiming to stop
+the boat. Whether to add a serial path into ESTOP is open, and is a bench
+decision with the boat out of the water.
 
 ## Also worth flagging
 

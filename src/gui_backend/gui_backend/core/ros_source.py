@@ -19,11 +19,6 @@ import math
 import time
 from dataclasses import dataclass
 
-from asket_common.mode_arbitration import (
-    SOFTWARE_REQUEST_TIMEOUT_S,
-    SOFTWARE_UPWARD_REQUESTS_ALLOWED,
-    requestable_modes,
-)
 from asket_common.heading import (
     SOURCE_EKF,
     SOURCE_NONE,
@@ -38,8 +33,6 @@ from .commands import (
     CMD_START_MISSION,
     CMD_STOP_MISSION,
 )
-from . import pico_state as pico_state_module
-from .pico_state import RelayEdgeTracker
 from .source import CommandOutcome, Sample
 from .streams import DETAIL_FULL
 
@@ -71,8 +64,6 @@ class RosSource:
         self._publishers: dict[str, object] = {}
         self._service_clients: dict[str, object] = {}
         self._link = adapters.link_from_measurements("wifi", 1.0, 0.0, 800_000.0)
-        # Times the ESC-power relay's OFF->ON edge across status lines.
-        self._relay_edge = RelayEdgeTracker()
 
         self._subscribe_all()
         self._prepare_commands()
@@ -226,9 +217,12 @@ class RosSource:
             )
 
         if stream == "pico":
-            record = self._pico_record()
-            if record is None:
+            msg = self._msg("pico_status")
+            if msg is None:
                 return None
+            # A std_msgs/String carries no timestamp, so the record is stamped
+            # with when this process received it. See adapters.pico_from_ros.
+            record = adapters.pico_from_ros(msg, self.now_utc_ms())
             return Sample(stream, record.utc_ms, payloads.pico_payload(record, detail))
 
         if stream == "power":
@@ -287,33 +281,6 @@ class RosSource:
 
         return None
 
-    def _latest_ack(self) -> dict | None:
-        """The most recent firmware acknowledgement, with when we saw it.
-
-        A refusal is the difference between "the button did nothing" and "the
-        transmitter would not allow it". Without this the two look identical to
-        an operator: both are a command that never confirms.
-        """
-        entry = self.latest.get("pico_command_ack")
-        if entry is None or entry.message is None:
-            return None
-        ack = pico_state_module.parse_ack_line(str(getattr(entry.message, "data", "")))
-        if ack is None:
-            return None
-        age_s = entry.age_s
-        seen_utc_ms = (
-            self.now_utc_ms() if age_s == float("inf")
-            else int(self.now_utc_ms() - age_s * 1000.0)
-        )
-        return {
-            "subject": ack.subject,
-            "mode": ack.mode,
-            "accepted": ack.accepted,
-            "reason": ack.reason,
-            "raw": ack.raw,
-            "utc_ms": seen_utc_ms,
-        }
-
     def state(self) -> dict:
         vessel = self._vessel_record()
         pico_msg = self._msg("pico_status")
@@ -323,10 +290,7 @@ class RosSource:
             "utc_ms": self.now_utc_ms(),
             "vessel": payloads.vessel_payload(vessel, DETAIL_FULL) if vessel else {},
             "heading": payloads.heading_payload(self._heading_estimate(), DETAIL_FULL),
-            # Not a stream: the command layer reads it to fail a refused command
-            # with the firmware's own reason instead of a generic timeout.
-            "pico_command_ack": self._latest_ack(),
-            "pico": payloads.pico_payload(self._pico_record(), DETAIL_FULL)
+            "pico": payloads.pico_payload(adapters.pico_from_ros(pico_msg), DETAIL_FULL)
             if pico_msg
             else {},
             "power": power.payload if power else {},
@@ -368,27 +332,6 @@ class RosSource:
             **self._pico_state_facts(),
         }
 
-    def _pico_record(self):
-        """The Pico record, with the one thing a single status line cannot say.
-
-        A ``std_msgs/String`` carries no timestamp, so the record is stamped with
-        when this process received it (see ``adapters.pico_from_ros``).
-
-        The relay's closing *time* is not in the line either — only ``Relay:ON``
-        or ``OFF`` — so it is observed across successive lines here rather than
-        read. That is what lets the GUI show the 2 s ESC arming window instead of
-        looking unresponsive while the firmware holds the thrusters at neutral.
-        """
-        msg = self._msg("pico_status")
-        if msg is None:
-            return None
-        now = self.now_utc_ms()
-        record = adapters.pico_from_ros(msg, now)
-        relay_states = getattr(record, "relay_states", None) or []
-        relay_on = bool(relay_states[0]) if relay_states else None
-        record.relay_closed_ms_ago = self._relay_edge.observe(relay_on, now)
-        return record
-
     def _pico_state_facts(self) -> dict:
         """What the pre-flight needs to judge the STATE parser.
 
@@ -404,9 +347,6 @@ class RosSource:
             "pico_state_parsed": getattr(record, "state_parsed", True),
             "pico_state_line": getattr(record, "state_line", ""),
             "pico_state_unknown_keys": list(getattr(record, "state_unknown_keys", [])),
-            # A firmware compile flag, not something the wire carries. See
-            # pico_state.ESTOP_FEEDBACK_ENABLED.
-            "pico_estop_feedback_enabled": pico_state_module.ESTOP_FEEDBACK_ENABLED,
         }
 
     def send_command(self, name: str, args: dict) -> CommandOutcome:
@@ -470,21 +410,17 @@ class RosSource:
     def _send_mode(self, name: str, args: dict) -> CommandOutcome:
         """Publish a mode request in the Pico's own vocabulary.
 
-        ``pico_bridge`` translates the word into a ``CMD MODE ...`` line and
-        holds it, refreshing it until told to release; the firmware arbitrates
-        it against channel 8 and answers with an ``[ACK]``.
+        ``pico_bridge`` accepts exactly two words, ``AUTO`` and ``MANUAL``, and
+        logs a warning for anything else. So the GUI translates rather than
+        hoping: ``AUTONOMOUS`` goes out as ``AUTO``.
 
-        **Cut propulsion now has something to send.** ``estop.mode`` is
-        ``mode_request_estop``: the firmware opens the ESC-power relay and
-        latches, from any state. The older ``mode_request_manual`` interim is
-        still honoured for a vessel running firmware without the command, and
-        anything else is refused rather than guessed at — a Cut propulsion
-        button that silently did nothing would be far worse than one that
-        reports it cannot.
-
-        Nothing here decides whether the request took effect. Acceptance is not
-        confirmation (safety rule 4): the ``[ACK]`` says the firmware took the
-        request, and only the status stream reporting ESTOP confirms the vessel.
+        **Cut propulsion has nothing to send.** There is no software ESTOP in
+        the firmware bridge. The configured interim is a drop to ``MANUAL``,
+        which removes software authority over the thrusters — the Pico drives
+        them only when armed *and* in AUTONOMOUS — without stopping the boat.
+        The button says so on screen. If ``estop.mode`` is anything else the
+        command is refused rather than guessed at: a Cut propulsion button that
+        silently did nothing would be far worse than one that reports it cannot.
         """
         publisher = self._publishers.get("mode_request")
         if publisher is None:
@@ -496,37 +432,20 @@ class RosSource:
 
         if name == CMD_CUT_PROPULSION:
             estop = (self.config.get("estop") or {})
-            configured = estop.get("mode")
-            if configured == "mode_request_estop":
-                word = "ESTOP"
-                detail = "ESC power relay commanded open, and latched"
-            elif configured == "mode_request_manual":
-                # Firmware without the ESTOP command. Still the safest thing
-                # available there, and the label says what it really does.
-                word = "MANUAL"
-                detail = "dropped to MANUAL — the RC pilot has control"
-            else:
+            if estop.get("mode") != "mode_request_manual":
                 return CommandOutcome(
                     False,
                     "no propulsion-cut path is configured. The hardware killswitch "
                     "and RC channel 8 are unaffected and still work.",
                 )
+            word = "MANUAL"
+            detail = "dropped to MANUAL — the RC pilot has control"
         else:
             requested = str(args.get("mode", "")).upper()
-            word = {
-                "AUTONOMOUS": "AUTO",
-                "AUTO": "AUTO",
-                "MANUAL": "MANUAL",
-                "ESTOP": "ESTOP",
-                "RELEASE": "RELEASE",
-            }.get(requested)
+            word = {"AUTONOMOUS": "AUTO", "AUTO": "AUTO", "MANUAL": "MANUAL"}.get(requested)
             if word is None:
                 return CommandOutcome(False, f"unknown mode {requested!r}")
-            detail = (
-                "request released; channel 8 regains authority as it expires"
-                if word == "RELEASE"
-                else "sent to the Pico"
-            )
+            detail = "sent to the Pico"
 
         if word not in accepts:
             return CommandOutcome(False, f"pico_bridge does not accept {word!r}")
@@ -568,14 +487,5 @@ class RosSource:
                 "available": bool(estop.get("mode")),
                 "label": estop.get("label") or "Cut propulsion",
                 "effect": estop.get("effect") or "",
-            },
-            # Which modes software may ask for on this vessel. The frontend
-            # builds its buttons from this rather than hard-coding a list, so a
-            # firmware built downward-only does not present a button that is
-            # guaranteed to be refused.
-            "mode_requests": {
-                "upward_allowed": SOFTWARE_UPWARD_REQUESTS_ALLOWED,
-                "requestable": requestable_modes(),
-                "request_timeout_s": SOFTWARE_REQUEST_TIMEOUT_S,
             },
         }

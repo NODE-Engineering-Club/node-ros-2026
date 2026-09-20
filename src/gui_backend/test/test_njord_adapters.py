@@ -115,48 +115,38 @@ def test_heading_is_absent_without_the_ekf_rather_than_defaulting_to_north():
 def test_a_string_status_is_parsed_and_stamped_with_our_receipt_time():
     """std_msgs/String has no header, so there is no sample time to use. The
     receipt time is honest about being ours."""
-    msg = SimpleNamespace(
-        data="[STAT] Mode:2 Armed:N Relay:OFF "
-             "Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):172 Mode(Ch8):991"
-    )
+    msg = SimpleNamespace(data="STATE ver=4 mode=2 armed=0 ch8=1811 sbusfs=0")
     record = adapters.pico_from_ros(msg, received_utc_ms=1_800_000_000_000)
     assert record.utc_ms == 1_800_000_000_000
-    assert record.mode == 1          # MANUAL
+    # mode=2 on the wire is the firmware's MANUAL; 1 is the GUI's. The two
+    # scales are bridged by name, never by an offset.
+    assert record.mode == 1
     assert record.armed is False
-    assert record.state_format_verified is True
+    assert record.rc_link_ok is True
+    assert record.rc_channel8_raw == 1811
+    assert record.state_format_verified is False
 
 
-def test_the_single_relay_is_reported_as_one_relay():
-    """One relay on GPIO21 cuts ESC power. The '4' the GUI used to show came
-    from the simulator's placeholder, not from hardware."""
-    record = adapters.pico_from_ros(SimpleNamespace(data="[STAT] Relay:ON"), 0)
-    assert record.relay_states == [True]
-    record = adapters.pico_from_ros(SimpleNamespace(data="[STAT] Relay:OFF"), 0)
-    assert record.relay_states == [False]
-
-
-def test_the_rc_switch_position_is_carried_alongside_the_confirmed_mode():
-    """So an operator can see a request being clamped by the transmitter rather
-    than reading it as a failure."""
-    record = adapters.pico_from_ros(
-        SimpleNamespace(
-            data="[STAT] Mode:2 Armed:Y Relay:ON "
-                 "Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):1811 Mode(Ch8):1811"
-        ),
-        0,
-    )
-    assert record.mode == 1                      # firmware says MANUAL
-    assert record.rc_mode == "AUTONOMOUS"        # the switch says otherwise
-    assert record.software_clamp_active is True
-    assert record.rc_channels["mode"] == 1811
-
-
-def test_the_status_line_cannot_report_a_latch_it_does_not_carry():
-    """The firmware latches internally but never prints it. False would be a
-    claim about something never sent; None says we do not know."""
-    record = adapters.pico_from_ros(SimpleNamespace(data="[STAT] Mode:3"), 0)
+def test_fields_the_line_does_not_carry_stay_absent():
+    """None says "not reported". False would be a claim about something never
+    sent — and for the killswitch that claim is the dangerous direction."""
+    record = adapters.pico_from_ros(SimpleNamespace(data="STATE ver=4 mode=3 armed=1"), 0)
     assert record.estop_latched is None
     assert record.hardware_killswitch_engaged is None
+    assert record.rc_channel8_raw is None
+    assert record.ch8_asserting_estop is None
+    # The Pico measures neither, and never did. The battery panel is fed from
+    # elsewhere; looking for it here is looking in the wrong place.
+    assert record.battery_voltage is None
+    assert record.battery_current is None
+
+
+def test_the_pico_does_report_an_estop_latch_when_it_has_one():
+    """``estoplatch`` is a real field in pico-node_v4, and it explains the most
+    common "why will it not arm"."""
+    record = adapters.pico_from_ros(
+        SimpleNamespace(data="STATE ver=4 mode=1 armed=0 estoplatch=1"), 0)
+    assert record.estop_latched is True
 
 
 def test_an_unreadable_status_line_yields_no_mode_at_all():
@@ -170,10 +160,13 @@ def test_a_structured_picostatus_still_works():
     msg = SimpleNamespace(
         header=header(), mode=2, armed=True, estop_latched=False,
         relay_states=[True, True], esc_status=[0, 0], rc_link_ok=True,
-        rc_channel8_raw_pct=100, hardware_killswitch_engaged=False,
+        rc_channel8_raw=1811, rc_channel7_raw=1811, firmware_version=4,
+        hardware_killswitch_engaged=False,
     )
     record = adapters.pico_from_ros(msg)
     assert record.mode == 2
+    assert record.rc_channel8_raw == 1811
+    assert record.ch8_asserting_estop is False
     assert record.state_format_verified is True
 
 

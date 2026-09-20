@@ -59,9 +59,6 @@ MODE_COMMANDS = {CMD_SET_MODE, CMD_CUT_PROPULSION}
 #: link teaches an operator to ignore the failure message.
 DEFAULT_TIMEOUT_S = 3.0
 
-#: The mode a propulsion cut asks for, for matching acknowledgements.
-MODE_ESTOP_NAME = "ESTOP"
-
 
 @dataclass
 class Command:
@@ -147,28 +144,13 @@ class CommandManager:
         changed status, so the client can be told.
         """
         changed: list[Command] = []
-        ack = observed_state.get("pico_command_ack") or None
-
         for cmd_id in list(self._pending):
             cmd = self._pending[cmd_id]
-
-            # A refusal is not a slow confirmation. Fail immediately with the
-            # vessel's own reason rather than making the operator wait out the
-            # timeout for a message that says nothing about why.
-            rejection = _rejection_for(cmd, ack)
-            if rejection is not None:
-                del self._pending[cmd_id]
-                cmd.status = STATUS_FAILED
-                cmd.detail = rejection
-                cmd.resolved_utc_ms = now_utc_ms
-                self._archive(cmd)
-                changed.append(cmd)
-                continue
 
             if cmd.confirm and cmd.confirm(observed_state):
                 del self._pending[cmd_id]
                 cmd.status = STATUS_CONFIRMED
-                cmd.detail = _confirmation_detail(cmd, observed_state)
+                cmd.detail = "confirmed by the vessel"
                 cmd.resolved_utc_ms = now_utc_ms
                 self._archive(cmd)
                 changed.append(cmd)
@@ -196,65 +178,6 @@ class CommandManager:
         del self.history[: max(0, len(self.history) - self._history_limit)]
 
 
-def _confirmation_detail(cmd: Command, observed_state: dict) -> str:
-    """"Confirmed" is not always the whole story.
-
-    A mode request can be accepted, arbitrated and confirmed in the status line
-    while the propellers still cannot turn, because arming is channel 7 and
-    nothing in software can raise it. Reporting only "confirmed by the vessel"
-    there is the button appearing to succeed — the operator sees a green line
-    and a boat that does not move, and cannot tell which of the two to believe.
-
-    So the confirmation carries the reason as well. A propulsion cut is exempt:
-    a disarmed vessel is what that command was *for*, and appending "propulsion
-    cannot start" to it would read as a fault instead of as success.
-    """
-    confirmed = "confirmed by the vessel"
-    if cmd.name != CMD_SET_MODE:
-        return confirmed
-
-    block = (observed_state.get("pico") or {}).get("arming_block")
-    if not block:
-        return confirmed
-    return f"{confirmed} — but {block}"
-
-
-def _rejection_for(cmd: Command, ack: dict | None) -> str | None:
-    """The reason this command was refused, or ``None`` if it was not.
-
-    Matched on the mode, not just on time: two commands can be in flight, and
-    failing the wrong one would report a refusal against a command the vessel
-    never objected to.
-
-    An ack from *before* the command was issued is ignored — it is the answer to
-    an earlier press, and reusing it would fail a command the firmware has not
-    even seen yet.
-    """
-    if not ack or ack.get("accepted") is not False:
-        return None
-    if cmd.name not in MODE_COMMANDS:
-        return None
-    if int(ack.get("utc_ms") or 0) < cmd.issued_utc_ms:
-        return None
-
-    wanted = (
-        MODE_ESTOP_NAME if cmd.name == CMD_CUT_PROPULSION
-        else str(cmd.args.get("mode", "")).upper()
-    )
-    acked = (ack.get("mode") or "").upper()
-    # AUTO and AUTONOMOUS are the same mode under two spellings.
-    if acked == "AUTO":
-        acked = "AUTONOMOUS"
-    if wanted == "AUTO":
-        wanted = "AUTONOMOUS"
-    if acked and wanted and acked != wanted:
-        return None
-
-    from asket_common.mode_arbitration import reason_text
-
-    return reason_text(str(ack.get("reason") or ""))
-
-
 # -- confirmation predicates ---------------------------------------------
 #
 # Each returns True when the observed vessel state shows the command took
@@ -270,22 +193,8 @@ def mode_confirmed(mode_name: str):
 
 
 def propulsion_cut_confirmed(state: dict) -> bool:
-    """The vessel reporting ESTOP is the confirmation.
-
-    This used to also require ``estop_latched``. The firmware latches, but it
-    does **not** print the latch in its status line — so requiring it here meant
-    a propulsion cut could never be confirmed from real hardware, only from the
-    simulator, and every real press would have timed out reporting that the
-    vessel had NOT changed state while it sat there with its relay open.
-
-    So the latch corroborates when it is reported and is not required when it is
-    absent. ``None`` means "not sent"; only an explicit ``False`` contradicts the
-    mode, and that combination is a real disagreement worth failing on.
-    """
     pico = state.get("pico") or {}
-    if pico.get("mode") != "ESTOP":
-        return False
-    return pico.get("estop_latched") is not False
+    return pico.get("mode") == "ESTOP" and pico.get("estop_latched") is True
 
 
 def recording_confirmed(should_be_recording: bool):

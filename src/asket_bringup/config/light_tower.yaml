@@ -1,49 +1,53 @@
 # Light tower colour codes. Documented in docs/light_tower.md.
 #
-# The light tower is the only visual feedback available from shore. Driving the
-# hardware is pico_bridge's job; this file is the contract, and system_test
-# reports the state it believes the tower should be showing so it can be
-# compared against reality during pre-flight.
+# THIS FILE IS A MIRROR, NOT A SOURCE. The lamps are driven by set_light() in
+# firmware/pico-node_v4/pico-node_v4.ino and by nothing else. Changing a value
+# here changes what the pre-flight *claims* the beach should be seeing; it does
+# not change a single photon. If the two disagree, the firmware is right.
+#
+# An earlier version of this file described blue lamps, blink patterns and a
+# green recording flash. None of them existed. The firmware has three solid
+# colours, one at a time, and green means "autonomous and armed" — while this
+# file claimed green meant "recording". That is the dangerous direction for a
+# misunderstanding to point, which is why it now mirrors the firmware exactly.
 
-# Highest priority wins; only one mode pattern shows at a time.
+# Highest priority wins; exactly one shows at a time, and always solid.
 modes:
-  - id: propulsion_cut
+  - id: cut
     priority: 1
-    when: "estop_latched"
+    # Covers both ESTOP and simply disarmed. They differ on the boat and not on
+    # the beach: either way the propellers cannot turn and approach is safe.
+    when: "mode == ESTOP or not armed"
     colour: red
     pattern: solid
-  - id: link_lost_autonomous
+    pin: GP12
+    means: "Propulsion cut. Safe to approach."
+
+  - id: manual
     priority: 2
-    when: "link_lost and mode == AUTONOMOUS"
-    colour: red
-    pattern: blink
-    hz: 2.0
+    when: "armed and mode == MANUAL"
+    colour: yellow
+    pattern: solid
+    pin: GP11
+    means: "Under RC control. Propellers may turn."
+
   - id: autonomous
     priority: 3
-    when: "mode == AUTONOMOUS"
-    colour: blue
+    when: "armed and mode == AUTONOMOUS"
+    colour: green
     pattern: solid
-  - id: manual
-    priority: 4
-    when: "mode == MANUAL and armed"
-    colour: amber
-    pattern: solid
-  - id: idle
-    priority: 5
-    when: "not armed"
-    colour: amber
-    pattern: blink
-    hz: 0.5
+    pin: GP10
+    means: "Driving itself. Do not approach."
 
-# Recording is an overlay, never a replacement: mode must stay readable.
-overlays:
-  - id: recording
-    when: "mission_state == RECORDING"
-    colour: green
-    pattern: flash
-    period_s: 2.0
-  - id: recording_error
-    when: "mission_state == ERROR"
-    colour: green
-    pattern: blink
-    hz: 2.0
+# No overlays. The Pico cannot know whether a mission is recording — nothing
+# sends that down the serial link — so the tower cannot signal it, and the
+# Recording panel in the GUI is the only place that knows.
+overlays: []
+
+# Lamp test on power-up: red, yellow, green, twice, ~150 ms a step, then red.
+# startup_light_sequence() in the firmware.
+startup_sequence:
+  order: [red, yellow, green]
+  cycles: 2
+  step_ms: 150
+  settles_to: red

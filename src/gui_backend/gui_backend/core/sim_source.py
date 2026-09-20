@@ -469,7 +469,9 @@ class SimSource:
         return {
             "pico_age_s": 0.0,
             "rc_link_ok": snap.pico.rc_link_ok,
-            "rc_channel8_raw_pct": snap.pico.rc_channel8_raw_pct,
+            "rc_channel8_raw": snap.pico.rc_channel8_raw,
+            "rc_channel7_raw": snap.pico.rc_channel7_raw,
+            "pico_firmware_version": snap.pico.firmware_version,
             "num_sats": snap.vessel.num_sats,
             "gnss_fix_type": snap.vessel.gnss_fix_type,
             "hdop": snap.vessel.hdop,
@@ -683,14 +685,5 @@ class SimSource:
                 "available": True,
                 "label": "Cut propulsion",
                 "effect": "Latches the simulated Pico into ESTOP.",
-            },
-            # The simulator has no RC clamp to arbitrate against, so it accepts
-            # every mode. Declared explicitly rather than left absent: the
-            # frontend reads this to build its buttons, and a missing key would
-            # silently give the sim the real vessel's restrictions.
-            "mode_requests": {
-                "upward_allowed": True,
-                "requestable": ["ESTOP", "MANUAL", "AUTONOMOUS"],
-                "request_timeout_s": None,
             },
         }

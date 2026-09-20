@@ -19,11 +19,6 @@ export const MODE_LABELS = {
 export const COMMAND_LABELS = {
   set_mode_MANUAL: 'Manual',
   set_mode_AUTONOMOUS: 'Autonomous',
-  // Releasing a software clamp and requesting a mode are different actions and
-  // do not share a button. Release gives authority back to the transmitter;
-  // Autonomous asks for a mode. Conflating them made one button mean two things
-  // depending on a build flag.
-  set_mode_RELEASE: 'Release to RC',
   cut_propulsion: 'Cut propulsion',
 };
 
@@ -32,8 +27,6 @@ export const COMMAND_LABELS = {
 export const CONFIRM_PROMPTS = {
   set_mode_MANUAL: 'Hand control to the RC transmitter?',
   set_mode_AUTONOMOUS: 'Let the vessel drive itself?',
-  set_mode_RELEASE:
-    'Release to the transmitter? The software request is dropped and the vessel follows RC channel 8 alone, which may mean it starts driving itself.',
   cut_propulsion:
     'Cut propulsion? This is a software latch. The hardware killswitch and RC channel 8 are separate and always work.',
 };

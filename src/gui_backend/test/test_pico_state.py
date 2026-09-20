@@ -1,356 +1,239 @@
-"""The Pico status line parser, against the real firmware format.
+"""Parsing the Pico's STATE line.
 
-The format is transcribed from ``pico-node_v3.ino`` (the flashed v3 firmware),
-not guessed. So unlike the provisional version this replaces, these tests assert
-*spelling* as well as behaviour: exact field names, exact value vocabularies, and
-the exact line the firmware prints.
+The format here is transcribed from ``firmware/pico-node_v4/pico-node_v4.ino``,
+field by field, so these tests can assert real spellings — unlike the previous
+round, where the format was a guess and the tests could only pin behaviour.
 
-The behavioural guarantees still hold and still have their own tests, because
-they are what keeps a parser bug from becoming a safety problem:
+What they still pin is the behaviour that must hold regardless: never raise,
+never invent, absent stays absent, an unreadable line is reported as unreadable
+rather than quietly becoming a mode, and a version this parser does not know is
+refused rather than half-read.
 
-* never raise, on anything a serial link can produce
-* never invent a value — absent stays absent
-* an unreadable line is reported as unreadable, not quietly turned into a mode
+``FORMAT_VERIFIED`` stays False until somebody captures a line off real
+hardware. Reading the firmware source is not the same as reading its output.
 """
 
 import pytest
-
 from gui_backend.core import pico_state
 from gui_backend.core.pico_state import (
-    ARM_THRESHOLD,
-    EVENT_ARMED,
-    EVENT_COMMAND_ACK,
-    EVENT_DISARMED,
-    EVENT_ESTOP_TRIGGERED,
-    EVENT_INVALID_COMMAND,
-    EVENT_MODE_ESTOP,
     MODE_AUTONOMOUS,
     MODE_ESTOP,
     MODE_MANUAL,
-    PicoState,
-    is_status_line,
-    parse_event_line,
+    PROTOCOL_VERSION,
     parse_state_line,
-    rc_mode_from_sbus,
-    sbus_to_pct,
 )
 
-#: Captured from the firmware source: the exact line `loop()` prints every
-#: 250 ms. Disarmed, ESTOP on the switch, sticks centred.
-REAL_LINE = (
-    "[STAT] Mode:2 Armed:Y Relay:ON "
-    "Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):172 Mode(Ch8):172"
+#: Copied from the firmware's own loop(), in field order. Every test that needs
+#: a well-formed line starts from this one.
+V4_LINE = (
+    "STATE ver=4 mode=3 armed=1 relay=1 wantauto=1 link=1 estoplatch=0 "
+    "thr=991 yaw=991 ch7=1811 ch8=1811 "
+    "sbusok=2400 sbusbad=0 sbusfs=0 sbuslost=0"
 )
 
 
-def test_format_is_no_longer_provisional():
-    """The format came out of the firmware source. The runtime check that live
-    lines still parse lives in system_test, not in this flag."""
-    assert pico_state.FORMAT_VERIFIED is True
+def _line(**overrides):
+    """V4_LINE with some fields replaced, keeping the real field order."""
+    parts = V4_LINE.split()
+    out = [parts[0]]
+    for token in parts[1:]:
+        key = token.split("=")[0]
+        out.append(f"{key}={overrides[key]}" if key in overrides else token)
+    return " ".join(out)
 
 
-def test_the_real_line_parses_completely():
-    state = parse_state_line(REAL_LINE)
-
-    assert state.parsed is True
-    assert state.mode == MODE_MANUAL
-    assert state.mode_number == 2
-    assert state.armed is True
-    assert state.relay_on is True
-    assert state.ch_throttle == 991
-    assert state.ch_yaw == 991
-    assert state.ch_arm == 172
-    assert state.ch_mode == 172
-    assert state.unknown_keys == []
+def test_the_format_is_still_marked_unverified():
+    """If this fails, either somebody captured a real line — in which case
+    delete this test — or somebody flipped the flag without doing so, which is
+    the thing it exists to catch."""
+    assert pico_state.FORMAT_VERIFIED is False
 
 
-# -- the trap --------------------------------------------------------------
+# -- robustness -----------------------------------------------------------
 
 
-def test_mode_and_mode_ch8_are_not_conflated():
-    """`Mode` and `Mode(Ch8)` are different fields carrying different units.
+@pytest.mark.parametrize("line", [
+    "",
+    "   ",
+    "not a state line",
+    "STATEMENT mode=AUTO",
+    "\x00\xff binary noise",
+    "STATE " + "x" * 10000,
+    "STATE ver=4 mode= armed=",
+    "STATE=1",
+    "STATE ver=4 mode=3 armed=1 " + "=" * 500,
+])
+def test_nothing_a_serial_link_can_produce_makes_it_raise(line):
+    state = parse_state_line(line)
+    assert isinstance(state.parsed, bool)
 
-    Splitting the line naively on ':' and taking a trailing `Mode` would put a
-    raw SBUS count (172-1811) into the mode enum, or the enum into the channel.
-    Here Mode:1 is ESTOP while Ch8 reads 1811 (AUTONOMOUS on the switch) — the
-    two disagree on purpose, so a parser that mixed them up cannot pass.
+
+@pytest.mark.parametrize("value", [None, 42, b"STATE ver=4 mode=3 armed=1", object()])
+def test_a_non_string_is_not_a_line(value):
+    assert parse_state_line(value).parsed is False
+
+
+def test_a_v3_line_is_refused_rather_than_half_read():
+    """The bug this whole round exists to close.
+
+    ``pico-node_v3`` emitted ``[STAT] Mode:3 Armed:Y ...``. It must come back
+    unparsed, so the pre-flight fails and says so, rather than yielding a
+    half-populated panel.
     """
-    line = (
-        "[STAT] Mode:1 Armed:N Relay:OFF "
-        "Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):172 Mode(Ch8):1811"
-    )
-    state = parse_state_line(line)
-
-    assert state.mode == MODE_ESTOP, "firmware mode must come from `Mode:`"
-    assert state.mode_number == 1
-    assert state.ch_mode == 1811, "channel must come from `Mode(Ch8):`"
-    assert state.rc_mode == MODE_AUTONOMOUS, "and the switch says AUTONOMOUS"
-    assert state.mode != state.rc_mode
-
-
-def test_the_disagreement_is_reported_as_a_software_clamp():
-    """Firmware more restrictive than the switch means software is holding the
-    vessel down. The operator must be able to tell that from a fault."""
-    clamped = parse_state_line(
-        "[STAT] Mode:2 Armed:Y Relay:ON "
-        "Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):1811 Mode(Ch8):1811"
-    )
-    assert clamped.mode == MODE_MANUAL
-    assert clamped.rc_mode == MODE_AUTONOMOUS
-    assert clamped.software_clamp_active is True
-
-    agreeing = parse_state_line(
-        "[STAT] Mode:3 Armed:Y Relay:ON "
-        "Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):1811 Mode(Ch8):1811"
-    )
-    assert agreeing.software_clamp_active is False
-
-
-# -- field vocabularies ----------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "number,expected",
-    [(1, MODE_ESTOP), (2, MODE_MANUAL), (3, MODE_AUTONOMOUS)],
-)
-def test_every_firmware_mode_number(number, expected):
-    line = f"[STAT] Mode:{number} Armed:N Relay:OFF Mode(Ch8):991"
-    assert parse_state_line(line).mode == expected
-
-
-@pytest.mark.parametrize("text,expected", [("Y", True), ("N", False)])
-def test_armed_vocabulary(text, expected):
-    assert parse_state_line(f"[STAT] Armed:{text}").armed is expected
-
-
-@pytest.mark.parametrize("text,expected", [("ON", True), ("OFF", False)])
-def test_relay_vocabulary(text, expected):
-    assert parse_state_line(f"[STAT] Relay:{text}").relay_on is expected
-
-
-def test_an_unknown_mode_number_is_not_guessed_at():
-    """A number outside 1-3 must not be rounded to the nearest plausible mode."""
-    state = parse_state_line("[STAT] Mode:7 Armed:N")
+    state = parse_state_line("[STAT] Mode:3 Armed:Y Relay:ON Thr(Ch3):991 Mode(Ch8):1811")
+    assert state.parsed is False
     assert state.mode is None
-    assert state.mode_number == 7
-    assert "Mode:7" in state.unknown_keys
+    assert state.raw  # the text is kept, so the operator can see what arrived
 
 
-# -- derived RC values -----------------------------------------------------
+# -- the fields -----------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        (172, MODE_ESTOP),
-        (699, MODE_ESTOP),
-        (700, MODE_MANUAL),
-        (991, MODE_MANUAL),
-        (1399, MODE_MANUAL),
-        (1400, MODE_AUTONOMOUS),
-        (1811, MODE_AUTONOMOUS),
-    ],
-)
-def test_rc_mode_thresholds_match_the_firmware(raw, expected):
-    assert rc_mode_from_sbus(raw) == expected
-
-
-def test_rc_mode_is_absent_when_the_channel_is():
-    assert rc_mode_from_sbus(None) is None
-    assert parse_state_line("[STAT] Mode:2").rc_mode is None
-
-
-@pytest.mark.parametrize("raw,expected", [(172, 0), (991, 50), (1811, 100)])
-def test_channel_percentage(raw, expected):
-    assert sbus_to_pct(raw) == expected
-
-
-def test_channel_percentage_clamps_rather_than_going_out_of_range():
-    assert sbus_to_pct(0) == 0
-    assert sbus_to_pct(4000) == 100
-    assert sbus_to_pct(None) is None
-
-
-@pytest.mark.parametrize(
-    "raw,expected", [(172, False), (1000, False), (1001, True), (1811, True)]
-)
-def test_arm_switch_threshold(raw, expected):
-    assert parse_state_line(f"[STAT] Arm(Ch7):{raw}").rc_arm_high is expected
-
-
-# -- behaviour under garbage ----------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "",
-        "   ",
-        "[STAT]",
-        "[STAT] ",
-        "\x00\xff garbage",
-        "[STAT] Mode: Armed:",
-        "[STAT] Mode:abc Armed:maybe Relay:perhaps Thr(Ch3):x",
-        "[STAT] Mode:2 Mode:3 Mode:1",
-        "=== Asket EC Pico Controller (rebuilt) ===",
-        ">>> MODE: E-STOP",
-        "[STAT] " + "A:1 " * 500,
-        "[STAT] Mode:99999999999999999999",
-    ],
-)
-def test_never_raises(line):
-    """Anything a serial link can produce, including a half-written line."""
-    state = parse_state_line(line)
-    assert isinstance(state, PicoState)
-
-
-def test_a_truncated_line_yields_what_it_carried_and_no_more():
-    """Serial lines get cut. What survived is still usable; what did not is
-    absent rather than defaulted."""
-    state = parse_state_line("[STAT] Mode:3 Armed:Y Relay:ON Thr(Ch3):9")
+def test_a_real_v4_line_reads_every_field():
+    state = parse_state_line(V4_LINE)
+    assert state.parsed is True
+    assert state.unknown_keys == []
+    assert state.firmware_version == PROTOCOL_VERSION
+    assert state.version_mismatch is False
     assert state.mode == MODE_AUTONOMOUS
     assert state.armed is True
-    assert state.ch_throttle == 9
-    assert state.ch_yaw is None
-    assert state.ch_mode is None
-    assert state.rc_mode is None
+    assert state.relay_closed is True
+    assert state.mode_requested_auto is True
+    assert state.link_live is True
+    assert state.estop_latched is False
+    assert state.rc_throttle_raw == 991
+    assert state.rc_yaw_raw == 991
+    assert state.rc_channel7_raw == 1811
+    assert state.rc_channel8_raw == 1811
+    assert state.sbus_frames_ok == 2400
+    assert state.sbus_frames_bad == 0
+    assert state.sbus_failsafe is False
+    assert state.sbus_frame_lost is False
 
 
-def test_an_unrecognised_line_is_reported_not_interpreted():
-    state = parse_state_line("Invalid cmd: 0.5 0.5")
-    assert state.parsed is False
+@pytest.mark.parametrize("raw,expected", [
+    ("1", MODE_ESTOP),
+    ("2", MODE_MANUAL),
+    ("3", MODE_AUTONOMOUS),
+])
+def test_mode_is_an_integer_on_the_wire(raw, expected):
+    """The firmware sends ``enum OperationMode { ESTOP=1, MANUAL=2, AUTO=3 }``.
+
+    The previous parser looked for a *word*, found a number, and left mode as
+    None — producing exactly the symptom of the prefix bug, which made the two
+    indistinguishable in the field.
+    """
+    assert parse_state_line(_line(mode=raw)).mode == expected
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("MANUAL", MODE_MANUAL), ("AUTO", MODE_AUTONOMOUS),
+    ("autonomous", MODE_AUTONOMOUS), ("ESTOP", MODE_ESTOP),
+])
+def test_mode_words_are_accepted_too(word, expected):
+    """Nothing sends these, but a human reproducing a bug by hand does."""
+    assert parse_state_line(_line(mode=word)).mode == expected
+
+
+def test_an_unknown_mode_number_does_not_become_a_mode():
+    state = parse_state_line(_line(mode="9"))
     assert state.mode is None
-    assert state.raw == "Invalid cmd: 0.5 0.5"
+    assert state.parsed is False
+    assert "mode=9" in state.unknown_keys
 
 
-def test_unparseable_values_leave_fields_absent():
-    state = parse_state_line("[STAT] Armed:maybe Relay:perhaps Thr(Ch3):lots")
-    assert state.armed is None
-    assert state.relay_on is None
-    assert state.ch_throttle is None
+# -- channel 8, on the scale it is actually sent on -----------------------
+
+
+def test_channel_8_is_a_raw_sbus_count_not_a_percentage():
+    assert parse_state_line(_line(ch8="1811")).rc_channel8_raw == 1811
+
+
+@pytest.mark.parametrize("ch8,asserting", [
+    ("1811", False),   # top of travel: autonomy permitted
+    ("1000", False),   # middle: manual forced, but not ESTOP
+    ("700", False),    # MODE_LOW_MAX itself: the firmware compares with `<`
+    ("699", True),     # one count below, and the zone changes
+    ("200", True),     # bottom of travel: ESTOP
+    ("172", True),     # the protocol minimum
+])
+def test_the_estop_threshold_fires_on_the_sbus_scale(ch8, asserting):
+    """The defect this replaces: the field was named ``_raw_pct`` and alarmed
+    below 25, so a raw count of 200 — the bottom of the travel, the one
+    position the alarm exists for — read as "200%" and never fired."""
+    assert parse_state_line(_line(ch8=ch8)).ch8_asserting_estop is asserting
+
+
+def test_channel_8_absent_is_unknown_not_safe():
+    line = " ".join(t for t in V4_LINE.split() if not t.startswith("ch8="))
+    assert parse_state_line(line).ch8_asserting_estop is None
+
+
+# -- version --------------------------------------------------------------
+
+
+def test_a_future_firmware_is_a_mismatch_not_a_guess():
+    state = parse_state_line(_line(ver="5"))
+    assert state.firmware_version == 5
+    assert state.version_mismatch is True
+
+
+def test_a_line_with_no_version_is_not_reported_as_a_mismatch():
+    """Absent is not wrong. It is a different failure — an older firmware, or a
+    truncated line — and the check layer says so differently."""
+    line = " ".join(t for t in V4_LINE.split() if not t.startswith("ver="))
+    state = parse_state_line(line)
+    assert state.firmware_version is None
+    assert state.version_mismatch is False
+
+
+def test_version_is_the_first_field_so_it_survives_truncation():
+    """A line cut short by a serial glitch still carries its version, which is
+    what lets the check layer say 'wrong firmware' instead of 'unreadable'."""
+    truncated = V4_LINE[:20]
+    assert truncated.startswith("STATE ver=4 ")
+    assert parse_state_line(truncated).firmware_version == PROTOCOL_VERSION
+
+
+# -- parsed means parsed --------------------------------------------------
+
+
+def test_one_understood_field_is_not_enough():
+    """``armed=1`` alone used to mark a line parsed. A line whose mode was
+    misread then reported success, and the operator saw a confident panel."""
+    state = parse_state_line("STATE ver=4 armed=1")
+    assert state.armed is True
     assert state.parsed is False
 
 
-def test_unknown_keys_are_reported_rather_than_dropped():
-    """An unknown key is usually the field that matters — a firmware that grew
-    a battery reading should surface it, not swallow it."""
-    state = parse_state_line("[STAT] Mode:2 Vbat:25.9 Faults:3")
-    assert state.mode == MODE_MANUAL
-    assert "Vbat" in state.unknown_keys
-    assert "Faults" in state.unknown_keys
+def test_mode_and_armed_together_are_enough():
+    assert parse_state_line("STATE ver=4 mode=2 armed=0").parsed is True
 
 
-def test_non_string_input_is_survived():
-    for value in (None, 42, b"[STAT] Mode:2", object()):
-        assert parse_state_line(value).parsed is False
+def test_state_alone_carries_nothing():
+    assert parse_state_line("STATE").parsed is False
 
 
-def test_fields_the_firmware_does_not_report_stay_absent():
-    """The firmware has no battery sense. Absent must not become zero — '0.0 V'
-    would read as a flat battery and ground a healthy vessel."""
-    state = parse_state_line(REAL_LINE)
-    assert state.battery_voltage is None
-    assert state.battery_current is None
-    assert state.rc_link_ok is None
+# -- absent stays absent --------------------------------------------------
 
 
-# -- prefixes --------------------------------------------------------------
+def test_unknown_keys_are_reported_not_dropped():
+    state = parse_state_line(V4_LINE + " newfield=7")
+    assert "newfield" in state.unknown_keys
+    assert state.parsed is True  # a new field does not invalidate the rest
 
 
-def test_both_prefixes_are_accepted():
-    """`[STAT]` is what v3 emits. `STATE` is accepted too — a prefix mismatch is
-    precisely what stopped /pico/status publishing anything at all."""
-    assert is_status_line("[STAT] Mode:2")
-    assert is_status_line("STATE Mode:2")
-    assert parse_state_line("STATE Mode:2 Armed:Y").mode == MODE_MANUAL
+def test_an_unreadable_value_leaves_the_field_absent():
+    state = parse_state_line(_line(sbusok="banana"))
+    assert state.sbus_frames_ok is None
+    assert "sbus_frames_ok=banana" in state.unknown_keys
 
 
-@pytest.mark.parametrize(
-    "line", ["", ">>> MODE: E-STOP", "Invalid cmd: x", "=== Asket EC ==="]
-)
-def test_non_status_lines_are_not_status_lines(line):
-    assert is_status_line(line) is False
+def test_rc_link_follows_the_receivers_own_failsafe_bit():
+    assert parse_state_line(_line(sbusfs="0")).rc_link_ok is True
+    assert parse_state_line(_line(sbusfs="1")).rc_link_ok is False
 
 
-# -- event lines -----------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "line,kind,detail",
-    [
-        (">>> MODE: E-STOP", EVENT_MODE_ESTOP, "E-STOP"),
-        (">>> ARMED: MANUAL", EVENT_ARMED, "MANUAL"),
-        (">>> ARMED: AUTONOMOUS", EVENT_ARMED, "AUTONOMOUS"),
-        (">>> DISARMED (manual)", EVENT_DISARMED, "manual"),
-        (">>> DISARMED (auto)", EVENT_DISARMED, "auto"),
-        ("[E-STOP] SBUS timeout", EVENT_ESTOP_TRIGGERED, "SBUS timeout"),
-        ("[E-STOP] power feedback LOW", EVENT_ESTOP_TRIGGERED, "power feedback LOW"),
-        ("Invalid cmd: WOBBLE", EVENT_INVALID_COMMAND, "WOBBLE"),
-        ("[ACK] MODE ESTOP accepted", EVENT_COMMAND_ACK, "MODE ESTOP accepted"),
-    ],
-)
-def test_every_firmware_event_line(line, kind, detail):
-    event = parse_event_line(line)
-    assert event is not None
-    assert event.kind == kind
-    assert event.detail == detail
-    assert event.raw == line
-
-
-def test_status_lines_are_not_events():
-    """They arrive four times a second and would drown the event log."""
-    assert parse_event_line(REAL_LINE) is None
-
-
-@pytest.mark.parametrize("line", ["", "   ", "something else", None, 42])
-def test_non_events_return_none(line):
-    assert parse_event_line(line) is None
-
-
-def test_arm_threshold_is_the_firmware_value():
-    assert ARM_THRESHOLD == 1000
-
-
-# -- the ESC arming window -------------------------------------------------
-
-
-def test_relay_edge_is_timed_across_lines():
-    """The status line says ON or OFF, never when. The edge has to be watched."""
-    from gui_backend.core.pico_state import RelayEdgeTracker
-
-    t = RelayEdgeTracker()
-    assert t.observe(False, 1000) is None          # open: no window
-    assert t.observe(True, 2000) == 0              # the edge
-    assert t.observe(True, 2500) == 500
-    assert t.observe(True, 4500) == 2500           # past the 2 s window
-    assert t.observe(False, 5000) is None          # opened again
-
-
-def test_a_relay_already_closed_when_we_arrive_starts_the_clock_then():
-    """Connecting mid-flight must not claim the relay closed at the epoch, nor
-    that it closed long ago. The first sighting is the best we honestly have."""
-    from gui_backend.core.pico_state import RelayEdgeTracker
-
-    t = RelayEdgeTracker()
-    assert t.observe(True, 9000) == 0
-    assert t.observe(True, 9750) == 750
-
-
-def test_a_line_without_the_relay_field_does_not_reset_the_window():
-    """A truncated line is missing information, not evidence the relay opened."""
-    from gui_backend.core.pico_state import RelayEdgeTracker
-
-    t = RelayEdgeTracker()
-    t.observe(True, 1000)
-    assert t.observe(None, 1500) == 500
-    assert t.observe(True, 1800) == 800
-
-
-def test_reclosing_restarts_the_window():
-    """Every OFF->ON edge is a fresh 2 s of ESCs booting."""
-    from gui_backend.core.pico_state import RelayEdgeTracker
-
-    t = RelayEdgeTracker()
-    t.observe(True, 1000)
-    t.observe(False, 3000)
-    assert t.observe(True, 4000) == 0
+def test_rc_link_is_unknown_when_the_bit_is_not_sent():
+    line = " ".join(t for t in V4_LINE.split() if not t.startswith("sbusfs="))
+    assert parse_state_line(line).rc_link_ok is None

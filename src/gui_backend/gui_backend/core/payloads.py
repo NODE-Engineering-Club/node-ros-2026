@@ -21,20 +21,9 @@ from __future__ import annotations
 import math
 
 from asket_common.heading import HeadingEstimate
-from asket_common.mode_arbitration import arming_block_reason
 from asket_common.survey import SurveyPlan
 
 from .streams import DETAIL_FULL, DETAIL_MINIMAL, DETAIL_REDUCED
-
-
-def _tri(value) -> bool | None:
-    """Keep a three-state flag three-state.
-
-    ``bool(None)`` is ``False``, and that one coercion is the difference between
-    "we were not told whether the vessel is armed" and "the vessel is disarmed".
-    The second puts a red line on the screen; only one of them is a fact.
-    """
-    return None if value is None else bool(value)
 
 
 def _f(value: float | None, digits: int = 6) -> float | None:
@@ -126,48 +115,52 @@ def heading_payload(estimate: HeadingEstimate, detail: str = DETAIL_FULL) -> dic
 MODE_NAMES = {0: "ESTOP", 1: "MANUAL", 2: "AUTONOMOUS"}
 
 
+def _opt_bool(value):
+    """``None`` stays ``None``; anything else becomes a real bool.
+
+    ``bool(None)`` is ``False``, and ``False`` here means "the Pico told us it
+    is not so". Collapsing the two turns a field that was never sent into a
+    confident negative — for ``rc_link_ok`` that reads on screen as "RC lost",
+    which is the single worst lie this panel could tell.
+    """
+    return None if value is None else bool(value)
+
+
+def _opt_int(value):
+    """Same, for counts. ``int(None)`` does not fail quietly — it raises, and
+    it raised here the moment a real STATE line reached this function."""
+    return None if value is None else int(value)
+
+
 def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
     """Confirmed vessel state.
 
     Everything here is what the Pico says the vessel *is* doing. Nothing in this
-    payload ever reflects a request (safety rule 4).
+    payload ever reflects a request (safety rule 4) — with one labelled
+    exception, ``mode_requested_auto``, which is carried precisely so the two
+    can be told apart on screen.
     """
     out = {
         "mode": MODE_NAMES.get(sample.mode, "UNKNOWN"),
-        # Three-state, not two. A truncated status line that did not carry the
-        # arming state must reach the GUI as "not sent"; `bool(None)` would make
-        # it "Disarmed", which is a claim about the vessel nobody made.
-        "armed": _tri(sample.armed),
-        "estop_latched": _tri(sample.estop_latched),
+        "armed": _opt_bool(sample.armed),
+        "estop_latched": _opt_bool(sample.estop_latched),
+        # Carried on every profile, beacon included. A GUI parsing a firmware
+        # it does not understand must say so at any bandwidth, because every
+        # other field in this payload is then suspect.
+        "firmware_version": _opt_int(getattr(sample, "firmware_version", None)),
+        "version_mismatch": _opt_bool(getattr(sample, "version_mismatch", None)),
     }
     if detail == DETAIL_MINIMAL:
         return out
 
     out.update(
         {
-            "rc_link_ok": bool(sample.rc_link_ok),
-            "rc_channel8_raw_pct": int(sample.rc_channel8_raw_pct),
-            # What the transmitter is *selecting*, as against `mode`, which is
-            # what the firmware settled on. The two differ whenever a software
-            # request is clamping the vessel below the switch, and an operator
-            # who cannot see both has no way to tell a clamp from a fault.
-            # Carried at REDUCED because that distinction matters most exactly
-            # when the link is poor and buttons seem not to work.
-            "rc_mode": getattr(sample, "rc_mode", None),
-            "software_clamp_active": getattr(sample, "software_clamp_active", None),
-            # Channel 7, the arm switch. Not commandable from software by
-            # design — see arming_block_reason. Carried this far down because a
-            # mode request can be accepted, confirmed, and still move nothing,
-            # and that is the state an operator is most likely to misread.
-            "rc_arm_high": getattr(sample, "rc_arm_high", None),
-            # Why propulsion cannot start, or null. Computed once here rather
-            # than in the browser so the GUI, the logs and the command detail
-            # all give the operator the same sentence.
-            "arming_block": arming_block_reason(
-                armed=_tri(getattr(sample, "armed", None)),
-                rc_arm_high=getattr(sample, "rc_arm_high", None),
-                estop_latched=_tri(getattr(sample, "estop_latched", None)),
-            ),
+            "rc_link_ok": _opt_bool(sample.rc_link_ok),
+            "rc_channel8_raw": _opt_int(getattr(sample, "rc_channel8_raw", None)),
+            # The comparison is made once, against the firmware's own
+            # threshold, in pico_state. The GUI renders the verdict rather than
+            # re-deriving it from a number whose scale it would have to know.
+            "ch8_asserting_estop": _opt_bool(getattr(sample, "ch8_asserting_estop", None)),
         }
     )
     if detail == DETAIL_REDUCED:
@@ -179,22 +172,23 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
             "esc_status": [int(e) for e in sample.esc_status],
             # Observable, never commandable. Shown so an operator can confirm
             # the sovereign path is where they think it is.
-            "hardware_killswitch_engaged": bool(
-                getattr(sample, "hardware_killswitch_engaged", False)
+            "hardware_killswitch_engaged": _opt_bool(
+                getattr(sample, "hardware_killswitch_engaged", None)
             ),
-            "rc_channels": getattr(sample, "rc_channels", None),
-            # Milliseconds since the ESC-power relay closed, or None. Below
-            # ESC_ARM_DELAY_MS the firmware holds both thrusters at neutral
-            # whatever is commanded, and a GUI that does not say so looks
-            # unresponsive for two seconds every time the vessel arms.
-            #
-            # There is deliberately no countdown to the software request's
-            # expiry here. The bridge refreshes a held request, so it never
-            # counts down while the GUI is alive; the only case where it does
-            # expire is the one where the GUI is gone and could not have shown
-            # it. The firmware announces it instead, as `[ACK] REQUEST expired`
-            # on the event stream.
-            "relay_closed_ms_ago": getattr(sample, "relay_closed_ms_ago", None),
+            "rc_channel7_raw": _opt_int(getattr(sample, "rc_channel7_raw", None)),
+            # What the Jetson asked for, next to what it got. "I asked for AUTO
+            # and it is still MANUAL" then reads as a refusal by channel 8
+            # rather than as a lost command.
+            "mode_requested_auto": _opt_bool(getattr(sample, "mode_requested_auto", None)),
+            # The Pico's view of our heartbeat. Zero while pico_bridge is
+            # running points at the cable, not the software.
+            "link_live": _opt_bool(getattr(sample, "link_live", None)),
+            # The only measurement of radio *quality* in the system. A rising
+            # bad count warns of range loss before the link actually drops.
+            "sbus_frames_ok": _opt_int(getattr(sample, "sbus_frames_ok", None)),
+            "sbus_frames_bad": _opt_int(getattr(sample, "sbus_frames_bad", None)),
+            "sbus_failsafe": _opt_bool(getattr(sample, "sbus_failsafe", None)),
+            "sbus_frame_lost": _opt_bool(getattr(sample, "sbus_frame_lost", None)),
         }
     )
     return out

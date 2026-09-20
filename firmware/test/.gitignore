@@ -1,0 +1,5 @@
+# Build artefacts. sketch.inc is generated from the .ino by the Makefile, and
+# fwtest is the compiled harness — both are one `make` away and neither should
+# be reviewed as source.
+fwtest
+sketch.inc

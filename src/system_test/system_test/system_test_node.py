@@ -204,7 +204,9 @@ class SystemTestNode(Node):
         return {
             "pico_age_s": (time.monotonic() - self._pico_at) if self._pico_at else None,
             "rc_link_ok": bool(pico.rc_link_ok) if pico else None,
-            "rc_channel8_raw_pct": int(pico.rc_channel8_raw_pct) if pico else None,
+            "rc_channel8_raw": int(pico.rc_channel8_raw) if pico else None,
+            "rc_channel7_raw": int(pico.rc_channel7_raw) if pico else None,
+            "pico_firmware_version": (int(pico.firmware_version) or None) if pico else None,
             "num_sats": None,
             "gnss_fix_type": (int(fix.status.status) + 3) if fix else None,
             "hdop": (math.sqrt(fix.position_covariance[0]) / 2.5)

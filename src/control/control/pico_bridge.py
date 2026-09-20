@@ -2,35 +2,33 @@
 Pico Serial Bridge
 Proprietaire unique du lien serie USB vers le Pico 2.
 
-Fait 5 choses (un seul noeud car un seul owner de /dev/pico) :
+Fait 4 choses (un seul noeud car un seul owner de /dev/pico) :
   1. /control/effort (Twist) -> mixage skid-steer -> "L,R" serie
   2. Heartbeat : emet en CONTINU (timer). Commande fraiche -> "L,R",
-     sinon -> "PING". Garde le lien "live" cote Pico (sinon il neutralise
-     seul en AUTONOMOUS apres 500 ms de silence).
-  3. /pico/mode_request (String) -> "CMD MODE <ESTOP|MANUAL|AUTONOMOUS>".
-     La demande est REPETEE tant qu'elle est tenue : le firmware la laisse
-     expirer apres SOFTWARE_REQUEST_TIMEOUT_MS sans rafraichissement.
-     "RELEASE" arrete de la tenir (et donc la laisse expirer).
-  4. Lit les lignes "[STAT] ..." du Pico (250 ms) -> /pico/status.
-     Lit les accuses "[ACK] ..." -> /pico/command_ack.
-     Lit les evenements (">>> ...", "[E-STOP] ...") -> /pico/events.
-  5. Journalise une fois toute ligne serie qu'il ne sait pas classer.
+     sinon -> "PING". Garde le lien "live" cote Pico (sinon il retombe
+     seul en MANUAL en zone Ch8 HIGH apres 600 ms de silence).
+  3. /pico/mode_request (String "AUTO"/"MANUAL") -> "MODE AUTO"/"MODE MANUAL"
+     (Foxglove = GUI du quai publie ce topic).
+  4. Lit les lignes "STATE ..." du Pico (250 ms) -> /pico/status,
+     et COMPTE celles qu'il rejette (voir plus bas : c'est le point).
 
-Protocole firmware : USB CDC 115200, lignes '\n'.
+Protocole firmware : pico-node_v4. USB CDC 115200, lignes '\n'.
   "L,R" norm -1..1 -> 1500 + v*500 us  (norm si |v|<=1.5 -> on clamp a +-1)
   Moteurs appliques cote Pico SEULEMENT si arme + AUTONOMOUS + 2s apres relais.
 
-Le prefixe des lignes de statut
--------------------------------
-Le firmware v3 ecrit "[STAT]". Ce noeud a longtemps cherche "STATE", donc
-/pico/status ne publiait RIEN. Les deux prefixes sont acceptes desormais : la
-derive entre les deux bouts d'un fil est exactement ce qui a casse ce chemin.
+POURQUOI ON COMPTE LES LIGNES REJETEES
+--------------------------------------
+Le filtre ci-dessous a deja tout jete pendant des mois, en silence. Le firmware
+flashe (v3) emettait "[STAT] ...", ce noeud cherchait "STATE...", aucune ligne
+ne passait, /pico/status ne publiait jamais rien -- et comme le sens descendant
+marchait (le bateau bougeait), rien n'avait l'air casse. Personne n'ecoutait ce
+topic, donc personne n'a rien vu.
 
-L'autorite reste a la radiocommande
------------------------------------
-Une demande logicielle ne peut que RESTREINDRE. Le firmware arbitre
-(voir arbitrate_mode dans pico-node_v3.ino) et refuse ce qui serait moins
-restrictif que Ch8. Ce noeud n'arbitre pas : il transmet et republie l'accuse.
+Un compteur et un log auraient transforme des mois d'enquete en une ligne de
+journal au premier demarrage. C'est tout ce que fait le code ajoute ici : il ne
+rend PAS le noeud multi-format (un seul format, pico-node_v4, delibere -- deux
+formats acceptes veut dire qu'un des deux n'est jamais teste). C'est un
+detecteur : le jour ou quelqu'un flashe autre chose, il le dit tout de suite.
 """
 import serial
 import rclpy
@@ -41,31 +39,6 @@ from std_msgs.msg import String
 SERIAL_PORT = "/dev/ttyACM0"
 BAUD_RATE   = 115200
 
-#: Modes acceptes sur /pico/mode_request. "AUTO" reste accepte : c'est ce que
-#: publiaient les outils existants avant l'ajout d'ESTOP.
-_MODE_WORDS = {
-    "ESTOP": "ESTOP",
-    "MANUAL": "MANUAL",
-    "AUTO": "AUTONOMOUS",
-    "AUTONOMOUS": "AUTONOMOUS",
-}
-
-#: Arrete de tenir la demande : le firmware la laisse expirer et rend la main
-#: a Ch8. Bouton "Release to RC" cote GUI. Rendre la main est une action a part
-#: entiere, distincte d'une demande de mode.
-_RELEASE_WORDS = {"RELEASE", "NONE", "CLEAR"}
-
-#: Prefixes des lignes de statut periodiques.
-_STATUS_PREFIXES = ("[STAT]", "STATE")
-#: Prefixes des lignes d'evenement (transitions, e-stop, commandes invalides).
-_EVENT_PREFIXES = (">>>", "[E-STOP]", "Invalid cmd:", "[WARN]")
-#: Bannieres de demarrage : connues, sans interet, ne pas les signaler.
-_BANNER_PREFIXES = ("===", "Mode:")
-#: Sauf celle-ci : elle dit si le retour de courant e-stop est compile ou non,
-#: et c'est la seule fois ou le firmware le dit. La republier permet de la
-#: capturer au lieu de la perdre au demarrage.
-_FEEDBACK_BANNER = "E-STOP feedback:"
-
 
 class PicoBridge(Node):
     def __init__(self):
@@ -73,22 +46,16 @@ class PicoBridge(Node):
 
         self.declare_parameter("port", SERIAL_PORT)
         self.declare_parameter("baud", BAUD_RATE)
-        self.declare_parameter("send_hz", 20.0)     # >= 2 Hz requis (timeout Pico 500 ms)
+        self.declare_parameter("send_hz", 20.0)     # >= 2 Hz requis (timeouts Pico 500/600 ms)
         self.declare_parameter("cmd_timeout", 0.3)  # s : au-dela -> PING (le Pico neutralise seul)
         self.declare_parameter("yaw_invert", 1)     # +1/-1 si le bateau tourne a l'envers
         self.declare_parameter("thr_invert", 1)     # +1/-1 si avant/arriere inverses
-        # Rafraichissement de la demande logicielle. Doit rester nettement sous
-        # SOFTWARE_REQUEST_TIMEOUT_MS (5000 ms) cote firmware.
-        self.declare_parameter("mode_refresh_s", 1.0)
 
         port = self.get_parameter("port").get_parameter_value().string_value
         baud = self.get_parameter("baud").get_parameter_value().integer_value
         self._cmd_timeout = self.get_parameter("cmd_timeout").get_parameter_value().double_value
         self._yaw_inv = self.get_parameter("yaw_invert").get_parameter_value().integer_value
         self._thr_inv = self.get_parameter("thr_invert").get_parameter_value().integer_value
-        self._mode_refresh_s = (
-            self.get_parameter("mode_refresh_s").get_parameter_value().double_value
-        )
 
         try:
             self._ser = serial.Serial(port, baud, timeout=0)  # non-bloquant
@@ -103,24 +70,21 @@ class PicoBridge(Node):
         self._last_cmd = self.get_clock().now()
         self._rx = b""  # buffer de lecture serie
 
-        # Demande de mode tenue, et quand elle a ete rafraichie pour la
-        # derniere fois. None = aucune : le Pico suit Ch8 seul.
-        self._held_mode = None
-        self._last_mode_send = self.get_clock().now()
-
-        # Lignes non classables deja signalees : on log une fois, pas a 20 Hz.
-        self._warned_lines = set()
+        # Detecteur de desaccord de format. Voir le docstring du module.
+        self._lines_kept = 0
+        self._lines_rejected = 0
+        self._rejected_sample = ""
+        self._warned_rejecting = False
+        self._fw_version = None
 
         self.create_subscription(Twist, "/control/effort", self._on_effort, 10)
         self.create_subscription(String, "/pico/mode_request", self._on_mode, 10)
         self._status_pub = self.create_publisher(String, "/pico/status", 10)
-        self._ack_pub = self.create_publisher(String, "/pico/command_ack", 10)
-        self._event_pub = self.create_publisher(String, "/pico/events", 10)
 
         hz = self.get_parameter("send_hz").get_parameter_value().double_value
         self.create_timer(1.0 / hz, self._tick)
 
-        self.get_logger().info("pico_bridge pret (heartbeat + modes + status + acks)")
+        self.get_logger().info("pico_bridge pret (heartbeat + modes + status)")
 
     # --- Entrees ROS ---------------------------------------------------------
     def _on_effort(self, msg):
@@ -129,49 +93,19 @@ class PicoBridge(Node):
         self._last_cmd = self.get_clock().now()
 
     def _on_mode(self, msg):
-        """Traduit une demande de mode en commande serie.
-
-        Le noeud n'arbitre pas et ne prejuge pas du resultat : il envoie, et
-        c'est l'accuse republie sur /pico/command_ack qui dit si le firmware a
-        accepte. Afficher un mode parce qu'on l'a demande serait exactement la
-        regle de securite 4 violee.
-        """
-        raw = msg.data.strip().upper()
-        word = raw.replace("CMD ", "").replace("MODE ", "").strip()
-
-        if word in _RELEASE_WORDS:
-            if self._held_mode is not None:
-                self.get_logger().info(
-                    f"-> demande {self._held_mode} relachee ; "
-                    "elle expirera cote Pico et Ch8 reprend la main"
-                )
-            self._held_mode = None
-            return
-
-        mode = _MODE_WORDS.get(word)
-        if mode is None:
+        v = msg.data.strip().upper().replace("MODE ", "")
+        if v == "AUTO":
+            self._write("MODE AUTO")
+            self.get_logger().info("-> MODE AUTO envoye au Pico")
+        elif v == "MANUAL":
+            self._write("MODE MANUAL")
+            self.get_logger().info("-> MODE MANUAL envoye au Pico")
+        else:
             self.get_logger().warn(f"mode_request inconnu : {msg.data!r}")
-            return
-
-        self._held_mode = mode
-        self._send_mode_request()
-
-    def _send_mode_request(self):
-        if self._held_mode is None:
-            return
-        self._write(f"CMD MODE {self._held_mode}")
-        self._last_mode_send = self.get_clock().now()
 
     # --- Boucle d'emission continue (coeur du heartbeat) ---------------------
     def _tick(self):
-        self._drain()  # lire les lignes du Pico + vider le buffer RX
-
-        # Rafraichir la demande tenue : sans cela le firmware la laisse expirer
-        # au bout de 5 s et rend la main a Ch8.
-        if self._held_mode is not None:
-            since = (self.get_clock().now() - self._last_mode_send).nanoseconds / 1e9
-            if since >= self._mode_refresh_s:
-                self._send_mode_request()
+        self._drain()  # lire le STATE du Pico + vider le buffer RX
 
         elapsed = (self.get_clock().now() - self._last_cmd).nanoseconds / 1e9
         if elapsed <= self._cmd_timeout:
@@ -191,7 +125,7 @@ class PicoBridge(Node):
         left, right = left / m, right / m
         return (max(-1.0, min(1.0, left)), max(-1.0, min(1.0, right)))
 
-    # --- Lecture serie : classe et republie ---------------------------------
+    # --- Lecture serie : republie les lignes STATE ---------------------------
     def _drain(self):
         if self._ser is None:
             return
@@ -202,52 +136,53 @@ class PicoBridge(Node):
             while b"\n" in self._rx:
                 raw, self._rx = self._rx.split(b"\n", 1)
                 line = raw.decode(errors="replace").strip()
-                if line:
-                    self._classify(line)
+                if not line:
+                    continue
+                if line.startswith("STATE"):
+                    self._lines_kept += 1
+                    self._status_pub.publish(String(data=line))
+                    continue
+                if line.startswith("[VER] "):
+                    self._on_version_line(line)
+                    continue
+                # Tout le reste : [ACK], "Invalid cmd:", bruit serie. Compte,
+                # pas jete en silence.
+                self._lines_rejected += 1
+                if not self._rejected_sample:
+                    self._rejected_sample = line[:80]
+            self._check_format()
         except serial.SerialException as e:
             self.get_logger().warn(f"Erreur lecture serie: {e}")
 
-    def _classify(self, line):
-        """Range une ligne serie dans un des quatre paniers, ou se plaint.
+    # --- Detection de desaccord de format ------------------------------------
+    def _on_version_line(self, line):
+        """Le Pico annonce son identite au demarrage : "[VER] pico-node 4"."""
+        parts = line.split()
+        version = parts[-1] if len(parts) >= 2 else ""
+        if version != self._fw_version:
+            self._fw_version = version
+            self.get_logger().info(f"Pico firmware : {' '.join(parts[1:])}")
 
-        Se plaindre importe : une ligne inconnue est en general le champ qui
-        compte, ou le signe que le firmware a change de format sous nos pieds.
-        C'est ce silence-la qui a laisse /pico/status vide.
+    def _check_format(self):
+        """Crie une fois si le Pico parle et qu'on ne comprend rien.
+
+        Le seuil (20 lignes rejetees, zero gardee) correspond a environ cinq
+        secondes de STATE a 4 Hz : assez pour ne pas crier sur un fragment de
+        ligne au demarrage, assez peu pour que ce soit dit avant la mise a
+        l'eau.
         """
-        if line.startswith(_STATUS_PREFIXES):
-            self._status_pub.publish(String(data=line))
+        if self._warned_rejecting or self._lines_kept:
             return
-
-        if line.startswith("[ACK]"):
-            self._ack_pub.publish(String(data=line))
-            # Un refus doit etre visible dans les logs du bateau, pas seulement
-            # dans l'interface : c'est la trace de ce que le firmware a refuse.
-            if " rejected" in line:
-                self.get_logger().warn(f"Pico a refuse une commande : {line}")
-            else:
-                self.get_logger().info(f"Pico : {line}")
+        if self._lines_rejected < 20:
             return
-
-        if line.startswith(_EVENT_PREFIXES):
-            self._event_pub.publish(String(data=line))
-            self.get_logger().info(f"Pico : {line}")
-            return
-
-        if line.startswith(_FEEDBACK_BANNER):
-            self._event_pub.publish(String(data=line))
-            self.get_logger().info(f"Pico : {line}")
-            return
-
-        if line.startswith(_BANNER_PREFIXES):
-            return
-
-        if line not in self._warned_lines:
-            self._warned_lines.add(line)
-            # Borne : un firmware qui deverse du texte varie ne doit pas faire
-            # grossir ce set indefiniment.
-            if len(self._warned_lines) > 50:
-                self._warned_lines.clear()
-            self.get_logger().warn(f"Ligne serie non classee : {line!r}")
+        self._warned_rejecting = True
+        self.get_logger().error(
+            f"Le Pico emet ({self._lines_rejected} lignes) mais AUCUNE ne "
+            f"commence par 'STATE' : /pico/status ne publiera rien. "
+            f"Exemple : {self._rejected_sample!r}. "
+            f"Firmware attendu : pico-node_v4. Un firmware plus ancien "
+            f"(v3) emet '[STAT] Mode:...' et n'est pas supporte."
+        )
 
     # --- Ecriture serie ------------------------------------------------------
     def _write(self, s):

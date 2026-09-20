@@ -22,6 +22,31 @@ MODE_AUTONOMOUS = 2
 MODE_NAMES = {MODE_ESTOP: "ESTOP", MODE_MANUAL: "MANUAL", MODE_AUTONOMOUS: "AUTONOMOUS"}
 MODE_VALUES = {v: k for k, v in MODE_NAMES.items()}
 
+#: The *firmware's* numbering, which is not this module's.
+#: ``enum OperationMode { MODE_ESTOP = 1, MODE_MANUAL = 2, MODE_AUTONOMOUS = 3 }``
+#: Used only when writing a STATE line, so the text the simulator puts on the
+#: wire is the text the firmware would put there. The two scales are mapped
+#: explicitly rather than by adding one: an off-by-one here would make the
+#: simulator agree with a parser that is wrong about the real thing.
+FIRMWARE_MODE = {MODE_ESTOP: 1, MODE_MANUAL: 2, MODE_AUTONOMOUS: 3}
+
+#: The firmware version this simulator pretends to be. Must track
+#: ``FW_VERSION`` in ``firmware/pico-node_v4/pico-node_v4.ino``; a test asserts
+#: it matches what ``gui_backend`` is willing to parse, so the three cannot
+#: drift apart silently.
+FIRMWARE_VERSION = 4
+
+#: Raw SBUS counts, as the firmware reports them: 11 bits clamped to this
+#: range, 991 at centre. **Not** percentages.
+SBUS_MIN = 172
+SBUS_MID = 991
+SBUS_MAX = 1811
+
+#: The firmware's own thresholds, on that scale.
+CH8_ESTOP_MAX = 700     # Ch8 below this -> MODE_ESTOP
+CH8_MANUAL_MAX = 1400   # Ch8 below this -> MANUAL forced; above -> autonomy permitted
+CH7_ARM_MIN = 1000      # Ch7 above this -> armed
+
 
 @dataclass
 class PicoConfig:
@@ -30,11 +55,7 @@ class PicoConfig:
     #: Probability a mode request is simply lost, so the GUI's timeout path is
     #: exercised rather than assumed.
     request_loss_probability: float = 0.0
-    #: One relay. `ESTOP_RELAY_PIN` (GPIO21) cuts ESC power, and firmware v3
-    #: has no others. This defaulted to 4 while nobody had read the firmware,
-    #: and the GUI faithfully rendered "0/4 relays closed" off the back of it.
-    num_relays: int = 1
-    #: Two thrusters, GPIO15 and GPIO16.
+    num_relays: int = 4
     num_escs: int = 2
 
 
@@ -47,8 +68,10 @@ class PicoSample:
     relay_states: list[bool]
     esc_status: list[int]
     rc_link_ok: bool
-    rc_channel8_raw_pct: int
+    rc_channel7_raw: int
+    rc_channel8_raw: int
     hardware_killswitch_engaged: bool
+    firmware_version: int = FIRMWARE_VERSION
 
 
 class PicoSim:
@@ -59,12 +82,31 @@ class PicoSim:
         self.armed = False
         self.estop_latched = False
         self.rc_link_ok = True
-        #: The sovereign channel. 0 = kill asserted. Only the operator's
-        #: transmitter moves this; nothing in software may write it.
-        self.rc_channel8_raw_pct = 100
+        #: The sovereign channels, in raw SBUS counts. Only the operator's
+        #: transmitter moves these; nothing in software may write them.
+        #: Ch8 selects the mode (3 positions), Ch7 arms (2 positions).
+        self.rc_channel8_raw = SBUS_MAX
+        self.rc_channel7_raw = SBUS_MAX
         self.hardware_killswitch_engaged = False
         self.relay_states = [False] * self.cfg.num_relays
         self.esc_status = [0] * self.cfg.num_escs
+
+        #: Firmware identity, reported on the wire so the Jetson can refuse a
+        #: version it cannot parse. Settable so a test can simulate the exact
+        #: failure this whole mechanism exists to catch.
+        self.firmware_version = FIRMWARE_VERSION
+
+        #: Fields the firmware reports that have no equivalent in PicoSample.
+        #: They exist so state_line() is complete rather than a subset — a
+        #: simulator that emits fewer fields than the real thing is a simulator
+        #: that cannot catch a parser ignoring one.
+        self.serial_wants_auto = False
+        self.link_live = True
+        self.rc_throttle_raw = SBUS_MID
+        self.rc_yaw_raw = SBUS_MID
+        self.sbus_frames_ok = 0
+        self.sbus_frames_bad = 0
+        self.sbus_frame_lost = False
         self._pending: tuple[int, float] | None = None
         self._t = 0.0
 
@@ -94,14 +136,24 @@ class PicoSim:
             self.armed = False
             self._pending = None
 
-    def set_rc_channel8(self, pct: int) -> None:
-        """Operator moved the RC kill channel. Simulation input only."""
-        self.rc_channel8_raw_pct = max(0, min(100, pct))
-        if self.rc_channel8_raw_pct < 25:
+    def set_rc_channel8(self, raw: int) -> None:
+        """Operator moved the RC mode selector. Simulation input only.
+
+        ``raw`` is an SBUS count (172..1811), not a percentage. The firmware
+        compares against 700 and 1400 on exactly this scale.
+        """
+        self.rc_channel8_raw = max(SBUS_MIN, min(SBUS_MAX, int(raw)))
+        if self.rc_channel8_raw < CH8_ESTOP_MAX:
             self.mode = MODE_ESTOP
             self.estop_latched = True
             self.armed = False
             self._pending = None
+
+    def set_rc_channel7(self, raw: int) -> None:
+        """Operator moved the arm switch. Simulation input only."""
+        self.rc_channel7_raw = max(SBUS_MIN, min(SBUS_MAX, int(raw)))
+        if self.rc_channel7_raw <= CH7_ARM_MIN:
+            self.armed = False
 
     def set_rc_link(self, ok: bool) -> None:
         self.rc_link_ok = ok
@@ -110,12 +162,20 @@ class PicoSim:
 
     def step(self, dt: float) -> None:
         self._t += dt
+        # One decoded SBUS frame every 14 ms, as a real receiver delivers them.
+        # Counting rather than faking a constant matters: sbusok standing still
+        # is how a dead radio looks on the wire.
+        if self.rc_link_ok:
+            self.sbus_frames_ok += max(1, int(dt / 0.014))
         if self._pending and self._t >= self._pending[1]:
             mode, _ = self._pending
             self._pending = None
             # Hardware wins: no software request can leave ESTOP while the
             # killswitch or the RC channel is asserting it.
-            blocked = self.hardware_killswitch_engaged or self.rc_channel8_raw_pct < 25
+            blocked = (
+                self.hardware_killswitch_engaged
+                or self.rc_channel8_raw < CH8_ESTOP_MAX
+            )
             if blocked and mode != MODE_ESTOP:
                 return
             self.mode = mode
@@ -133,6 +193,40 @@ class PicoSim:
             relay_states=list(self.relay_states),
             esc_status=list(self.esc_status),
             rc_link_ok=self.rc_link_ok,
-            rc_channel8_raw_pct=self.rc_channel8_raw_pct,
+            rc_channel7_raw=self.rc_channel7_raw,
+            rc_channel8_raw=self.rc_channel8_raw,
             hardware_killswitch_engaged=self.hardware_killswitch_engaged,
+        )
+
+    # -- the wire ---------------------------------------------------------
+
+    def state_line(self) -> str:
+        """One ``STATE`` line, exactly as ``pico-node_v4`` would write it.
+
+        This is the whole point of the text layer. The simulator used to hand
+        ``gui_backend`` a structured message directly, which meant the format,
+        the serial framing and the parser were never exercised anywhere — and
+        that is precisely the layer where the firmware and the Jetson had
+        silently disagreed for months. Whatever this method emits is what
+        ``parse_state_line`` has to cope with, so a format change that breaks
+        the parser now breaks a test.
+
+        Field order and spelling are copied from the firmware's ``loop()``.
+        """
+        return (
+            f"STATE ver={self.firmware_version}"
+            f" mode={FIRMWARE_MODE[self.mode]}"
+            f" armed={int(self.armed)}"
+            f" relay={int(any(self.relay_states))}"
+            f" wantauto={int(self.serial_wants_auto)}"
+            f" link={int(self.link_live)}"
+            f" estoplatch={int(self.estop_latched)}"
+            f" thr={self.rc_throttle_raw}"
+            f" yaw={self.rc_yaw_raw}"
+            f" ch7={self.rc_channel7_raw}"
+            f" ch8={self.rc_channel8_raw}"
+            f" sbusok={self.sbus_frames_ok}"
+            f" sbusbad={self.sbus_frames_bad}"
+            f" sbusfs={int(not self.rc_link_ok)}"
+            f" sbuslost={int(self.sbus_frame_lost)}"
         )

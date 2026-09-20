@@ -16,7 +16,9 @@ from system_test.core.checks import (
 )
 
 HEALTHY = dict(
-    pico_age_s=0.1, rc_link_ok=True, rc_channel8_raw_pct=100,
+    pico_age_s=0.1, rc_link_ok=True,
+    # Raw SBUS counts, 172..1811. The firmware's thresholds are on this scale.
+    rc_channel8_raw=1811, rc_channel7_raw=1811, pico_firmware_version=4,
     num_sats=14, gnss_fix_type=3, hdop=0.8,
     heading_valid=True, heading_source="gnss_compass", heading_accuracy_deg=0.2,
     heading_divergence_deg=2.0, heading_divergence_meaningful=True,
@@ -29,9 +31,6 @@ HEALTHY = dict(
     link_rtt_ms=25.0, link_active="wifi",
     expected_nodes=["omniscan_bridge"], present_nodes=["omniscan_bridge"],
     pico_state_format_verified=True, pico_state_parsed=True, pico_state_unknown_keys=[],
-    # A healthy vessel has the e-stop feedback trace connected. The build
-    # this repository ships against does not — see the tests below.
-    pico_estop_feedback_enabled=True,
     mounting=dict(
         path="/etc/asket/mounting.yaml", found=True, measured=True,
         measured_by="AD", measured_utc="2026-03-02", error="", unknown_fields=[],
@@ -165,9 +164,63 @@ def test_a_flat_battery_fails_outright():
 
 def test_the_killswitch_channel_being_asserted_is_a_warning_not_a_failure():
     """It is the safe state. Failing it would teach people to ignore the panel."""
-    result = item(run_checks(dict(HEALTHY, rc_channel8_raw_pct=0)), "rc.link")
+    result = item(run_checks(dict(HEALTHY, rc_channel8_raw=200)), "rc.link")
     assert result.status == WARN
-    assert "Release the killswitch" in result.remedy
+    assert "ESTOP zone" in result.message
+
+
+def test_the_channel_8_threshold_is_on_the_sbus_scale_not_a_percentage():
+    """The defect this replaces.
+
+    The field was named ``rc_channel8_raw_pct`` and the check compared it with
+    25, but what arrived was a raw SBUS count of 172..1811. Every real value
+    cleared the threshold — including 200, which is the bottom of the travel
+    and the exact position the warning exists for. The alarm was silent in the
+    one case it was written for.
+    """
+    # Bottom of the travel: the firmware is in ESTOP, and so must the check be.
+    assert item(run_checks(dict(HEALTHY, rc_channel8_raw=172)), "rc.link").status == WARN
+    # Just inside the ESTOP zone.
+    assert item(run_checks(dict(HEALTHY, rc_channel8_raw=699)), "rc.link").status == WARN
+    # MODE_LOW_MAX itself: the firmware compares with `<`, so this is MANUAL.
+    assert item(run_checks(dict(HEALTHY, rc_channel8_raw=700)), "rc.link").status == PASS
+    # A value that would have been "fine" under the old percentage reading and
+    # is in fact the kill position.
+    assert item(run_checks(dict(HEALTHY, rc_channel8_raw=300)), "rc.link").status == WARN
+
+
+# -- firmware version ------------------------------------------------------
+#
+# The check that closes the whole class of bug: for months the Jetson parsed a
+# format the flashed firmware did not emit, and nothing said so.
+
+
+def test_a_firmware_version_mismatch_grounds_the_vessel():
+    """FAIL, not WARN, and critical.
+
+    A version this software does not know is a firmware whose field layout is
+    unknown. Every other row in the report is then built from fields that may
+    have been read against the wrong layout, so a confident-looking GO would be
+    the most dangerous output this check could produce.
+    """
+    report = run_checks(dict(HEALTHY, pico_firmware_version=3))
+    result = item(report, "pico.firmware_version")
+    assert result.status == FAIL
+    assert "v3" in result.message
+    assert "pico-node_v4" in result.remedy
+    assert not report.go
+
+
+def test_a_matching_firmware_version_passes():
+    result = item(run_checks(HEALTHY), "pico.firmware_version")
+    assert result.status == PASS
+
+
+def test_a_pico_that_never_reports_a_version_is_unknown_not_assumed_good():
+    state = dict(HEALTHY)
+    del state["pico_firmware_version"]
+    result = item(run_checks(state), "pico.firmware_version")
+    assert result.status != PASS
 
 
 def test_a_missing_node_names_the_node():
@@ -337,34 +390,3 @@ def test_no_pico_status_at_all_is_unknown_not_a_pass():
     state = dict(HEALTHY)
     del state["pico_state_format_verified"]
     assert item(run_checks(state), "pico.state_format").status == SKIPPED
-
-
-# -- e-stop power feedback -------------------------------------------------
-
-
-def test_the_compiled_out_estop_feedback_warns_on_every_run():
-    """ESTOP_FEEDBACK_ENABLED is 0 in the firmware this ships against, so
-    nothing verifies the ESC rail actually collapsed when commanded.
-
-    That is a standing warning, not a one-off: an assumption nobody is reminded
-    of becomes a belief, which is the same reason the mounting check nags.
-    """
-    report = run_checks(dict(HEALTHY, pico_estop_feedback_enabled=False))
-    result = item(report, "pico.estop_feedback")
-    assert result.status == WARN
-    assert "nothing verifies" in result.message.lower()
-    # A warning, never a blocker: the vessel is still safe to run, it just has
-    # one fewer confirmation than the panel might suggest.
-    assert report.go
-
-
-def test_enabled_estop_feedback_passes():
-    report = run_checks(dict(HEALTHY, pico_estop_feedback_enabled=True))
-    assert item(report, "pico.estop_feedback").status == PASS
-
-
-def test_an_unreported_estop_feedback_flag_is_skipped_not_assumed():
-    state = dict(HEALTHY)
-    del state["pico_estop_feedback_enabled"]
-    result = item(run_checks(state), "pico.estop_feedback")
-    assert result.status == SKIPPED

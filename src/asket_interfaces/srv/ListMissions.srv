@@ -1,0 +1,3 @@
+---
+string[] names
+string[] manifests_json   # one manifest.json per mission, verbatim

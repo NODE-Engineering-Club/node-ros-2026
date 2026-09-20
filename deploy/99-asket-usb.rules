@@ -1,0 +1,32 @@
+# Auto-mount USB drives on a headless Jetson.
+#
+# A headless system has no desktop session, so nothing mounts a USB stick when
+# it is plugged in and /media stays empty. Mission export would then never
+# offer a destination — and the failure looks like a software bug on a beach.
+#
+# This uses systemd-mount, which creates the mount point, mounts on first
+# access and cleans up on removal. Anything that is a filesystem on a USB block
+# device is mounted at /media/asket/<label or device name>.
+#
+# Install:
+#   sudo cp deploy/99-asket-usb.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# Verify:
+#   python3 -m mission_recorder.check_export_paths
+
+ACTION=="remove", GOTO="asket_usb_end"
+SUBSYSTEM!="block", GOTO="asket_usb_end"
+ENV{ID_BUS}!="usb", GOTO="asket_usb_end"
+ENV{ID_FS_USAGE}!="filesystem", GOTO="asket_usb_end"
+# Skip whole disks; we want the partitions on them.
+ENV{DEVTYPE}!="partition", GOTO="asket_usb_end"
+
+# Prefer the filesystem label so a dedicated survey drive always lands in the
+# same place; fall back to the kernel device name.
+ENV{ID_FS_LABEL}=="", ENV{ASKET_MOUNT_NAME}="%k"
+ENV{ID_FS_LABEL}!="", ENV{ASKET_MOUNT_NAME}="$env{ID_FS_LABEL}"
+
+ACTION=="add", RUN{program}+="/usr/bin/systemd-mount --no-block --automount=yes --collect --options=noatime $devnode /media/asket/$env{ASKET_MOUNT_NAME}"
+
+LABEL="asket_usb_end"

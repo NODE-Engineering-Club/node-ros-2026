@@ -1,0 +1,32 @@
+# Deterministic alternative to the udev rule: one dedicated, labelled drive.
+#
+# Preferred for a survey vessel. Label the drive ASKET once:
+#
+#   sudo e2label /dev/sdX1 ASKET          # ext4
+#   sudo fatlabel /dev/sdX1 ASKET         # FAT32/exFAT
+#
+# and it will always appear at /media/asket/ASKET, whichever port it is in.
+# ext4 is the right choice: mission files exceed FAT32's 4 GB limit within
+# about ninety minutes of survey.
+#
+# Install:
+#   sudo cp deploy/media-asket.mount deploy/media-asket.automount /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now media-asket.automount
+#
+# The unit filename must match the mount point path, so this file has to be
+# called media-asket.mount for /media/asket.
+
+[Unit]
+Description=Asket survey USB drive
+# Not required: the vessel must boot and record with no drive plugged in.
+# Export is the only thing that needs it.
+
+[Mount]
+What=/dev/disk/by-label/ASKET
+Where=/media/asket
+Type=auto
+Options=noatime,nofail,x-systemd.device-timeout=5
+
+[Install]
+WantedBy=multi-user.target

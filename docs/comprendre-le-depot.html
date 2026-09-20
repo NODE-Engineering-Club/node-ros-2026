@@ -1,0 +1,4154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comprendre le dépôt — Asket / Njord 2026</title>
+<style>
+  :root {
+    --fond: #fcfcfa;
+    --papier: #ffffff;
+    --encre: #16181d;
+    --encre-douce: #454a54;
+    --trait: #d8d6cf;
+    --trait-fort: #1a1c20;
+    --accent: #0b4f8f;
+    --rouge: #a6210f;
+    --rouge-fond: #fdf1ef;
+    --ambre: #8a5a00;
+    --ambre-fond: #fdf6e7;
+    --vert: #16613a;
+    --vert-fond: #eef7f1;
+    --gris-fond: #f2f1ed;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--fond);
+    color: var(--encre);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    font-size: 18px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 8rem;
+  }
+
+  /* — titres — */
+  h1, h2, h3, h4, h5 {
+    font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    line-height: 1.25;
+    color: var(--encre);
+    font-weight: 700;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+    margin: 0 0 .4rem;
+    letter-spacing: -.02em;
+  }
+
+  .sous-titre {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 1.05rem;
+    color: var(--encre-douce);
+    margin: 0 0 2.5rem;
+    line-height: 1.5;
+  }
+
+  h2 {
+    font-size: 1.55rem;
+    margin: 4.5rem 0 1.2rem;
+    padding-top: 1.6rem;
+    border-top: 2px solid var(--trait-fort);
+    letter-spacing: -.015em;
+  }
+
+  h3 {
+    font-size: 1.16rem;
+    margin: 2.8rem 0 .8rem;
+    letter-spacing: -.01em;
+  }
+
+  h4 {
+    font-size: 1rem;
+    margin: 2rem 0 .5rem;
+    color: var(--encre-douce);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: .82rem;
+  }
+  h5 {
+    font-size: .95rem;
+    margin: 1.6rem 0 .3rem;
+    color: var(--encre);
+  }
+
+  p { margin: 0 0 1.15rem; }
+
+  a { color: var(--accent); }
+
+  strong { font-weight: 700; }
+
+  em.terme {
+    font-style: normal;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  /* — listes — */
+  ul, ol { margin: 0 0 1.15rem; padding-left: 1.4rem; }
+  li { margin-bottom: .45rem; }
+  li > ul, li > ol { margin-top: .45rem; margin-bottom: .3rem; }
+
+  /* — code — */
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .84em;
+    background: var(--gris-fond);
+    padding: .1em .35em;
+    border-radius: 2px;
+  }
+
+  pre {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .8rem;
+    line-height: 1.6;
+    background: var(--gris-fond);
+    border-left: 3px solid var(--trait-fort);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    margin: 0 0 1.4rem;
+  }
+
+  pre code { background: none; padding: 0; font-size: 1em; }
+
+  /* — tableaux — */
+  .tableau { overflow-x: auto; margin: 0 0 1.5rem; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: .82rem;
+    line-height: 1.5;
+  }
+
+  th, td {
+    border: 1px solid var(--trait);
+    padding: .5rem .65rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--gris-fond);
+    font-weight: 700;
+  }
+
+  td code { font-size: .92em; }
+
+  /* — encadrés — */
+  .bloc {
+    margin: 1.6rem 0;
+    padding: 1rem 1.2rem;
+    border-left: 4px solid var(--trait-fort);
+    background: var(--papier);
+    font-size: .95rem;
+  }
+
+  .bloc > :last-child { margin-bottom: 0; }
+
+  .bloc .etiquette {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    display: block;
+    margin-bottom: .4rem;
+  }
+
+  .danger { border-left-color: var(--rouge); background: var(--rouge-fond); }
+  .danger .etiquette { color: var(--rouge); }
+
+  .provisoire { border-left-color: var(--ambre); background: var(--ambre-fond); }
+  .provisoire .etiquette { color: var(--ambre); }
+
+  .info { border-left-color: var(--accent); background: #f0f5fa; }
+  .info .etiquette { color: var(--accent); }
+
+  .bon { border-left-color: var(--vert); background: var(--vert-fond); }
+  .bon .etiquette { color: var(--vert); }
+
+  /* — figures — */
+  figure {
+    margin: 2.2rem 0;
+    padding: 0;
+    text-align: center;
+  }
+
+  figure svg { max-width: 100%; height: auto; }
+
+  figcaption {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: .78rem;
+    color: var(--encre-douce);
+    line-height: 1.5;
+    margin-top: .7rem;
+    text-align: left;
+  }
+
+  /* — sommaire — */
+  .sommaire {
+    background: var(--papier);
+    border: 1px solid var(--trait);
+    padding: 1.5rem 1.8rem;
+    margin: 0 0 3rem;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: .88rem;
+    line-height: 1.55;
+  }
+
+  .sommaire h2 {
+    margin: 0 0 1rem;
+    padding: 0;
+    border: 0;
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--encre-douce);
+  }
+
+  .sommaire ol { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+  .sommaire > ol > li { counter-increment: s; margin-bottom: .6rem; }
+  .sommaire > ol > li > a::before {
+    content: counter(s) ". ";
+    font-variant-numeric: tabular-nums;
+    color: var(--encre-douce);
+  }
+  .sommaire > ol > li > a { font-weight: 700; text-decoration: none; color: var(--encre); }
+  .sommaire > ol > li > a:hover { color: var(--accent); text-decoration: underline; }
+  .sommaire ol ol { padding-left: 1.5rem; margin-top: .35rem; }
+  .sommaire ol ol li { margin-bottom: .15rem; }
+  .sommaire ol ol a { color: var(--encre-douce); text-decoration: none; }
+  .sommaire ol ol a:hover { color: var(--accent); text-decoration: underline; }
+
+  /* — divers — */
+  .chapeau {
+    font-size: 1.02rem;
+    color: var(--encre-douce);
+    border-bottom: 1px solid var(--trait);
+    padding-bottom: 1.2rem;
+    margin-bottom: 2rem;
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--trait);
+    margin: 2.5rem 0;
+  }
+
+  .haut {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    text-decoration: none;
+    color: var(--encre-douce);
+    display: inline-block;
+    margin-top: 1rem;
+  }
+
+  dl { margin: 0 0 1.2rem; }
+  dt { font-weight: 700; margin-top: .9rem; }
+  dd { margin: .2rem 0 0 1.2rem; }
+
+  @media (max-width: 600px) {
+    body { font-size: 17px; }
+    .page { padding: 2rem 1rem 5rem; }
+    h1 { font-size: 1.7rem; }
+    h2 { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Comprendre le dépôt</h1>
+<p class="sous-titre">
+  Asket — pile ROS 2 de compétition Njord 2026 et interface de mission pour le
+  levé bathymétrique en Namibie.<br>
+  Document de lecture, écrit pour quelqu'un qui connaît l'électronique et pas le code.
+</p>
+
+<div class="chapeau">
+  <p>
+    Ce document n'est pas un résumé du dépôt. C'est une explication, dans l'ordre
+    où les choses ont du sens, de ce que fait chaque morceau du système et
+    <strong>pourquoi il a été fait comme ça</strong>. Le vocabulaire informatique
+    est expliqué au moment où il apparaît : vous n'avez pas besoin de savoir ce
+    qu'est un « nœud ROS » avant de commencer.
+  </p>
+  <p style="margin-bottom:0">
+    L'objectif est précis : quand quelque chose tombe en panne sur une plage en
+    Namibie, vous devez pouvoir raisonner sur <em>où</em> est le problème et
+    <em>quoi regarder</em>, au lieu de deviner.
+  </p>
+</div>
+
+<div class="bloc danger">
+  <span class="etiquette">Lisez ceci d'abord — de quelle version du firmware parle ce document</span>
+  <p>
+    Il existe <strong>deux firmwares Pico différents</strong>, et ils ne se
+    comportent pas de la même façon. Confondre les deux rend faux à peu près
+    tout ce qu'on peut dire de la liaison série et de l'arbitrage des modes.
+  </p>
+  <div class="tableau">
+  <table>
+    <tr><th>Version</th><th>Où elle vit</th><th>État</th></tr>
+    <tr>
+      <td><code>pico-node_v3.ino</code><br><span style="font-size:.85em">en-tête <code>[REBUILT]</code></span></td>
+      <td>Dépôt <code>NODE-Engineering-Club/pico-node</code>, séparé de celui-ci</td>
+      <td><strong>C'est la version actuellement flashée dans le Pico.</strong>
+          C'est donc le bateau tel qu'il est aujourd'hui.</td>
+    </tr>
+    <tr>
+      <td><code>asket_ec_pico.ino</code><br><span style="font-size:.85em">en-tête <code>[REBUILT + FOXGLOVE]</code></span></td>
+      <td><code>firmware/pico/</code>, sur la branche <code>GPS_Fix_and_Task</code>
+          de ce dépôt (commit <code>920773f</code>, 9 août 2026)</td>
+      <td>Version plus récente, <strong>pas flashée</strong>. C'est pourtant
+          celle contre laquelle le code Jetson de ce dépôt a été écrit.</td>
+    </tr>
+  </table>
+  </div>
+  <p>
+    <strong>Ce document décrit la v3 — le bateau tel qu'il est.</strong> Partout
+    où la version FOXGLOVE se comporte différemment, la différence est signalée
+    explicitement ; c'est souvent le nœud du problème, parce que la Jetson parle
+    déjà à un firmware qui n'est pas encore dans le Pico.
+  </p>
+  <p style="margin-bottom:0">
+    <strong>Il n'existe aucune commande <code>CMD MODE …</code>, nulle part.</strong>
+    Ni dans la v3, ni dans FOXGLOVE, ni dans aucun commit de ce dépôt ou du dépôt
+    de l'interface. Une première rédaction de ce document en parlait, ainsi que
+    d'un accumulateur série non bloquant : rien de tel n'a été trouvé. Les deux
+    firmwares lisent le port série avec <code>Serial.readStringUntil()</code>,
+    qui est bloquant.
+  </p>
+</div>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Errata — première édition de ce document</span>
+  <p style="margin-bottom:0">
+    La première version de ce document a été écrite <em>avant</em> d'avoir lu
+    l'un ou l'autre firmware, à partir d'une description orale. Elle décrivait
+    donc ni l'un ni l'autre : le format des lignes d'état y était inventé, les
+    rôles des canaux 7 et 8 étaient inversés, et une « divergence » sur les
+    temporisations de failsafe y était présentée comme un défaut alors que
+    c'était simplement deux versions différentes. Tout cela est corrigé ici, et
+    chaque correction est signalée à l'endroit où elle porte. Les sections les
+    plus touchées sont la <a href="#s5">§6</a> et la <a href="#s6">§7</a>.
+  </p>
+</div>
+
+<nav class="sommaire">
+  <h2>Sommaire</h2>
+  <ol>
+    <li><a href="#s0">D'où viennent les informations de ce document</a></li>
+    <li><a href="#s1">Le système dans son ensemble</a>
+      <ol>
+        <li><a href="#s1-asket">Ce qu'est Asket, et ses deux missions</a></li>
+        <li><a href="#s1-chaine">La chaîne complète, du capteur au pixel</a></li>
+      </ol>
+    </li>
+    <li><a href="#s2">Le vocabulaire, expliqué au fur et à mesure</a>
+      <ol>
+        <li><a href="#s2-ros">ROS 2 : nœud, topic, message, service</a></li>
+        <li><a href="#s2-paquet">Paquet, espace de travail, <code>colcon build</code></a></li>
+        <li><a href="#s2-launch">Les fichiers de lancement</a></li>
+        <li><a href="#s2-tf">TF et les repères</a></li>
+        <li><a href="#s2-nav2">Nav2 et MAVROS</a></li>
+        <li><a href="#s2-podman">Podman, et pourquoi on ne lance pas les choses directement</a></li>
+        <li><a href="#s2-git">Git : commit, branche, dépôt distant, fork</a></li>
+      </ol>
+    </li>
+    <li><a href="#s3">Chaque paquet, un par un</a>
+      <ol>
+        <li><a href="#s3-langages">D'abord : Python, C++, ou Arduino ?</a></li>
+        <li><a href="#s3-club">Les paquets de la pile de compétition</a></li>
+        <li><a href="#s3-gui">Les paquets ajoutés pour la Namibie</a></li>
+      </ol>
+    </li>
+    <li><a href="#s4">Le matériel, relié au code</a>
+      <ol>
+        <li><a href="#s4-liste">Composant par composant</a></li>
+        <li><a href="#s4-pico">Le brochage du Pico 2</a></li>
+        <li><a href="#s4-sbus">SBUS, inversion, et ce que 1500 µs veut dire</a></li>
+      </ol>
+    </li>
+    <li><a href="#s5">La chaîne de sécurité</a></li>
+    <li><a href="#s6">Le protocole série entre le Pico et la Jetson</a>
+      <ol>
+        <li><a href="#s6-protocole">Ce qu'est un protocole série</a></li>
+        <li><a href="#s6-lignes">Les lignes, dans les deux sens</a></li>
+        <li><a href="#s6-bug">Le bug <code>[STAT]</code> / <code>STATE</code></a></li>
+      </ol>
+    </li>
+    <li><a href="#s7">L'interface</a></li>
+    <li><a href="#s8">Si quelque chose ne va pas</a></li>
+    <li><a href="#s9">Ce qui est vérifié et ce qui ne l'est pas</a></li>
+  </ol>
+</nav>
+
+
+<h2 id="s0">1. D'où viennent les informations de ce document</h2>
+
+<p>
+  Avant tout le reste, une mise au point qui conditionne la confiance que vous
+  pouvez accorder à chaque page qui suit. Les informations de ce document
+  viennent de trois sources différentes, et elles n'ont pas la même solidité.
+</p>
+
+<div class="tableau">
+<table>
+  <tr>
+    <th>Source</th>
+    <th>Ce que ça couvre</th>
+    <th>Fiabilité</th>
+  </tr>
+  <tr>
+    <td><strong>Le code du dépôt</strong></td>
+    <td>Tout ce qui concerne ROS 2, les paquets, les topics, l'interface, le
+        pont sonar, l'enregistreur de mission.</td>
+    <td>Élevée. J'ai lu les fichiers. Quand je cite un nom de topic ou une
+        valeur, elle est dans le dépôt.</td>
+  </tr>
+  <tr>
+    <td><strong>Les deux firmwares Pico</strong></td>
+    <td>Le brochage, les paramètres SBUS, les seuils des canaux, les
+        temporisations de failsafe, l'arbitrage des modes, le format exact des
+        lignes d'état.</td>
+    <td>Élevée depuis la correction de ce document. J'ai lu les deux fichiers
+        <code>.ino</code> ligne à ligne. Ce qui reste invérifié, c'est le
+        <em>comportement</em> — personne n'a mis un oscilloscope ni un
+        terminal série sur le vrai Pico.</td>
+  </tr>
+  <tr>
+    <td><strong>Connaissances générales</strong></td>
+    <td>Ce qu'est SBUS, ce que fait un ESC avec une impulsion de 1500 µs, ce
+        qu'est un WebSocket.</td>
+    <td>Standard de l'industrie, mais pas spécifique à votre bateau.</td>
+  </tr>
+</table>
+</div>
+
+<div class="bloc danger">
+  <span class="etiquette">Le point le plus important de cette section</span>
+  <p>
+    <strong>Le firmware flashé n'est pas dans ce dépôt, et celui qui y est n'est
+    pas flashé.</strong> C'est la source de la plupart des surprises qui suivent.
+  </p>
+  <p>
+    Sur la branche <code>gui-integration</code> — celle que vous lisez — il n'y
+    a aucun fichier <code>.ino</code> du tout. Le seul de tout le dépôt est sur
+    la branche <code>GPS_Fix_and_Task</code>, et c'est la version FOXGLOVE, qui
+    n'est pas celle du Pico. La v3, elle, vit dans
+    <code>NODE-Engineering-Club/pico-node</code>.
+  </p>
+  <p>
+    Conséquence pratique : personne ne peut, depuis ce dépôt seul, savoir à quoi
+    ressemble une ligne d'état réelle. Le code Jetson a été écrit contre
+    FOXGLOVE, ce qui fait que <strong>la Jetson et le Pico ne parlent pas la
+    même langue aujourd'hui</strong> — c'est tout l'objet de la
+    <a href="#s6-bug">§7.3</a>.
+  </p>
+  <p style="margin-bottom:0">
+    Si vous ne deviez retenir qu'une chose : <strong>le firmware est la source
+    de vérité pour tout ce qui touche au Pico</strong>, et les deux versions
+    devraient vivre au même endroit, avec un numéro de version que le Pico
+    annonce lui-même au démarrage. Aujourd'hui aucun des deux ne le fait, donc
+    rien ne permet de savoir à distance ce qui tourne dans le microcontrôleur.
+  </p>
+</div>
+
+<p>
+  Il y a aussi deux découvertes que j'ai faites en lisant le code pour écrire ce
+  document, et qui ne figurent nulle part ailleurs. Elles sont détaillées plus
+  loin, mais je les annonce ici parce qu'elles changent la lecture de tout le
+  reste :
+</p>
+
+<ol>
+  <li>
+    <strong><code>pico_bridge</code> n'est lancé par rien.</strong> Le nœud
+    existe, il est déclaré comme exécutable, mais aucun fichier de lancement ne
+    le démarre. Voir <a href="#s6-bug">§7.3</a>.
+  </li>
+  <li>
+    <strong>Il y a deux chemins vers les moteurs</strong> dans ce dépôt, et il
+    n'est pas écrit lequel fait autorité : un passant par MAVROS et le Pixhawk,
+    l'autre par le Pico. Voir <a href="#s3-control">§4.2</a>.
+  </li>
+  <li>
+    <strong>La Jetson et le Pico ne parlent pas la même langue</strong>, parce
+    que le code de la Jetson a été écrit contre une version du firmware qui
+    n'est pas celle qui est flashée. Ce n'est pas une faute de frappe, et ça
+    n'affecte pas qu'un seul champ. Voir <a href="#s6-bug">§7.3</a>.
+  </li>
+</ol>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+
+<h2 id="s1">2. Le système dans son ensemble</h2>
+
+<h3 id="s1-asket">Ce qu'est Asket, et ses deux missions</h3>
+
+<p>
+  Asket est un <em class="terme">USV</em> — <i>Uncrewed Surface Vessel</i>, un
+  bateau de surface sans personne à bord. Un petit catamaran à propulsion
+  électrique, piloté soit à la radiocommande, soit par lui-même.
+</p>
+
+<p>
+  Ce dépôt sert à <strong>deux missions différentes</strong>, et une bonne
+  partie de sa structure vient de cette double vie :
+</p>
+
+<dl>
+  <dt>La compétition Njord</dt>
+  <dd>
+    Le bateau doit accomplir des épreuves seul : suivre un parcours, éviter des
+    obstacles, s'amarrer dans un ponton en U. C'est la raison d'être historique
+    du dépôt. Tout ce qui s'appelle <code>perception</code>,
+    <code>boat_bt</code>, <code>competition_manager</code>,
+    <code>vision</code> sert à ça.
+  </dd>
+
+  <dt>Le levé bathymétrique en Namibie</dt>
+  <dd>
+    Le bateau parcourt des lignes parallèles au-dessus d'une zone de fond marin
+    en traînant un sonar, et enregistre tout pour analyse ultérieure. Ici le
+    bateau n'a pas besoin d'être très intelligent : il doit surtout être
+    <strong>surveillable depuis la plage</strong> et enregistrer des données
+    exploitables. C'est la raison d'être de l'interface (la « GUI ») et des
+    paquets qui l'entourent.
+  </dd>
+</dl>
+
+<p>
+  Les deux missions partagent le même bateau, les mêmes capteurs de navigation
+  et le même ordinateur. Elles ne partagent presque rien d'autre. C'est pour ça
+  que l'interface de mission s'active avec un interrupteur
+  (<code>enable_gui:=true</code>) qui est <strong>éteint par défaut</strong> :
+  quelqu'un qui travaille sur la navigation de compétition ne doit jamais se
+  retrouver à démarrer un serveur web dont il n'a que faire.
+</p>
+
+<h3 id="s1-chaine">La chaîne complète, du capteur au pixel</h3>
+
+<p>
+  Voici le trajet complet d'une information, une seule fois, de bout en bout. Le
+  reste du document ne fait que détailler des morceaux de ce trajet. Prenons la
+  position GPS, parce qu'elle traverse presque tout.
+</p>
+
+<figure>
+<svg viewBox="0 0 760 660" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schéma du flux de données, du capteur GPS jusqu'à l'écran du navigateur">
+  <defs>
+    <marker id="fl" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,1 L8,4.5 L0,8 z" fill="#454a54"/>
+    </marker>
+  </defs>
+  <style>
+    .b { fill:#ffffff; stroke:#1a1c20; stroke-width:1.4; }
+    .bh { fill:#f2f1ed; stroke:#1a1c20; stroke-width:1.4; }
+    .bg { fill:#f0f5fa; stroke:#0b4f8f; stroke-width:1.4; }
+    .t { font-family:Helvetica,Arial,sans-serif; font-size:12px; fill:#16181d; }
+    .tb { font-family:Helvetica,Arial,sans-serif; font-size:12px; font-weight:bold; fill:#16181d; }
+    .ts { font-family:Helvetica,Arial,sans-serif; font-size:10px; fill:#454a54; }
+    .tm { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:9.5px; fill:#0b4f8f; }
+    .ln { stroke:#454a54; stroke-width:1.3; fill:none; marker-end:url(#fl); }
+    .zone { font-family:Helvetica,Arial,sans-serif; font-size:10px; font-weight:bold; fill:#454a54; letter-spacing:.08em; }
+  </style>
+
+  <!-- zones -->
+  <text class="zone" x="14" y="24">MATÉRIEL</text>
+  <line x1="0" y1="32" x2="760" y2="32" stroke="#d8d6cf"/>
+
+  <rect class="bh" x="60" y="46" width="180" height="42" rx="3"/>
+  <text class="tb" x="150" y="64" text-anchor="middle">Antenne GNSS</text>
+  <text class="ts" x="150" y="79" text-anchor="middle">un signal satellite</text>
+
+  <rect class="bh" x="290" y="46" width="180" height="42" rx="3"/>
+  <text class="tb" x="380" y="64" text-anchor="middle">Pixhawk</text>
+  <text class="ts" x="380" y="79" text-anchor="middle">calcule une position</text>
+
+  <rect class="bh" x="520" y="46" width="180" height="42" rx="3"/>
+  <text class="tb" x="610" y="64" text-anchor="middle">USB / série</text>
+  <text class="ts" x="610" y="79" text-anchor="middle">vers la Jetson</text>
+
+  <path class="ln" d="M240,67 L286,67"/>
+  <path class="ln" d="M470,67 L516,67"/>
+
+  <text class="zone" x="14" y="122">JETSON — ROS 2</text>
+  <line x1="0" y1="130" x2="760" y2="130" stroke="#d8d6cf"/>
+
+  <rect class="b" x="60" y="146" width="200" height="50" rx="3"/>
+  <text class="tb" x="160" y="165" text-anchor="middle">MAVROS</text>
+  <text class="ts" x="160" y="180" text-anchor="middle">traduit MAVLink → ROS</text>
+
+  <rect class="b" x="300" y="146" width="200" height="50" rx="3"/>
+  <text class="tb" x="400" y="165" text-anchor="middle">imu_gps_driver</text>
+  <text class="ts" x="400" y="180" text-anchor="middle">renomme les topics</text>
+
+  <rect class="b" x="540" y="146" width="180" height="50" rx="3"/>
+  <text class="tb" x="630" y="165" text-anchor="middle">ekf_node</text>
+  <text class="ts" x="630" y="180" text-anchor="middle">fusionne GPS + IMU</text>
+
+  <path class="ln" d="M260,171 L296,171"/>
+  <path class="ln" d="M500,171 L536,171"/>
+  <text class="tm" x="278" y="207" text-anchor="middle">/mavros/…</text>
+  <text class="tm" x="518" y="207" text-anchor="middle">/gps_driver/gps_raw</text>
+
+  <path class="ln" d="M630,196 L630,236"/>
+  <rect class="b" x="480" y="240" width="240" height="48" rx="3"/>
+  <text class="tb" x="600" y="259" text-anchor="middle">/odometry/filtered</text>
+  <text class="ts" x="600" y="274" text-anchor="middle">position, vitesse, cap fusionnés</text>
+
+  <text class="zone" x="14" y="322">JETSON — INTERFACE</text>
+  <line x1="0" y1="330" x2="760" y2="330" stroke="#d8d6cf"/>
+
+  <path class="ln" d="M600,288 L600,344"/>
+
+  <rect class="bg" x="440" y="348" width="280" height="56" rx="3"/>
+  <text class="tb" x="580" y="368" text-anchor="middle">gui_backend — RosSource</text>
+  <text class="ts" x="580" y="383" text-anchor="middle">s'abonne, garde le dernier message,</text>
+  <text class="ts" x="580" y="396" text-anchor="middle">ne convertit qu'à la demande</text>
+
+  <path class="ln" d="M440,376 L366,376"/>
+  <rect class="bg" x="180" y="348" width="180" height="56" rx="3"/>
+  <text class="tb" x="270" y="368" text-anchor="middle">adapters.py</text>
+  <text class="ts" x="270" y="383" text-anchor="middle">message ROS →</text>
+  <text class="ts" x="270" y="396" text-anchor="middle">valeurs simples</text>
+
+  <path class="ln" d="M270,404 L270,444"/>
+  <rect class="bg" x="140" y="448" width="260" height="56" rx="3"/>
+  <text class="tb" x="270" y="468" text-anchor="middle">Hub + payloads.py</text>
+  <text class="ts" x="270" y="483" text-anchor="middle">décide quoi envoyer, à quel rythme,</text>
+  <text class="ts" x="270" y="496" text-anchor="middle">selon la qualité de la liaison</text>
+
+  <text class="zone" x="14" y="540">LIAISON SANS FIL</text>
+  <line x1="0" y1="548" x2="760" y2="548" stroke="#d8d6cf"/>
+
+  <path class="ln" d="M270,504 L270,562"/>
+  <rect class="bg" x="140" y="566" width="260" height="44" rx="3"/>
+  <text class="tb" x="270" y="585" text-anchor="middle">WebSocket</text>
+  <text class="ts" x="270" y="600" text-anchor="middle">un tuyau ouvert en permanence</text>
+
+  <path class="ln" d="M400,588 L456,588"/>
+  <rect class="bg" x="460" y="566" width="260" height="44" rx="3"/>
+  <text class="tb" x="590" y="585" text-anchor="middle">Navigateur (votre portable)</text>
+  <text class="ts" x="590" y="600" text-anchor="middle">React + MapLibre dessinent</text>
+</svg>
+<figcaption>
+  <strong>Le trajet d'une position GPS, de l'antenne à l'écran.</strong> Chaque
+  rectangle est un morceau de logiciel distinct, qui tourne dans son propre
+  processus. Les textes en bleu sont des <em>topics</em> — les canaux nommés par
+  lesquels les morceaux se parlent (voir §3.1). Ce qui compte : la donnée
+  traverse au moins sept étapes, et une panne peut se situer à n'importe
+  laquelle. La section <a href="#s8">§9</a> est organisée pour vous aider à
+  trouver laquelle.
+</figcaption>
+</figure>
+
+<p>Raconté en mots, étape par étape :</p>
+
+<ol>
+  <li>
+    <strong>L'antenne GNSS</strong> reçoit les signaux satellites. Elle est
+    branchée sur le <strong>Pixhawk</strong>, le contrôleur de vol.
+  </li>
+  <li>
+    <strong>Le Pixhawk</strong> calcule une position et l'envoie à la Jetson par
+    un câble USB, dans un langage binaire appelé MAVLink.
+  </li>
+  <li>
+    <strong>MAVROS</strong>, un programme qui tourne sur la Jetson, traduit
+    MAVLink en messages ROS 2 et les publie sur des canaux nommés
+    <code>/mavros/…</code>.
+  </li>
+  <li>
+    <strong><code>imu_gps_driver</code></strong> recopie ces messages sous des
+    noms neutres : <code>/gps_driver/gps_raw</code>,
+    <code>/imu_driver/imu_raw</code>. Cette étape ne fait <em>rien</em> d'autre
+    que renommer. Elle existe pour que le reste du système ne dépende pas de
+    MAVROS : si demain le Pixhawk est remplacé, seul ce petit nœud change.
+  </li>
+  <li>
+    <strong><code>ekf_node</code></strong> fusionne la position GPS avec la
+    centrale inertielle pour produire <code>/odometry/filtered</code> : une
+    position lissée, une vitesse et un cap, tous cohérents entre eux et
+    horodatés ensemble.
+  </li>
+  <li>
+    <strong><code>gui_backend</code></strong> — la partie serveur de l'interface
+    — écoute ce canal, garde le dernier message en mémoire, et ne le convertit
+    que lorsqu'un navigateur en demande un.
+  </li>
+  <li>
+    Il l'envoie par <strong>WebSocket</strong> à votre portable, en choisissant
+    le débit selon la qualité de la liaison radio du moment.
+  </li>
+  <li>
+    <strong>Le navigateur</strong> dessine le bateau sur la carte.
+  </li>
+</ol>
+
+<div class="bloc info">
+  <span class="etiquette">Pourquoi autant d'étapes ?</span>
+  <p style="margin-bottom:0">
+    Chaque étape est un endroit où l'on peut brancher autre chose. On peut
+    remplacer le Pixhawk sans toucher à l'interface ; on peut tester l'interface
+    sans bateau ; on peut faire tourner la navigation sans interface. C'est le
+    bénéfice. Le coût, c'est qu'une panne peut se cacher dans n'importe lequel
+    des sept maillons — et c'est exactement ce qui s'est produit avec le bug
+    décrit en <a href="#s6-bug">§7.3</a>.
+  </p>
+</div>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+<h2 id="s2">3. Le vocabulaire, expliqué au fur et à mesure</h2>
+
+<p>
+  Cette section explique les mots que vous allez rencontrer partout ailleurs.
+  Elle est ici parce qu'il faut bien les expliquer quelque part, mais chaque
+  terme est illustré par quelque chose de réel dans le dépôt, pas par un exemple
+  abstrait.
+</p>
+
+<h3 id="s2-ros">3.1 ROS 2 : nœud, topic, message, service</h3>
+
+<p>
+  <strong>ROS 2</strong> (<i>Robot Operating System 2</i>) porte très mal son
+  nom : ce n'est pas un système d'exploitation. C'est un <strong>système de
+  messagerie</strong> entre programmes, plus une collection d'outils autour.
+  L'idée tient en une phrase : au lieu d'écrire un gros programme qui fait tout,
+  on écrit beaucoup de petits programmes qui s'envoient des messages.
+</p>
+
+<p>
+  L'analogie la plus juste est celle d'un bus CAN sur un véhicule, ou d'un
+  réseau d'instruments : chaque boîtier fait une chose, et diffuse le résultat
+  sur un bus que les autres écoutent. ROS 2 fait la même chose, en logiciel, et
+  ajoute que le « câblage » se fait par des <em>noms</em> plutôt que par des
+  fils.
+</p>
+
+<dl>
+  <dt><em class="terme">Nœud</em> (<i>node</i>)</dt>
+  <dd>
+    Un programme qui tourne. Un point. <code>lidar_driver</code> est un nœud :
+    un programme dont le seul travail est de parler au lidar par le port série
+    et de diffuser ce qu'il lit. <code>gui_backend</code> est un nœud.
+    <code>ekf_node</code> est un nœud. Sur le bateau en marche, il y en a une
+    vingtaine qui tournent en même temps, chacun dans son propre processus.
+    <br><br>
+    Ça a une conséquence pratique très importante : <strong>si un nœud
+    plante, les autres continuent</strong>. Si le nœud de vision meurt, le
+    bateau continue de naviguer. C'est voulu.
+  </dd>
+
+  <dt><em class="terme">Topic</em></dt>
+  <dd>
+    Un canal nommé sur lequel des messages circulent. Les noms commencent par
+    une barre oblique : <code>/gps_driver/gps_raw</code>,
+    <code>/obstacles/lidar</code>, <code>/cmd_vel</code>.
+    <br><br>
+    Un topic fonctionne comme une fréquence radio : celui qui émet ne sait pas
+    qui écoute, et celui qui écoute ne sait pas qui émet. On peut avoir zéro,
+    un ou dix auditeurs — l'émetteur s'en moque et n'en est pas informé.
+    <br><br>
+    <strong>Et c'est précisément là que se cachent les pannes silencieuses.</strong>
+    Si personne n'émet sur un topic, celui qui écoute n'obtient rien, et rien ne
+    lui signale que c'est anormal. Il attend, simplement. Retenez ça : c'est
+    l'explication du bug de la <a href="#s6-bug">§7.3</a>.
+  </dd>
+
+  <dt><em class="terme">Publier</em> / <em class="terme">s'abonner</em></dt>
+  <dd>
+    Émettre sur un topic, c'est <i>publier</i>. Écouter, c'est
+    <i>s'abonner</i>. Un nœud fait souvent les deux :
+    <code>pid_controller</code> s'abonne à <code>/control/setpoint</code>
+    (la consigne) et publie sur <code>/control/effort</code> (l'effort calculé).
+  </dd>
+
+  <dt><em class="terme">Type de message</em></dt>
+  <dd>
+    Chaque topic transporte un seul type de données, décidé à l'avance, comme
+    une prise qui n'accepte qu'une fiche. <code>sensor_msgs/NavSatFix</code>
+    contient une latitude, une longitude, une altitude, un état de fix et une
+    matrice de covariance. <code>geometry_msgs/Twist</code> contient une vitesse
+    linéaire et une vitesse angulaire. <code>std_msgs/String</code> contient…
+    du texte, et rien d'autre.
+    <br><br>
+    Le type n'est pas un détail administratif. Il décide de ce que le système
+    peut savoir. Un exemple concret tiré de ce dépôt :
+    <code>/pico/status</code> est un <code>std_msgs/String</code>. Ça veut dire
+    que ROS ne comprend <em>rien</em> à son contenu — c'est du texte brut, et
+    c'est à nous de l'analyser. Si ce topic avait été un type structuré, le bug
+    de la §7.3 aurait été impossible.
+  </dd>
+
+  <dt><em class="terme">Service</em></dt>
+  <dd>
+    Un topic est une diffusion à sens unique. Un <i>service</i> est une
+    question avec une réponse : « démarre l'enregistrement » →
+    « c'est fait, voici le nom du dossier ».
+    <br><br>
+    La règle : on utilise un topic pour un flux continu (une position, dix fois
+    par seconde) et un service pour une action ponctuelle (démarrer, arrêter,
+    régler). Dans le dépôt, <code>/mission_recorder/start_mission</code> est un
+    service ; <code>/odometry/filtered</code> est un topic.
+  </dd>
+</dl>
+
+<div class="bloc info">
+  <span class="etiquette">Les commandes utiles, dès maintenant</span>
+  <p>
+    Ces trois commandes, tapées sur la Jetson, sont l'équivalent d'un
+    multimètre. Elles reviennent partout en <a href="#s8">§9</a> :
+  </p>
+<pre><code>ros2 node list              # quels programmes tournent en ce moment
+ros2 topic list             # quels canaux existent
+ros2 topic echo /un/topic   # affiche ce qui passe sur un canal, en direct
+ros2 topic hz /un/topic     # à quelle fréquence ça passe</code></pre>
+  <p style="margin-bottom:0">
+    <code>ros2 topic echo</code> qui n'affiche rien et ne rend pas la main
+    signifie « le canal existe, mais personne n'émet dessus ». C'est différent
+    d'une erreur « topic inconnu », qui signifie « personne n'a jamais créé ce
+    canal ». Savoir distinguer les deux vous fera gagner beaucoup de temps.
+  </p>
+</div>
+
+<h3 id="s2-paquet">3.2 Paquet, espace de travail, <code>colcon build</code></h3>
+
+<p>
+  Un <em class="terme">paquet</em> (<i>package</i>) est un dossier qui regroupe
+  du code qui va ensemble, avec une fiche d'identité. Dans ce dépôt, tout ce qui
+  est sous <code>src/</code> est un paquet :
+  <code>src/control/</code>, <code>src/perception/</code>,
+  <code>src/gui_backend/</code>… Il y en a vingt-deux.
+</p>
+
+<p>Chaque paquet contient au minimum :</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Fichier</th><th>Rôle</th></tr>
+  <tr>
+    <td><code>package.xml</code></td>
+    <td>La fiche d'identité : le nom du paquet, sa version, et surtout
+        <strong>ses dépendances</strong> — de quels autres paquets il a besoin
+        pour fonctionner.</td>
+  </tr>
+  <tr>
+    <td><code>setup.py</code></td>
+    <td>Pour les paquets Python. Dit quels fichiers installer et, surtout,
+        déclare les <strong>points d'entrée</strong> : quel nom de commande
+        correspond à quelle fonction. C'est ce qui fait que
+        <code>ros2 run control pico_bridge</code> sait quoi lancer.</td>
+  </tr>
+  <tr>
+    <td><code>CMakeLists.txt</code></td>
+    <td>L'équivalent pour les paquets C++ ou pour ceux qui définissent des types
+        de messages.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  L'<em class="terme">espace de travail</em> (<i>workspace</i>) est le dossier
+  qui contient tous ces paquets : c'est ce dépôt. Un espace de travail se
+  <strong>construit</strong> avec une commande :
+</p>
+
+<pre><code>colcon build --symlink-install</code></pre>
+
+<p>
+  <code>colcon</code> lit tous les <code>package.xml</code>, calcule dans quel
+  ordre construire (un paquet qui définit des messages doit être construit avant
+  ceux qui les utilisent), puis fabrique un dossier <code>install/</code>
+  contenant la version « installée » de tout.
+</p>
+
+<div class="bloc info">
+  <span class="etiquette">Pourquoi <code>--symlink-install</code> compte ici</span>
+  <p>
+    Sans cette option, <code>colcon</code> <strong>copie</strong> les fichiers
+    Python dans <code>install/</code>. Vous modifiez un fichier dans
+    <code>src/</code>, vous relancez, et rien ne change — parce que le programme
+    exécute la copie, pas votre fichier.
+  </p>
+  <p>
+    Avec <code>--symlink-install</code>, il crée des <strong>liens
+    symboliques</strong> : des raccourcis qui pointent vers le vrai fichier.
+    Vous modifiez, vous relancez, ça marche.
+  </p>
+  <p style="margin-bottom:0">
+    Sur une plage, à genoux devant un bateau, avec dix minutes avant que la
+    marée change, la différence entre « je corrige et je relance » et « je
+    corrige, je reconstruis trois minutes, et je relance » est énorme. C'est
+    pour ça que cette option est partout dans la documentation de ce dépôt.
+    <strong>Attention :</strong> elle ne vaut que pour Python. Le C++ doit
+    toujours être recompilé.
+  </p>
+</div>
+
+<p>
+  Une fois construit, il faut « sourcer » l'espace de travail — c'est-à-dire
+  dire au terminal où trouver les programmes :
+</p>
+
+<pre><code>source install/setup.bash</code></pre>
+
+<p>
+  Si vous oubliez cette ligne, <code>ros2 run</code> vous répondra que le paquet
+  n'existe pas. C'est l'erreur la plus fréquente quand on débute, et elle n'a
+  rien à voir avec le code.
+</p>
+
+<h3 id="s2-launch">3.3 Les fichiers de lancement</h3>
+
+<p>
+  Vingt nœuds à démarrer à la main, chacun avec ses paramètres, ce n'est pas
+  tenable. Un <em class="terme">fichier de lancement</em> (<i>launch file</i>)
+  est un script qui dit : démarre ces nœuds-là, avec ces réglages-là, dans cet
+  ordre-là.
+</p>
+
+<p>
+  Dans ce dépôt, le fichier central est
+  <code>src/bringup/launch/njord.launch.py</code>. Il fait près de 500 lignes et
+  démarre toute la pile. On l'appelle ainsi :
+</p>
+
+<pre><code>ros2 launch bringup njord.launch.py use_sim:=true enable_vision:=false</code></pre>
+
+<p>
+  Les <code>quelque_chose:=valeur</code> sont des <strong>arguments de
+  lancement</strong>. Ce sont des interrupteurs. Le fichier en déclare une
+  vingtaine :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Argument</th><th>Défaut</th><th>Effet</th></tr>
+  <tr><td><code>use_sim</code></td><td><code>false</code></td><td>Simulation Gazebo au lieu du vrai matériel.</td></tr>
+  <tr><td><code>enable_vision</code></td><td><code>true</code></td><td>Démarre la détection YOLO (lourde en calcul).</td></tr>
+  <tr><td><code>enable_control</code></td><td><code>true</code></td><td>Démarre la boucle de contrôle des moteurs.</td></tr>
+  <tr><td><code>enable_foxglove</code></td><td><code>true</code></td><td>Démarre l'outil de visualisation, sur le port 8765.</td></tr>
+  <tr><td><code>enable_gui</code></td><td><strong><code>false</code></strong></td><td>Démarre l'interface de mission Namibie, sur le port 8090. <em>Ajouté par le travail GUI.</em></td></tr>
+  <tr><td><code>headless</code></td><td><code>true</code></td><td>Gazebo sans fenêtre graphique.</td></tr>
+</table>
+</div>
+
+<p>
+  Le fait que <code>enable_gui</code> soit à <code>false</code> par défaut est
+  une décision, pas un oubli. Ajouter quoi que ce soit au démarrage par défaut
+  d'un projet partagé, c'est imposer un coût à tous ceux qui n'en veulent pas.
+</p>
+
+<h3 id="s2-tf">3.4 TF et les repères</h3>
+
+<p>
+  Le lidar dit « il y a quelque chose à 4 mètres, à 30° sur ma gauche ».
+  À gauche <em>de quoi</em> ? Le lidar est monté quelque part sur le bateau,
+  peut-être de travers, peut-être 40 cm au-dessus et 20 cm en avant du centre.
+  Le GPS est ailleurs. La caméra ailleurs encore.
+</p>
+
+<p>
+  <em class="terme">TF</em> est le système qui tient à jour, en permanence,
+  toutes les transformations géométriques entre ces points de référence, qu'on
+  appelle des <strong>repères</strong> (<i>frames</i>). Les repères de ce
+  bateau :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Repère</th><th>Ce que c'est</th></tr>
+  <tr><td><code>base_link</code></td><td>Le bateau lui-même. L'origine de tout ce qui est « à bord ».</td></tr>
+  <tr><td><code>lidar</code></td><td>Le centre optique du lidar, avec son décalage et son orientation par rapport à <code>base_link</code>.</td></tr>
+  <tr><td><code>front_camera</code></td><td>La caméra avant.</td></tr>
+  <tr><td><code>GPS</code></td><td>L'antenne GNSS.</td></tr>
+  <tr><td><code>odom</code></td><td>Un repère fixe par rapport au monde, dont l'origine est là où le bateau a démarré.</td></tr>
+  <tr><td><code>map</code></td><td>Le repère cartographique global.</td></tr>
+</table>
+</div>
+
+<p>
+  Grâce à TF, un programme peut demander « ce point que le lidar voit, il est où
+  par rapport à la caméra ? » et obtenir une réponse juste sans jamais avoir
+  écrit une seule ligne de trigonométrie. C'est exactement ce que fait
+  <code>fusion_node</code> pour projeter les points lidar dans l'image.
+</p>
+
+<p>
+  Les décalages fixes viennent du fichier <strong>URDF</strong>
+  (<code>src/description/asket.urdf.xacro</code>) : une description mécanique du
+  bateau, en XML, qui dit où chaque pièce est montée.
+  <code>robot_state_publisher</code> le lit au démarrage et diffuse l'arbre TF.
+</p>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Là où TF ne peut pas vous sauver</span>
+  <p style="margin-bottom:0">
+    TF applique fidèlement les valeurs qu'on lui donne. Si le décalage dans
+    l'URDF est faux, TF propage l'erreur partout, proprement et sans se
+    plaindre. C'est précisément le problème de la géométrie de montage du sonar
+    (<code>mounting.yaml</code>, question ouverte Q2) : le bras de levier entre
+    l'antenne GNSS et le transducteur <strong>n'a jamais été mesuré</strong>.
+    Un décalage constant ne ressemble pas à du bruit — il déplace tout le levé,
+    de façon parfaitement cohérente et parfaitement fausse. Aucun
+    post-traitement ne le retrouvera.
+  </p>
+</div>
+
+<h3 id="s2-nav2">3.5 Nav2 et MAVROS</h3>
+
+<p>
+  Ces deux-là ne sont pas écrits par le club. Ce sont de gros logiciels
+  extérieurs, installés comme des dépendances, et il faut savoir ce qu'ils font
+  pour vous.
+</p>
+
+<h4>Nav2</h4>
+
+<p>
+  <strong>Nav2</strong> est la pile de navigation autonome standard de ROS 2.
+  On lui donne un but (« va à ce point ») et une carte des obstacles, et elle
+  produit une commande de vitesse à chaque instant. À l'intérieur, elle contient
+  un planificateur global (quel chemin prendre), un contrôleur local (comment
+  suivre ce chemin), des <em>costmaps</em> (des grilles qui disent où il est
+  dangereux d'aller) et un moniteur de collision.
+</p>
+
+<p>
+  Ce que ça vous apporte : personne dans le club n'a eu à écrire un
+  planificateur de trajectoire. Ce que ça coûte : Nav2 est complexe, verbeux, et
+  a des comportements surprenants. Le README du club en documente un, révélateur :
+  Nav2 <strong>continue de publier des commandes de vitesse même sans but
+  actif</strong>. C'est la raison d'être de <code>twist_mux</code>, qui arbitre
+  entre les commandes de Nav2 (priorité 10) et celles de l'amarrage
+  (priorité 100) — sans quoi Nav2 écraserait par intermittence les commandes
+  d'accostage.
+</p>
+
+<h4>MAVROS</h4>
+
+<p>
+  <strong>MAVROS</strong> est un traducteur. Le Pixhawk parle
+  <strong>MAVLink</strong>, un protocole binaire compact conçu pour les drones.
+  ROS 2 parle ses propres messages. MAVROS fait le pont dans les deux sens.
+</p>
+
+<p>
+  Entrant : il transforme les données du Pixhawk en topics
+  <code>/mavros/imu/data</code>, <code>/mavros/global_position/…</code>,
+  <code>/mavros/battery</code>. Sortant : il accepte
+  <code>/mavros/rc/override</code>, qui permet à un programme de se faire passer
+  pour l'émetteur radio et d'envoyer des positions de manche.
+</p>
+
+<div class="bloc danger">
+  <span class="etiquette">« RC override » mérite qu'on s'y arrête</span>
+  <p style="margin-bottom:0">
+    <code>actuator_driver</code> pilote les moteurs en publiant sur
+    <code>/mavros/rc/override</code> : il écrit des valeurs de canaux RC comme
+    si elles venaient de la radiocommande. C'est une technique courante, et
+    c'est aussi une technique qui <strong>court-circuite conceptuellement la
+    voie radio</strong>. Retenez-la — elle est au cœur de la discussion sur la
+    chaîne de sécurité en <a href="#s5">§6</a>, et de l'ambiguïté sur les deux
+    chemins vers les moteurs décrite en <a href="#s3-control">§4.2</a>.
+  </p>
+</div>
+
+<h3 id="s2-podman">3.6 Podman, et pourquoi on ne lance pas les choses directement</h3>
+
+<p>
+  <strong>Podman</strong> est un système de conteneurs — l'équivalent libre de
+  Docker, et compatible avec lui. Un <em class="terme">conteneur</em> est une
+  boîte qui contient un système de fichiers complet : une distribution Linux,
+  ROS 2, toutes les bibliothèques, aux versions exactes voulues.
+</p>
+
+<p>Le problème qu'il résout est très concret :</p>
+
+<ul>
+  <li>
+    ROS 2 Jazzy exige Ubuntu 24.04 et Python 3.12. Précisément. Pas 3.11.
+  </li>
+  <li>
+    Nav2, MAVROS, OpenCV, ONNX Runtime, BehaviorTree.CPP ont chacun leurs
+    versions et leurs exigences croisées.
+  </li>
+  <li>
+    Six personnes travaillent sur ce dépôt, sur six machines différentes.
+  </li>
+  <li>
+    La Jetson a une architecture ARM64, pas la même que vos portables.
+  </li>
+</ul>
+
+<p>
+  Sans conteneur, chaque installation est un projet en soi et « ça marche chez
+  moi » devient la phrase la plus fréquente du club. Le
+  <code>Containerfile</code> à la racine décrit la recette : on part de l'image
+  officielle <code>ros:jazzy-ros-base</code>, on ajoute MAVROS, les outils
+  caméra, <code>cv_bridge</code>, les paquets de vision et de localisation. Tout
+  le monde obtient exactement le même environnement.
+</p>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Le piège du conteneur, sur le bateau</span>
+  <p>
+    Un conteneur est <strong>isolé</strong> de la machine hôte. Il ne voit pas
+    les ports USB, ni le réseau, ni les fichiers, sauf si on les lui donne
+    explicitement au démarrage.
+  </p>
+  <p style="margin-bottom:0">
+    Le <code>CLAUDE.md</code> du dépôt note un cas particulièrement vicieux :
+    <em>« Podman résout les liens symboliques au lancement :
+    <code>/dev/pico</code> existe sur l'hôte, le conteneur doit référencer le
+    <code>ttyACMn</code> résolu. »</em> Autrement dit, une règle udev bien faite
+    qui crée un joli <code>/dev/pico</code> ne suffit pas — le conteneur veut le
+    vrai nom, <code>/dev/ttyACM0</code>, qui peut changer d'un démarrage à
+    l'autre. Si le Pico ne répond pas alors que tout semble branché,
+    <strong>c'est la première chose à vérifier</strong>.
+  </p>
+</div>
+
+<h3 id="s2-git">3.7 Git : commit, branche, dépôt distant, fork</h3>
+
+<p>
+  <strong>Git</strong> garde l'historique complet du code : qui a changé quoi,
+  quand, et pourquoi. Voici les quatre notions dont vous avez besoin, décrites
+  telles qu'elles ont servi <em>ici</em>.
+</p>
+
+<dl>
+  <dt><em class="terme">Commit</em></dt>
+  <dd>
+    Une photo de l'état complet du code à un instant, avec un message qui
+    explique le changement. Chaque commit a un identifiant unique
+    (<code>6ad3f55</code>, <code>ab359dc</code>…). L'historique est une chaîne de
+    commits, et on peut revenir à n'importe lequel.
+  </dd>
+
+  <dt><em class="terme">Branche</em></dt>
+  <dd>
+    Une ligne de développement parallèle. <code>main</code> est la branche
+    principale, celle qui est censée toujours marcher. Quand on travaille sur
+    quelque chose, on crée une branche, on y fait ses commits, et
+    <code>main</code> n'est pas perturbée pendant ce temps.
+    <br><br>
+    Le travail décrit dans ce document vit sur une branche appelée
+    <code>gui-integration</code>. Le dépôt du club a aussi
+    <code>GPS_Fix_and_Task</code>, <code>Nav2-testing</code>,
+    <code>gazebo_debugg</code> et quelques autres, chacune avec du travail en
+    cours.
+  </dd>
+
+  <dt><em class="terme">Dépôt distant</em> (<i>remote</i>)</dt>
+  <dd>
+    Une copie du dépôt hébergée ailleurs, typiquement sur GitHub. Le nom
+    <code>origin</code> désigne par convention « le dépôt d'où je viens ».
+    On <i>pousse</i> (<code>push</code>) pour envoyer ses commits, on
+    <i>tire</i> (<code>pull</code>) pour récupérer ceux des autres.
+  </dd>
+
+  <dt><em class="terme">Fork</em></dt>
+  <dd>
+    Votre copie personnelle du dépôt de quelqu'un d'autre, sur GitHub. Vous
+    avez <code>auxenceIAAC/node-ros-2026</code>, qui est un fork de
+    <code>NODE-Engineering-Club/node-ros-2026</code>.
+    <br><br>
+    L'intérêt : vous pouvez tout casser chez vous sans toucher au dépôt du
+    club. Quand le travail est prêt, vous proposez de le reverser — c'est une
+    <em>pull request</em>, et c'est une décision humaine, jamais automatique.
+  </dd>
+</dl>
+
+<div class="bloc info">
+  <span class="etiquette">Comment ce travail a circulé, concrètement</span>
+  <p>
+    L'interface a d'abord été développée dans un dépôt séparé
+    (<code>GUI_NAMIBIA</code>), parce qu'elle ne dépendait de rien du club.
+    Ensuite elle a été <strong>fusionnée</strong> dans une copie du dépôt Njord,
+    sur la branche <code>gui-integration</code>, en conservant tout son
+    historique — 127 commits du club, 15 de l'interface, et un commit de fusion.
+  </p>
+  <p style="margin-bottom:0">
+    L'alternative aurait été de copier les fichiers en un seul gros commit.
+    C'était plus simple, et ç'aurait effacé le <em>pourquoi</em> de chaque
+    décision : quinze messages de commit expliquant chacun un choix, réduits à
+    « ajout de l'interface ». Le détail de la fusion et des conflits est dans
+    <code>INTEGRATION_STATUS.md</code>.
+  </p>
+</div>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+<h2 id="s3">4. Chaque paquet, un par un</h2>
+
+<h3 id="s3-langages">4.1 D'abord : Python, C++, ou Arduino ?</h3>
+
+<p>
+  Ce dépôt utilise trois langages. Le choix n'est ni arbitraire ni idéologique :
+  il suit une règle simple, <strong>plus on est près du moteur, plus le temps
+  compte ; plus on est loin, plus la facilité de modification compte</strong>.
+</p>
+
+<div class="tableau">
+<table>
+  <tr>
+    <th>Langage</th>
+    <th>Où</th>
+    <th>Pourquoi là</th>
+  </tr>
+  <tr>
+    <td><strong>C++ (Arduino)</strong><br>sur le Pico</td>
+    <td>Firmware du RP2350</td>
+    <td>
+      Un microcontrôleur n'a ni système d'exploitation ni mémoire virtuelle.
+      Le code tourne seul, sur le métal. Il n'y a pas d'autre choix réaliste —
+      et c'est aussi le seul endroit où l'on peut garantir qu'une impulsion PWM
+      sort <em>exactement</em> toutes les 20 ms, quoi qu'il arrive ailleurs.
+    </td>
+  </tr>
+  <tr>
+    <td><strong>C++</strong><br>sous ROS 2</td>
+    <td><code>boat_bt</code> uniquement</td>
+    <td>
+      L'arbre de comportement s'appuie sur BehaviorTree.CPP 4, une bibliothèque
+      C++. On n'écrit pas un pont Python vers une bibliothèque C++ complexe pour
+      le plaisir : on écrit en C++.
+    </td>
+  </tr>
+  <tr>
+    <td><strong>Python</strong><br>sous ROS 2</td>
+    <td>Tout le reste — 16 paquets sur 22</td>
+    <td>
+      Lisible, modifiable sans recompilation (avec
+      <code>--symlink-install</code>), et assez rapide pour tout ce qui ne
+      tourne pas à plus de quelques dizaines de hertz.
+    </td>
+  </tr>
+  <tr>
+    <td><strong>JavaScript</strong><br>dans le navigateur</td>
+    <td><code>asket_gui</code></td>
+    <td>
+      Le seul langage que les navigateurs exécutent. Il n'y a pas de choix.
+    </td>
+  </tr>
+</table>
+</div>
+
+<h4>Le vrai compromis, exprimé simplement</h4>
+
+<p>
+  L'argument qu'on entend toujours est « C++ est rapide, Python est lent ».
+  C'est vrai et c'est presque hors sujet. Le vrai compromis est ailleurs :
+</p>
+
+<p>
+  Python a un <strong>ramasse-miettes</strong> : un mécanisme qui libère la
+  mémoire tout seul, quand ça l'arrange. Il peut décider de le faire à un moment
+  quelconque et suspendre le programme quelques millisecondes. Sur un nœud qui
+  publie une position à 10 Hz, personne ne le remarquera jamais. Sur une boucle
+  qui doit sortir une impulsion de 1500 µs avec une précision de quelques
+  microsecondes, c'est rédhibitoire.
+</p>
+
+<p>
+  C'est ce qu'on appelle le <strong>déterminisme temporel</strong> : non pas
+  « aller vite », mais « prendre toujours le même temps ». Un ESC attend une
+  impulsion toutes les 20 ms. S'il n'en reçoit pas, il coupe. Cette garantie ne
+  peut venir que d'un microcontrôleur dédié qui ne fait que ça.
+</p>
+
+<div class="bloc info">
+  <span class="etiquette">La règle qui en découle, et qu'il faut retenir</span>
+  <p style="margin-bottom:0">
+    <strong>La Jetson décide, le Pico exécute.</strong> La Jetson est puissante
+    mais elle fait tourner Linux, ROS, de la vision par ordinateur, un serveur
+    web — elle peut être occupée, saturée, ou en train de redémarrer. Le Pico ne
+    fait qu'une chose et la fait toujours. Toute la logique de sécurité est donc
+    du côté du Pico, jamais du côté de la Jetson. C'est le fondement de la
+    <a href="#s5">§6</a>.
+  </p>
+</div>
+
+<h3 id="s3-club">4.2 Les paquets de la pile de compétition</h3>
+
+<p>
+  Ces paquets <strong>préexistaient</strong> au travail sur la Namibie. Ils
+  n'ont pas été modifiés — à une exception près, signalée plus bas.
+</p>
+
+<h4 id="s3-description"><code>description</code> — la forme du bateau</h4>
+
+<p>
+  Décrit la géométrie d'Asket en XML : le corps, les hélices, où est monté le
+  lidar, la caméra, le GPS, l'IMU. Le fichier central est
+  <code>asket.urdf.xacro</code>.
+</p>
+
+<ul>
+  <li><strong>Ce qu'il résout :</strong> tout le monde a besoin de savoir où sont les pièces les unes par rapport aux autres. Écrit une fois, lu par tous.</li>
+  <li><strong>Publie :</strong> rien directement. <code>robot_state_publisher</code> le lit et diffuse l'arbre TF.</li>
+  <li><strong>Contient aussi</strong> les mondes Gazebo : <code>basicWorld.sdf</code> (eau libre), <code>dockingWorld.sdf</code> (un ponton en U), <code>dockingWorldOccupied.sdf</code> (deux pontons dont un occupé par un leurre).</li>
+  <li><strong>Langage :</strong> XML — ce n'est pas un programme, c'est une description.</li>
+</ul>
+
+<h4 id="s3-sensors"><code>sensors</code> — parler aux capteurs</h4>
+
+<p>Trois petits nœuds, chacun collé à un périphérique physique.</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Nœud</th><th>Lit</th><th>Publie</th><th>Type</th></tr>
+  <tr>
+    <td><code>lidar_driver</code></td>
+    <td>Le RPLiDAR, par port série</td>
+    <td><code>/lidar_driver/scan_raw</code></td>
+    <td><code>sensor_msgs/LaserScan</code></td>
+  </tr>
+  <tr>
+    <td><code>camera_driver</code></td>
+    <td><code>/dev/video0</code> via OpenCV</td>
+    <td><code>/front_camera_driver/image_raw</code></td>
+    <td><code>sensor_msgs/Image</code></td>
+  </tr>
+  <tr>
+    <td><code>imu_gps_driver</code></td>
+    <td>Les topics MAVROS</td>
+    <td><code>/imu_driver/imu_raw</code>, <code>/gps_driver/gps_raw</code></td>
+    <td><code>sensor_msgs/Imu</code>, <code>sensor_msgs/NavSatFix</code></td>
+  </tr>
+</table>
+</div>
+
+<p>
+  <strong>Pourquoi ces types.</strong> <code>LaserScan</code> est fait pour un
+  capteur qui balaye : il contient un angle de départ, un pas angulaire, et un
+  tableau de distances. Pas besoin de répéter l'angle pour chaque point — il se
+  déduit. C'est beaucoup plus compact qu'une liste de coordonnées, et c'est
+  aussi ce qui permet de distinguer un rayon qui n'a rien renvoyé (valeur
+  infinie) d'un rayon qui n'a pas été tiré. Cette distinction est au cœur du
+  panneau Obstacles de l'interface.
+</p>
+
+<p>
+  <code>NavSatFix</code> transporte une latitude, une longitude et une
+  <strong>matrice de covariance</strong> — c'est-à-dire une incertitude. Ce
+  n'est pas décoratif : l'interface s'en sert pour afficher une précision
+  horizontale réelle plutôt qu'un HDOP inventé.
+</p>
+
+<p>
+  <code>imu_gps_driver</code> ne fait <em>que</em> renommer. C'est une couche
+  d'isolation : le reste du système ne connaît que
+  <code>/gps_driver/gps_raw</code> et ignore que MAVROS existe. Le jour où le
+  Pixhawk est remplacé, un seul fichier change. Le coût : un nœud de plus qui
+  peut mourir, et un maillon de plus dans la chaîne à vérifier quand la position
+  n'arrive pas.
+</p>
+
+<h4 id="s3-perception"><code>perception</code> et <code>fusion</code> — comprendre l'environnement</h4>
+
+<dl>
+  <dt><code>lidar_obstacle_node</code></dt>
+  <dd>
+    Convertit <code>/scan</code> en <code>/obstacles/lidar</code>
+    (<code>PointCloud2</code>), en <strong>filtrant tout ce qui est au-delà de
+    10 m</strong>. C'est ce nœud qui donne son sens au sélecteur « Filtré /
+    Brut » de l'interface : les deux topics existent vraiment, et comparer les
+    deux permet de distinguer un capteur en panne d'un filtre trop agressif.
+  </dd>
+
+  <dt><code>fusion_node</code></dt>
+  <dd>
+    Croise les points lidar avec le masque de segmentation de YOLO. Il utilise
+    TF pour projeter chaque point 3D du lidar dans le plan image de la caméra,
+    puis regarde si ce pixel est marqué comme obstacle. Résultat :
+    <code>/obstacles/fused</code>, en repère <code>base_link</code>.
+    <br><br>
+    Un point lidar seul dit « il y a quelque chose ». Un point lidar confirmé
+    par la vision dit « il y a une bouée ». La fusion transforme une distance en
+    information.
+  </dd>
+
+  <dt><code>dock_detector_node</code></dt>
+  <dd>
+    Reconnaît les pontons en U dans le nuage de points : DBSCAN sépare les
+    objets, RANSAC extrait des segments de mur droits, et les segments sont
+    comparés à un gabarit en U. Chaque ponton trouvé est classé occupé ou libre
+    selon que des points tombent à l'intérieur.
+    <br><br>
+    C'est purement géométrique — aucun apprentissage, aucun marqueur. Et
+    <strong>aucun filtrage temporel</strong> : chaque balayage est analysé seul,
+    sans mémoire du précédent. Une détection peut donc clignoter. C'est une
+    faiblesse connue, notée telle quelle dans le README du club.
+  </dd>
+</dl>
+
+<p><strong>Langage :</strong> Python. Ce sont des traitements à quelques hertz sur des nuages de quelques centaines de points — NumPy fait le calcul lourd en C de toute façon.</p>
+
+<h4 id="s3-vision"><code>vision</code> — YOLO</h4>
+
+<p>
+  <code>vision_node</code> fait tourner un réseau de neurones (YOLO26n-seg, au
+  format ONNX) sur les images de la caméra, <strong>sur le processeur</strong>,
+  pas sur le GPU. Il publie des boîtes de détection et un masque de
+  segmentation.
+</p>
+
+<p>
+  C'est le nœud le plus gourmand de la pile. C'est pour ça que
+  <code>enable_vision:=false</code> revient partout dans la documentation de
+  test : sans lui, tout le reste tourne beaucoup plus confortablement. Pour le
+  levé en Namibie, la vision ne sert à rien du tout — il n'y a pas de bouées de
+  compétition à reconnaître.
+</p>
+
+<h4 id="s3-control"><code>control</code> — de la consigne au moteur</h4>
+
+<p>Le paquet le plus important pour comprendre la sécurité, et le plus ambigu.</p>
+
+<dl>
+  <dt><code>nav_to_pid</code></dt>
+  <dd>
+    Prend <code>/cmd_vel</code> (ce que Nav2 veut), <strong>écrête</strong> à
+    2 m/s et 1 rad/s, republie sur <code>/control/setpoint</code>. Une
+    limitation dure, en un seul endroit : quoi que demande la navigation, le
+    bateau ne recevra jamais de consigne au-delà.
+  </dd>
+
+  <dt><code>pid_controller</code></dt>
+  <dd>
+    Deux régulateurs PID (vitesse et cap) qui comparent la consigne à ce que
+    l'IMU mesure réellement, et produisent <code>/control/effort</code> — un
+    effort normalisé, pas une vitesse.
+  </dd>
+
+  <dt><code>actuator_driver</code></dt>
+  <dd>
+    Convertit cet effort en canaux RC et publie sur
+    <code>/mavros/rc/override</code>. Le code est court et vaut la peine d'être
+    lu en entier :
+    <pre><code>RC_CENTER = 1500
+RC_RANGE  = 400            # ±400 autour du centre → 1100–1900
+CHAN_STEERING = 0          # canal RC 1
+CHAN_THROTTLE = 2          # canal RC 3
+
+rc.channels[CHAN_STEERING] = int(RC_CENTER + msg.angular.z * RC_RANGE)
+rc.channels[CHAN_THROTTLE] = int(RC_CENTER + msg.linear.x  * RC_RANGE)</code></pre>
+    On retrouve les microsecondes : 1500 au neutre, 1100 à fond en arrière,
+    1900 à fond en avant. Ces valeurs partent au Pixhawk, qui les traite comme
+    si elles venaient de la radiocommande.
+  </dd>
+
+  <dt><code>pico_bridge</code></dt>
+  <dd>
+    Le pont série vers le Pico. Propriétaire unique du lien USB. Il fait quatre
+    choses : convertir <code>/control/effort</code> en « L,R » ; émettre un
+    battement de cœur en continu ; transmettre les demandes de mode ; et relire
+    les lignes d'état du Pico pour les republier sur <code>/pico/status</code>.
+    <br><br>
+    C'est le nœud dont dépend toute l'interface de mission, et il a deux
+    problèmes graves décrits en <a href="#s6-bug">§7.3</a>.
+  </dd>
+</dl>
+
+<div class="bloc danger">
+  <span class="etiquette">Deux chemins vers les moteurs, et rien ne dit lequel gagne</span>
+  <p>
+    En lisant ce paquet, on trouve <strong>deux routes complètes et
+    indépendantes</strong> entre la consigne et les hélices :
+  </p>
+  <p style="margin:0 0 .6rem;padding-left:1rem;border-left:2px solid #a6210f">
+    <code>/control/effort</code> → <code>actuator_driver</code> →
+    <code>/mavros/rc/override</code> → Pixhawk → ESC<br>
+    <code>/control/effort</code> → <code>pico_bridge</code> → USB série →
+    Pico → ESC
+  </p>
+  <p>
+    Les deux s'abonnent au <em>même</em> topic. Si les deux nœuds tournaient en
+    même temps, deux organes enverraient des ordres aux mêmes moteurs.
+  </p>
+  <p>
+    En pratique ça n'arrive pas, mais pour une raison qui n'est écrite nulle
+    part : <strong><code>njord.launch.py</code> ne démarre que
+    <code>actuator_driver</code>. <code>pico_bridge</code> n'est lancé par
+    rien</strong> — ni par le fichier de lancement, ni par
+    <code>launch_all.py</code>, qui liste explicitement les trois autres nœuds
+    et pas celui-là.
+  </p>
+  <p style="margin-bottom:0">
+    Ce n'est donc pas un arbitrage, c'est un accident heureux. Quelqu'un qui
+    lancerait <code>pico_bridge</code> à la main pour faire marcher l'interface
+    — ce qui est exactement ce qu'il faudra faire — mettrait le bateau dans un
+    état que personne n'a jamais testé. <strong>À clarifier avant d'aller à
+    l'eau.</strong>
+  </p>
+</div>
+
+<h4 id="s3-mission"><code>mission</code>, <code>boat_bt</code>, <code>competition_manager</code></h4>
+
+<p>La couche « décider quoi faire », propre à la compétition.</p>
+
+<dl>
+  <dt><code>mission_manager</code> (Python)</dt>
+  <dd>
+    Une file d'attente de points GPS. Il les convertit en repère carte et les
+    envoie à Nav2 un par un.
+  </dd>
+
+  <dt><code>boat_bt_node</code> (C++)</dt>
+  <dd>
+    L'arbre de comportement. Un <em>arbre de comportement</em> est une façon
+    d'écrire une logique de décision sous forme d'arbre plutôt que de cascade de
+    <code>si… alors…</code> : plus lisible quand il y a beaucoup de cas, et
+    surtout modifiable en éditant un fichier XML
+    (<code>bt_xml/simple_boat.xml</code>) sans recompiler.
+    <br><br>
+    Il tourne à 10 Hz et contient <code>GlobalSafety</code> (évitement réactif),
+    le routage par tâche, et le contrôleur d'accostage — une machine à états
+    <code>ALIGNING → APPROACHING → FINAL_ENTRY → DOCKED</code> puis marche
+    arrière.
+    <br><br>
+    <strong>En C++</strong> parce que BehaviorTree.CPP est une bibliothèque C++.
+  </dd>
+
+  <dt><code>competition_manager</code> (Python)</dt>
+  <dd>
+    Choisit la tâche et gère son cycle de vie. Les définitions sont dans des
+    fichiers YAML. À noter, et c'est écrit dans le README du club :
+    <strong>seules <code>docking.yaml</code> et
+    <code>collision_avoidance.yaml</code> sont réellement complètes</strong> ;
+    les deux autres n'ont pas de points de passage et ne peuvent pas démarrer.
+  </dd>
+
+  <dt><code>njord_msgs</code></dt>
+  <dd>
+    Ne contient aucun programme : uniquement des <strong>définitions de types de
+    messages</strong> propres au projet (<code>DockTarget</code>,
+    <code>CompetitionState</code>…). Il faut un paquet séparé parce qu'un type
+    de message doit être compilé avant tous ceux qui l'utilisent.
+  </dd>
+</dl>
+
+<h4 id="s3-bringup"><code>bringup</code>, <code>calibration</code>, <code>sim</code></h4>
+
+<p>
+  <code>bringup</code> ne contient pas de programme : uniquement le fichier de
+  lancement principal et les fichiers de réglage (<code>ekf.yaml</code>,
+  <code>nav2_params.yaml</code>, <code>twist_mux.yaml</code>…).
+  <strong>C'est le seul paquet de compétition que le travail GUI a
+  touché</strong>, pour y ajouter 27 lignes : l'interrupteur
+  <code>enable_gui</code> et l'inclusion du lancement de l'interface. Rien n'a
+  été supprimé ni modifié.
+</p>
+
+<p>
+  <code>calibration</code> contient les outils pour mesurer la position relative
+  de la caméra et du lidar : on clique des points correspondants dans les deux
+  vues, un solveur PnP en déduit la transformation, et un nœud la publie dans
+  TF. C'est la version mesurée de ce que l'URDF ne donne que nominalement.
+</p>
+
+<p>
+  <code>sim</code> contient les ponts Gazebo — la plomberie qui fait passer les
+  capteurs simulés vers des topics ROS réels.
+</p>
+
+<h3 id="s3-gui">4.3 Les paquets ajoutés pour la Namibie</h3>
+
+<p>
+  Ces neuf paquets sont nouveaux. Ils suivent tous <strong>une règle
+  structurelle unique</strong>, et il faut la comprendre avant de les lire :
+</p>
+
+<div class="bloc bon">
+  <span class="etiquette">La règle : un <code>core/</code> sans ROS, un nœud mince</span>
+  <p>
+    Dans chaque paquet, <code>&lt;paquet&gt;/core/*.py</code> ne doit
+    <strong>jamais</strong> importer <code>rclpy</code> ni aucun type de message
+    ROS. Toute la vraie logique vit là : l'analyseur du protocole sonar, la
+    physique du simulateur, l'écriture des fichiers de mission, les contrôles de
+    pré-vol. Les fichiers <code>*_node.py</code> ne sont que des adaptateurs :
+    s'abonner, convertir, appeler le <code>core</code>, publier.
+  </p>
+  <p>
+    <strong>Pourquoi :</strong> ROS n'est pas installé sur toutes les machines,
+    et il n'existait aucun matériel quand ce code a été écrit. Cette séparation
+    fait que <code>pytest</code> à la racine teste tout le système —
+    424 tests — sans ROS, en quelques secondes, sur n'importe quel portable.
+  </p>
+  <p style="margin-bottom:0">
+    <strong>Le coût :</strong> les <code>*_node.py</code> ne sont, eux, presque
+    pas testés. C'est un choix assumé : la partie qui contient la logique est
+    couverte, la partie qui contient le câblage ne l'est pas. Quand quelque
+    chose casse à l'exécution mais que tous les tests passent, regardez d'abord
+    les fichiers <code>_node.py</code>.
+  </p>
+</div>
+
+<h4><code>asket_interfaces</code> et <code>asket_common</code></h4>
+
+<p>
+  <code>asket_interfaces</code> définit les types de messages propres à
+  l'interface : <code>PicoStatus</code>, <code>SonarStatus</code>,
+  <code>LinkStatus</code>, <code>SystemTestReport</code>… Même rôle que
+  <code>njord_msgs</code>, périmètre différent.
+</p>
+
+<p>
+  <code>asket_common</code> contient les calculs partagés, sans ROS :
+  géométrie, planification de lignes de levé, et surtout
+  <code>heading.py</code>. Ce dernier mérite une mention parce qu'il encode une
+  idée centrale : <strong>un cap ne voyage jamais sans sa provenance</strong>.
+  Une erreur de cap se traduit directement en erreur de position sur le fond —
+  environ 90 cm par degré à 50 m de portée. Le module calcule cette erreur et
+  la donne à afficher, parce que « ± 6° » ne veut rien dire à personne alors que
+  « 5,8 m d'erreur sur le fond » se comprend immédiatement.
+</p>
+
+<h4><code>asket_sim</code> — le simulateur maison</h4>
+
+<p>
+  Simule le bateau, la batterie, le lidar, le sonar, le Pico et la liaison
+  radio, avec des pannes injectables. Il sert à développer et tester quand on
+  n'a ni bateau ni ROS.
+</p>
+
+<p>
+  <strong>Il ne remplace pas Gazebo</strong>, et c'est important : Gazebo simule
+  la physique et publie de vrais topics ROS avec de vrais types de messages.
+  <code>asket_sim</code> est beaucoup plus léger et sert surtout à alimenter
+  l'interface. Il a une limite structurelle, expliquée en
+  <a href="#s6-bug">§7.3</a>, qui explique pourquoi il n'a pas pu attraper le
+  bug le plus coûteux de ce dépôt.
+</p>
+
+<h4><code>omniscan_bridge</code> — le sonar</h4>
+
+<p>
+  Parle au sonar Cerulean Omniscan 3D par Ethernet, en <em>Ping Protocol</em>,
+  et publie un nuage de points en repère bateau plus un topic de santé.
+</p>
+
+<ul>
+  <li>
+    <code>core/ping_protocol.py</code> — le codec : format des trames,
+    sommes de contrôle, dispositions binaires. Sans ROS, sans dépendance
+    externe.
+  </li>
+  <li>
+    <code>core/parser.py</code> — ce qui survit à une vraie liaison : trames
+    partielles gardées jusqu'à complétion, trames corrompues rejetées avec
+    resynchronisation, pertes comptées.
+  </li>
+  <li>
+    <code>core/geometry.py</code> — angle et temps de vol → point dans le
+    repère du bateau.
+  </li>
+  <li>
+    <code>config/mounting.yaml</code> — la géométrie de montage, avec une
+    ligne qui compte : <code>measured: false</code>.
+  </li>
+</ul>
+
+<p>
+  <strong>Il ne géoréférence pas.</strong> Les points sortent en repère bateau.
+  La position et le cap sont enregistrés à côté et fusionnés après la mission.
+  Mélanger les deux ferait dépendre le nuage de points de la disponibilité du
+  GPS : une coupure de fix corromprait les données au lieu de simplement les
+  annoter.
+</p>
+
+<h4><code>mission_recorder</code> — l'enregistrement</h4>
+
+<p>
+  Crée un dossier par mission, y écrit le flux sonar brut, la trajectoire, les
+  diagnostics et les événements, puis exporte vers une clé USB.
+</p>
+
+<p>
+  Le morceau le plus subtil est <code>core/svlog.py</code>. SonarView, le
+  logiciel d'analyse, <strong>ne sait pas importer une trajectoire
+  externe</strong> : la position doit être <em>à l'intérieur</em> du fichier
+  <code>.svlog</code>, sous forme de phrases NMEA écrites au moment de la
+  capture. Ce module fusionne après coup le sonar brut et la trajectoire en un
+  <code>.svlog</code> valide. Il <strong>refuse d'extrapoler</strong> une
+  position : un ping en dehors de la plage de trajectoire reste sans position
+  plutôt que d'en recevoir une inventée.
+</p>
+
+<h4><code>system_test</code> — le contrôle pré-vol</h4>
+
+<p>
+  Une quinzaine de contrôles passifs qui produisent un verdict GO / NO-GO. Le
+  but énoncé : <strong>sur une plage, identifier le maillon fautif en trente
+  secondes plutôt qu'en une heure.</strong>
+</p>
+
+<p>Trois principes le gouvernent :</p>
+
+<ul>
+  <li>
+    <strong>Une langue claire, avec un remède.</strong> Pas
+    « GPS: ERROR » mais « 4 satellites, 6 requis — attendez, ou éloignez le
+    bateau du bâtiment ».
+  </li>
+  <li>
+    <strong>Chaque contrôle nomme le maillon.</strong> « Le sonar est sur le
+    réseau mais ne répond pas » et « rien n'est sur le réseau à cette adresse »
+    envoient vers deux câbles différents.
+  </li>
+  <li>
+    <strong>Inconnu n'est pas réussi.</strong> Un contrôle sans donnée rend
+    <code>SKIPPED</code> et dit ce qui manque. Une pastille verte qui signifie
+    « je n'ai pas pu savoir » est pire qu'une rouge.
+  </li>
+</ul>
+
+<h4><code>gui_backend</code> — le serveur</h4>
+
+<p>
+  Le pont entre ROS 2 et le navigateur. Il tourne sur la Jetson, sert la page
+  web, et pousse les données par WebSocket. Détaillé en <a href="#s7">§8</a>.
+</p>
+
+<h4><code>asket_gui</code> — l'interface</h4>
+
+<p>
+  Le code qui tourne dans votre navigateur : React pour les panneaux, MapLibre
+  pour la carte. Il est compilé une fois (<code>npm run build</code>) en
+  fichiers statiques que <code>gui_backend</code> sert lui-même — pas de
+  serveur web séparé, pas de CDN, rien à télécharger depuis Internet. En
+  Namibie, il n'y a pas d'Internet.
+</p>
+
+<h4><code>asket_bringup</code></h4>
+
+<p>
+  Fichiers de lancement et réglages de mission pour la partie Namibie, séparés
+  de ceux du club. C'est là que vivent les valeurs provisoires : zone de levé,
+  portée sonar, codes du feu à éclats.
+</p>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+<h2 id="s4">5. Le matériel, relié au code</h2>
+
+<div class="bloc info">
+  <span class="etiquette">Rappel sur la provenance</span>
+  <p style="margin-bottom:0">
+    Le brochage, les vitesses de liaison et les temporisations de cette section
+    sont transcrits des <code>#define</code> et des <code>const</code> des deux
+    firmwares Pico, qui sont d'accord entre eux sur tous ces points. Là où ils
+    divergent — et c'est surtout le protocole série, en <a href="#s6">§7</a> —
+    la divergence est signalée. Rien ici ne vient d'une description orale.
+  </p>
+</div>
+
+<figure>
+<svg viewBox="0 0 760 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schéma des liaisons physiques entre les composants du bateau">
+  <defs>
+    <marker id="a2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,1 L7,4 L0,7 z" fill="#454a54"/>
+    </marker>
+    <marker id="a2r" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,1 L7,4 L0,7 z" fill="#a6210f"/>
+    </marker>
+  </defs>
+  <style>
+    .k  { fill:#ffffff; stroke:#1a1c20; stroke-width:1.5; }
+    .kj { fill:#f0f5fa; stroke:#0b4f8f; stroke-width:1.8; }
+    .kp { fill:#fdf6e7; stroke:#8a5a00; stroke-width:1.8; }
+    .kr { fill:#fdf1ef; stroke:#a6210f; stroke-width:1.8; }
+    .tt { font-family:Helvetica,Arial,sans-serif; font-size:12px; font-weight:bold; fill:#16181d; text-anchor:middle; }
+    .td { font-family:Helvetica,Arial,sans-serif; font-size:9.5px; fill:#454a54; text-anchor:middle; }
+    .tl { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:9px; fill:#454a54; text-anchor:middle; }
+    .tlr{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:9px; fill:#a6210f; font-weight:bold; text-anchor:middle; }
+    .w  { stroke:#454a54; stroke-width:1.4; fill:none; marker-end:url(#a2); }
+    .wp { stroke:#454a54; stroke-width:1.4; fill:none; }
+    .wr { stroke:#a6210f; stroke-width:2; fill:none; marker-end:url(#a2r); }
+    .leg{ font-family:Helvetica,Arial,sans-serif; font-size:10px; fill:#454a54; }
+  </style>
+
+  <!-- Jetson -->
+  <rect class="kj" x="40" y="40" width="200" height="80" rx="4"/>
+  <text class="tt" x="140" y="66">Jetson AGX Orin</text>
+  <text class="td" x="140" y="83">Linux + ROS 2 + interface</text>
+  <text class="td" x="140" y="97">décide, n'exécute pas</text>
+  <text class="td" x="140" y="111">Wi-Fi / LTE-M vers la plage</text>
+
+  <!-- capteurs -->
+  <rect class="k" x="330" y="30" width="170" height="52" rx="4"/>
+  <text class="tt" x="415" y="52">Pixhawk</text>
+  <text class="td" x="415" y="68">GNSS, IMU — USB</text>
+
+  <rect class="k" x="330" y="96" width="170" height="52" rx="4"/>
+  <text class="tt" x="415" y="118">RPLiDAR S2L</text>
+  <text class="td" x="415" y="134">balayage 360° — USB série</text>
+
+  <rect class="k" x="330" y="162" width="170" height="52" rx="4"/>
+  <text class="tt" x="415" y="184">Omniscan 3D</text>
+  <text class="td" x="415" y="200">sonar — Ethernet</text>
+
+  <path class="wp" d="M240,80 L290,80"/>
+  <path class="wp" d="M290,56 L290,188"/>
+  <path class="w" d="M290,56 L326,56"/>
+  <path class="w" d="M290,122 L326,122"/>
+  <path class="w" d="M290,188 L326,188"/>
+
+  <!-- Signalisation -->
+  <rect class="k" x="560" y="190" width="170" height="74" rx="4"/>
+  <text class="tt" x="645" y="212">Signalisation</text>
+  <text class="td" x="645" y="228">feu à éclats — GP10/11/12</text>
+  <text class="td" x="645" y="242">buzzer — GP13</text>
+  <text class="td" x="645" y="256">le seul retour visible du bord</text>
+
+  <!-- Pico -->
+  <rect class="kp" x="40" y="250" width="200" height="80" rx="4"/>
+  <text class="tt" x="140" y="276">Raspberry Pi Pico 2</text>
+  <text class="td" x="140" y="293">RP2350 — exécute, ne décide pas</text>
+  <text class="td" x="140" y="307">seul garant du temps réel</text>
+  <text class="td" x="140" y="321">une boucle, toujours la même</text>
+
+  <!-- liaison Jetson <-> Pico -->
+  <path class="w" d="M120,120 L120,246"/>
+  <path class="w" d="M142,246 L142,124"/>
+  <text class="tl" x="200" y="172">USB CDC</text>
+  <text class="tl" x="200" y="186">115200 bauds</text>
+  <text class="tl" x="200" y="200">lignes de texte</text>
+
+  <!-- Pico -> signalisation -->
+  <path class="wp" d="M244,268 L516,268"/>
+  <path class="w" d="M516,268 L516,227 L556,227"/>
+
+  <!-- RC -->
+  <rect class="kr" x="330" y="290" width="170" height="64" rx="4"/>
+  <text class="tt" x="415" y="312">Récepteur RC</text>
+  <text class="td" x="415" y="328">SBUS — 100000 bauds</text>
+  <text class="td" x="415" y="342">8E2, inversé</text>
+
+  <path class="wr" d="M326,312 L248,312"/>
+  <text class="tlr" x="287" y="305">GP5</text>
+
+  <!-- ESC -->
+  <rect class="k" x="330" y="400" width="170" height="60" rx="4"/>
+  <text class="tt" x="415" y="421">ESC ×2</text>
+  <text class="td" x="415" y="436">1000 / 1500 / 2000 µs</text>
+  <text class="td" x="415" y="450">→ propulseurs</text>
+
+  <path class="wp" d="M160,330 L160,430"/>
+  <path class="w" d="M160,430 L326,430"/>
+  <text class="tl" x="243" y="423">GP15 / GP16 — PWM</text>
+
+  <!-- Relais -->
+  <rect class="kr" x="560" y="400" width="170" height="60" rx="4"/>
+  <text class="tt" x="645" y="421">Relais de coupure</text>
+  <text class="td" x="645" y="436">coupe l'alimentation</text>
+  <text class="td" x="645" y="450">de puissance des ESC</text>
+
+  <!-- GP21 : commande du relais -->
+  <path class="wr" d="M210,330 L210,372 L520,372 L520,418 L556,418"/>
+  <text class="tlr" x="365" y="366">GP21 — commande</text>
+
+  <!-- GP20 : retour d'état -->
+  <path class="wr" d="M600,460 L600,492 L110,492 L110,334"/>
+  <text class="tlr" x="355" y="486">GP20 — retour d'état</text>
+
+  <!-- relais -> ESC -->
+  <path class="wr" d="M556,442 L504,442"/>
+
+  <!-- légende -->
+  <line x1="40" y1="530" x2="60" y2="530" stroke="#a6210f" stroke-width="2"/>
+  <text class="leg" x="68" y="534">chaîne de sécurité — indépendante du logiciel</text>
+  <line x1="40" y1="552" x2="60" y2="552" stroke="#454a54" stroke-width="1.4"/>
+  <text class="leg" x="68" y="556">liaison de données</text>
+  <text class="leg" x="40" y="580">Encadré bleu : décide. Encadré ambre : exécute. Encadré rouge : peut arrêter le bateau sans logiciel.</text>
+</svg>
+<figcaption>
+  <strong>Les liaisons physiques.</strong> Le trait rouge est la chaîne de
+  sécurité : récepteur RC → Pico → relais. Elle ne passe par la Jetson à aucun
+  moment, et c'est le point entier de sa conception. Si la Jetson s'éteint, le
+  trait rouge fonctionne toujours.
+</figcaption>
+</figure>
+
+<h3 id="s4-liste">5.1 Composant par composant</h3>
+
+<h4>Jetson AGX Orin — l'ordinateur de bord</h4>
+
+<dl>
+  <dt>Ce que c'est</dt>
+  <dd>Un ordinateur ARM64 avec un GPU intégré, sous Linux. Il fait tourner ROS 2, la perception, la navigation et le serveur de l'interface.</dd>
+  <dt>Branchements</dt>
+  <dd>USB vers le Pixhawk et vers le Pico ; Ethernet vers le sonar ; USB vers le lidar ; Wi-Fi et modem LTE-M vers la plage.</dd>
+  <dt>Logiciel</dt>
+  <dd>Tout le contenu de <code>src/</code>, dans un conteneur Podman.</dd>
+  <dt>Si elle tombe</dt>
+  <dd>
+    L'interface s'éteint, la navigation autonome s'arrête, l'enregistrement
+    s'interrompt. <strong>Le bateau reste pilotable à la radiocommande</strong>,
+    parce que le Pico continue de tourner et que la voie RC ne passe pas par
+    elle. C'est exactement le comportement voulu : la Jetson n'est pas dans la
+    chaîne de sécurité.
+  </dd>
+</dl>
+
+<h4>Raspberry Pi Pico 2 — l'exécutant</h4>
+
+<dl>
+  <dt>Ce que c'est</dt>
+  <dd>Un microcontrôleur RP2350 à quelques euros. Pas de système d'exploitation. Il exécute une seule boucle, indéfiniment.</dd>
+  <dt>Branchements</dt>
+  <dd>USB vers la Jetson (CDC série, 115200 bauds) ; SBUS depuis le récepteur RC ; PWM vers les ESC ; commande et retour du relais ; feu et buzzer.</dd>
+  <dt>Logiciel</dt>
+  <dd>Firmware Arduino en C++ — <strong>absent de ce dépôt</strong>. Côté Jetson, son interlocuteur est <code>src/control/control/pico_bridge.py</code>.</dd>
+  <dt>Si il tombe</dt>
+  <dd>
+    Les ESC cessent de recevoir des impulsions et coupent d'eux-mêmes après
+    quelques dizaines de millisecondes. Le bateau s'arrête. C'est une panne
+    sûre — l'absence de signal est interprétée comme « arrête-toi », jamais
+    comme « continue ».
+  </dd>
+</dl>
+
+<h4>Pixhawk — le contrôleur de vol</h4>
+
+<dl>
+  <dt>Ce que c'est</dt>
+  <dd>Un autopilote sous ArduPilot, avec sa propre centrale inertielle et son récepteur GNSS. Sur ce bateau il sert surtout de <strong>source de navigation</strong>.</dd>
+  <dt>Branchements</dt>
+  <dd>USB vers la Jetson ; antenne GNSS ; alimentation.</dd>
+  <dt>Logiciel</dt>
+  <dd>MAVROS le traduit. <code>imu_gps_driver</code> renomme. <code>actuator_driver</code> peut lui envoyer des ordres de canaux RC.</dd>
+  <dt>Si il tombe</dt>
+  <dd>
+    Plus de position ni d'attitude : l'EKF n'a plus rien à fusionner,
+    <code>/odometry/filtered</code> se tait, la navigation autonome devient
+    impossible et le bateau disparaît de la carte. Le contrôle RC reste intact.
+  </dd>
+</dl>
+
+<h4>RPLiDAR S2L — le télémètre</h4>
+
+<dl>
+  <dt>Ce que c'est</dt>
+  <dd>Un lidar rotatif 360° dans le plan horizontal, portée utile jusqu'à une douzaine de mètres sur l'eau.</dd>
+  <dt>Branchements</dt>
+  <dd>Adaptateur USB-série vers la Jetson, typiquement <code>/dev/ttyUSB0</code> (argument <code>lidar_device</code>).</dd>
+  <dt>Logiciel</dt>
+  <dd><code>lidar_driver</code> → <code>/lidar_driver/scan_raw</code> → <code>lidar_obstacle_node</code> → <code>/obstacles/lidar</code>.</dd>
+  <dt>Si il tombe</dt>
+  <dd>
+    Le pilote se reconnecte automatiquement. En attendant, plus d'obstacles
+    détectés : Nav2 croit la voie libre. Sur l'eau libre en Namibie c'est
+    tolérable ; en compétition ce ne l'est pas. Le panneau Obstacles distingue
+    « ne tourne pas » de « tourne et ne voit rien » — c'est toute la différence
+    entre un capteur en panne et une eau dégagée.
+  </dd>
+</dl>
+
+<h4>Cerulean Omniscan 3D — le sonar</h4>
+
+<dl>
+  <dt>Ce que c'est</dt>
+  <dd>Un sonar multifaisceaux qui mesure le fond. Variante AIO : il contient son propre Raspberry Pi 5 qui fait la formation de voies, et envoie des points déjà traités.</dd>
+  <dt>Branchements</dt>
+  <dd><strong>Ethernet</strong>, port UDP 62312, adresse 192.168.2.92 par défaut.</dd>
+  <dt>Logiciel</dt>
+  <dd><code>omniscan_bridge</code>, en <em>Ping Protocol</em>.</dd>
+  <dt>Si il tombe</dt>
+  <dd>
+    Le levé ne s'enregistre plus. Le panneau Sonar passe à
+    « pas de données », une alarme apparaît, et le pré-vol échoue. Le bateau
+    navigue normalement — il ramène simplement une mission vide, ce qui est le
+    pire résultat possible pour une campagne.
+  </dd>
+</dl>
+
+<div class="bloc danger">
+  <span class="etiquette">Le piège du sonar : son horloge</span>
+  <p style="margin-bottom:0">
+    La fusion après mission apparie le flux sonar et la trajectoire sur
+    l'horodatage <em>du sonar</em>. Si son horloge dérive, le levé n'est pas
+    dégradé — il est <strong>inutilisable</strong>, et personne ne s'en aperçoit
+    avant d'ouvrir les données au retour. Or Cerulean a
+    <strong>supprimé</strong> le paquet qui permettait de régler le serveur NTP,
+    et la valeur par défaut du sonar est un serveur sur Internet. Il n'y a pas
+    d'Internet en Namibie. Le réglage doit être fait sur l'appareil lui-même
+    (voir <code>docs/SETUP.md</code> §1). Le logiciel ne peut que mesurer
+    l'écart et crier : le pré-vol échoue au-delà de 250 ms.
+  </p>
+</div>
+
+<h4>Récepteur RC, ESC et propulseurs</h4>
+
+<p>
+  Le récepteur reçoit la radiocommande de l'opérateur et sort une trame
+  <strong>SBUS</strong> vers le Pico. Les ESC (contrôleurs de vitesse) reçoivent
+  des impulsions PWM et alimentent les moteurs brushless. Les deux sont détaillés
+  en <a href="#s4-sbus">§5.3</a>.
+</p>
+
+<h4>Relais de coupure, feu à éclats, buzzer</h4>
+
+<dl>
+  <dt>Relais</dt>
+  <dd>
+    Coupe physiquement l'alimentation de puissance des ESC. Commandé par
+    <code>GP21</code> (<code>HIGH</code> = ESC alimentés). Une entrée
+    <code>GP20</code> est câblée en <strong>retour d'état</strong> via un pont
+    diviseur, ce qui permettrait au Pico de savoir si le relais a réellement
+    obéi au lieu de le supposer.
+    <br><br>
+    <strong>Mais ce retour est désactivé à la compilation, dans les deux
+    firmwares</strong> : <code>#define ESTOP_FEEDBACK_ENABLED 0</code>. La
+    fonction <code>check_power_feedback()</code> est appelée à chaque tour de
+    boucle et son corps entier est entre <code>#if</code>, donc elle ne fait
+    rien. Le Pico <em>croit</em> l'état du relais, il ne le vérifie pas. Le
+    commentaire du firmware dit pourquoi : <em>« disabled until hardware
+    ready »</em>. À réactiver le jour où le diviseur est câblé et testé — les
+    constantes de temporisation (<code>ESTOP_GRACE_MS 500</code>,
+    <code>ESTOP_DEBOUNCE_MS 100</code>) sont déjà là.
+  </dd>
+  <dt>Feu à éclats</dt>
+  <dd>
+    Trois sorties pour trois couleurs : <code>GP12</code> rouge,
+    <code>GP11</code> jaune, <code>GP10</code> vert. C'est le <strong>seul
+    retour visible depuis la plage</strong> pour quelqu'un sans portable.
+    <br><br>
+    Ce que le firmware fait réellement, dans <code>set_light()</code>, identique
+    dans les deux versions et tenant en quatre lignes : une seule couleur
+    allumée à la fois, toujours fixe, jamais clignotante.
+    <em>Rouge</em> = désarmé <strong>ou</strong> ESTOP.
+    <em>Jaune</em> = armé en MANUEL.
+    <em>Vert</em> = armé en AUTONOME.
+    C'est tout.
+  </dd>
+  <dt>Buzzer</dt>
+  <dd><code>GP13</code>. Alertes sonores — armement, coupure, défaut.</dd>
+</dl>
+
+<div class="bloc danger">
+  <span class="etiquette">Correction — <code>docs/light_tower.md</code> décrit un feu qui n'existe pas</span>
+  <p>
+    Le dépôt contient un contrat écrit, <code>docs/light_tower.md</code> et
+    <code>config/light_tower.yaml</code>, qui annonce du rouge clignotant
+    rapide pour la perte de liaison, du <em>bleu</em> fixe pour l'autonome, de
+    l'ambre pour le manuel, et un éclat vert toutes les deux secondes superposé
+    pour signaler que l'enregistrement tourne.
+  </p>
+  <p>
+    <strong>Aucune de ces quatre choses n'est dans le firmware.</strong> Il n'y
+    a pas de sortie bleue — les trois broches sont rouge, jaune, vert. Il n'y a
+    aucun clignotement : <code>set_light()</code> écrit trois
+    <code>digitalWrite</code> et rend la main. Et il n'y a aucune superposition
+    possible, puisqu'une seule couleur est allumée à la fois et que le Pico
+    ignore complètement si un enregistrement est en cours — cette information
+    n'existe que côté Jetson et ne descend jamais sur le câble.
+  </p>
+  <p style="margin-bottom:0">
+    C'est un vrai problème opérationnel, pas une coquette de documentation :
+    quelqu'un qui a lu <code>light_tower.md</code> et qui voit un feu vert en
+    conclura « enregistrement en cours » alors que le firmware lui dit « armé en
+    autonome, ne pas approcher ». <strong>Le sens le plus dangereux possible du
+    malentendu.</strong> Il faut trancher : soit aligner
+    <code>light_tower.md</code> sur les trois couleurs fixes existantes, soit
+    implémenter le contrat dans le firmware — ce qui suppose d'abord que la
+    Jetson puisse lui dire qu'elle enregistre, donc une commande descendante qui
+    n'existe pas aujourd'hui.
+  </p>
+</div>
+
+<h4>Balise LTE-M</h4>
+
+<p>
+  Modem cellulaire bas débit pour quand le Wi-Fi ne porte plus. Environ un
+  kilooctet par seconde. C'est la raison d'être du profil « balise » de
+  l'interface (<a href="#s7">§8</a>) : à ce débit, on ne transmet que la
+  position, le mode, la batterie et les alarmes. Tout le reste est
+  délibérément abandonné.
+</p>
+
+<h3 id="s4-pico">5.2 Le brochage du Pico 2</h3>
+
+<div class="tableau">
+<table>
+  <tr><th>Broche</th><th>Fonction</th><th>Type de signal</th><th>Détail</th></tr>
+  <tr>
+    <td><code>GP15</code></td>
+    <td>Propulseur bâbord</td>
+    <td>PWM</td>
+    <td>Impulsion 1000–2000 µs, période 20 ms</td>
+  </tr>
+  <tr>
+    <td><code>GP16</code></td>
+    <td>Propulseur tribord</td>
+    <td>PWM</td>
+    <td>Idem</td>
+  </tr>
+  <tr>
+    <td><code>GP21</code></td>
+    <td>Commande du relais</td>
+    <td>Sortie logique</td>
+    <td>Coupe l'alimentation de puissance</td>
+  </tr>
+  <tr>
+    <td><code>GP20</code></td>
+    <td>Retour d'état du relais</td>
+    <td>Entrée logique</td>
+    <td><strong>Câblé mais désactivé à la compilation</strong>
+        (<code>ESTOP_FEEDBACK_ENABLED 0</code>), dans les deux firmwares</td>
+  </tr>
+  <tr>
+    <td><code>GP12</code> / <code>GP11</code> / <code>GP10</code></td>
+    <td>Feu — rouge / jaune / vert</td>
+    <td>Sorties logiques</td>
+    <td>Une seule allumée à la fois, toujours fixe. Pas de bleu, pas de clignotement.</td>
+  </tr>
+  <tr>
+    <td><code>GP13</code></td>
+    <td>Buzzer</td>
+    <td>Sortie</td>
+    <td>Alertes sonores</td>
+  </tr>
+  <tr>
+    <td><code>GP5</code> (Serial2 RX)</td>
+    <td>Entrée SBUS</td>
+    <td>Série inversée</td>
+    <td>100000 bauds, 8E2</td>
+  </tr>
+  <tr>
+    <td><code>GP4</code> (Serial2 TX)</td>
+    <td>Réservé</td>
+    <td>—</td>
+    <td>SBUS est unidirectionnel ; cette broche n'émet rien</td>
+  </tr>
+  <tr>
+    <td>USB</td>
+    <td>Liaison Jetson</td>
+    <td>CDC série</td>
+    <td>115200 bauds, lignes terminées par <code>\n</code></td>
+  </tr>
+</table>
+</div>
+
+<div class="bloc info">
+  <span class="etiquette">Ce que les deux sources confirment ensemble</span>
+  <p>
+    Les numéros de broches ci-dessus sont les <code>#define</code> du firmware,
+    identiques dans les deux versions. Et sur trois points le
+    <code>pico_bridge.py</code> de la Jetson dit exactement la même chose que le
+    firmware, ce qui est rassurant : la liaison est en <strong>USB CDC
+    115200</strong> avec des lignes terminées par <code>\n</code> ; les valeurs
+    de poussée sont normalisées entre −1 et 1 et converties par
+    <code>1500 + v × 500 µs</code> ; et les moteurs ne sont appliqués que si le
+    Pico est armé, en AUTONOMOUS, et 2 s après la fermeture du relais.
+  </p>
+  <p style="margin-bottom:0">
+    La conversion de poussée mérite un mot, parce qu'elle est plus tolérante
+    qu'il n'y paraît. <code>process_motor_command()</code> — rigoureusement
+    identique dans les deux firmwares — remplace crochets, virgules et
+    points-virgules par des espaces, puis lit deux flottants. Si les deux valeurs
+    tiennent dans ±1,5 il les traite comme normalisées ; sinon comme des
+    microsecondes brutes. Donc <code>0.350,-0.120</code>,
+    <code>0.350 -0.120</code> et <code>[0.350; -0.120]</code> font la même chose,
+    et <code>1600,1400</code> aussi mais par l'autre branche. Une seule valeur
+    est appliquée aux deux moteurs.
+  </p>
+</div>
+
+<h3 id="s4-sbus">5.3 SBUS, inversion, et ce que 1500 µs veut dire</h3>
+
+<h4>SBUS</h4>
+
+<p>
+  <strong>SBUS</strong> est un protocole série de Futaba qui transporte
+  <strong>seize canaux dans une seule trame</strong>, au lieu d'un fil par canal
+  comme le PWM classique. Une trame fait 25 octets, arrive toutes les 7 à 14 ms,
+  et contient seize valeurs sur 11 bits (0 à 2047) plus des drapeaux, dont un
+  bit <em>failsafe</em> qui indique que le récepteur a perdu l'émetteur.
+</p>
+
+<p>
+  Ses paramètres sont inhabituels et il faut les prendre exactement :
+  <strong>100000 bauds</strong> (et non 115200), <strong>8E2</strong> — huit
+  bits de données, parité <em>paire</em>, <em>deux</em> bits d'arrêt.
+</p>
+
+<h4>L'inversion, et pourquoi elle pose problème</h4>
+
+<p>
+  Une liaison série normale est au niveau haut au repos, et descend pour marquer
+  le début d'un octet. <strong>SBUS fait l'inverse</strong> : repos au niveau
+  bas, montée pour le bit de départ. Le signal est <em>inversé</em>.
+</p>
+
+<p>
+  Conséquence pratique : un UART standard branché directement sur une sortie
+  SBUS ne lit que du bruit. Il y a trois façons de s'en sortir :
+</p>
+
+<ol>
+  <li>
+    <strong>Un inverseur matériel</strong> — un transistor et deux résistances
+    entre le récepteur et la broche. Simple, fiable, mais c'est un composant de
+    plus à souder et à faire tomber en panne.
+  </li>
+  <li>
+    <strong>Un UART qui sait inverser</strong> — certains microcontrôleurs
+    offrent un bit de configuration pour ça.
+  </li>
+  <li>
+    <strong>Le décodage logiciel</strong> — sur le RP2350, les blocs PIO
+    (<i>Programmable I/O</i>) peuvent décoder le signal directement, inversion
+    comprise. C'est une particularité de cette puce et l'une des raisons de la
+    choisir.
+  </li>
+</ol>
+
+<p>
+  Laquelle est utilisée ici ? <strong>Je ne peux pas le dire</strong> : c'est
+  dans le firmware. Si le Pico ne voit jamais la radiocommande alors que le
+  récepteur a une LED verte, c'est la première chose à examiner.
+</p>
+
+<h4>1000, 1500, 2000 microsecondes</h4>
+
+<p>
+  Un ESC ne comprend ni les newtons ni les pourcentages. Il comprend une
+  impulsion répétée toutes les 20 ms, dont c'est la <strong>durée</strong> qui
+  porte l'information :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Durée</th><th>Signification</th><th>Dans le code</th></tr>
+  <tr><td><strong>1000 µs</strong></td><td>Plein arrière (ou arrêt, selon le mode de l'ESC)</td><td><code>1500 + (−1) × 500</code></td></tr>
+  <tr><td><strong>1500 µs</strong></td><td><strong>Neutre — moteur arrêté</strong></td><td><code>1500 + 0 × 500</code></td></tr>
+  <tr><td><strong>2000 µs</strong></td><td>Plein avant</td><td><code>1500 + (+1) × 500</code></td></tr>
+  <tr><td><em>rien</em></td><td>Perte de signal → l'ESC coupe de lui-même</td><td>—</td></tr>
+</table>
+</div>
+
+<p>
+  Ces valeurs sont un héritage direct du modélisme : un servo analogique des
+  années 1970 attendait déjà 1 à 2 ms. Toute l'industrie s'y est alignée et rien
+  n'a bougé depuis.
+</p>
+
+<div class="bloc bon">
+  <span class="etiquette">La distinction qui compte le plus dans tout ce document</span>
+  <p>
+    <strong>Envoyer 1500 µs</strong> et <strong>ne rien envoyer du tout</strong>
+    arrêtent tous les deux le moteur. Ce ne sont pas des équivalents.
+  </p>
+  <ul style="margin-bottom:.4rem">
+    <li>
+      <em>1500 µs</em> est une instruction : « reste au neutre ». Elle suppose
+      que le Pico fonctionne, que le programme tourne, et qu'il continue
+      d'envoyer. Si le programme se bloque <em>en envoyant 1500</em>, tout va
+      bien. S'il se bloque en envoyant 1800, le bateau part à 80 %.
+    </li>
+    <li>
+      <em>Le silence</em> est une absence : l'ESC ne reçoit plus rien et coupe.
+      Cela ne suppose <strong>rien</strong> sur l'état du programme.
+    </li>
+  </ul>
+  <p style="margin-bottom:0">
+    Et le relais est un troisième niveau encore : il coupe le
+    <strong>courant</strong>. Il ne suppose rien, pas même que l'ESC
+    fonctionne. Trois moyens d'arrêter, trois garanties différentes. La
+    <a href="#s5">§6</a> explique lequel s'applique quand.
+  </p>
+</div>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+
+<h2 id="s5">6. La chaîne de sécurité</h2>
+
+<p>
+  Cette section est la plus importante du document. Tout le reste est du
+  logiciel ; ceci décide si le bateau peut blesser quelqu'un.
+</p>
+
+<h3>Le principe : la radiocommande est souveraine</h3>
+
+<p>
+  <code>docs/safety.md</code> ouvre par une règle qui n'est pas négociable :
+</p>
+
+<blockquote style="border-left:3px solid #1a1c20;margin:1.4rem 0;padding:.2rem 0 .2rem 1.2rem;font-style:italic">
+  Le coupe-circuit matériel et le canal 8 de la radiocommande sont souverains.
+  Ils coupent la propulsion indépendamment de tout logiciel. Rien dans cette
+  interface ne peut les contourner, les retarder ou interférer avec eux.
+</blockquote>
+
+<p>
+  « Souverain » a un sens précis : <strong>aucune quantité de logiciel
+  fonctionnant correctement ne peut empêcher l'opérateur d'arrêter le
+  bateau</strong>. Pas « le logiciel est censé obéir » — le logiciel n'est pas
+  sur le chemin du tout.
+</p>
+
+<p>
+  La raison est une question d'échelle de confiance. La Jetson fait tourner
+  Linux, une vingtaine de programmes, un réseau de neurones, un serveur web. On
+  ne peut pas raisonner sur son comportement dans tous les cas. Le Pico exécute
+  une boucle qu'on peut lire en entier en dix minutes. Et le relais est un bout
+  de cuivre. <strong>Plus la garantie doit être forte, moins le composant doit
+  être intelligent.</strong>
+</p>
+
+<figure>
+<svg viewBox="0 0 740 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Les trois couches de la chaîne de sécurité">
+  <style>
+    .lay1 { fill:#fdf1ef; stroke:#a6210f; stroke-width:2; }
+    .lay2 { fill:#fdf6e7; stroke:#8a5a00; stroke-width:2; }
+    .lay3 { fill:#f0f5fa; stroke:#0b4f8f; stroke-width:1.6; stroke-dasharray:5 3; }
+    .h  { font-family:Helvetica,Arial,sans-serif; font-size:13px; font-weight:bold; fill:#16181d; }
+    .d  { font-family:Helvetica,Arial,sans-serif; font-size:10.5px; fill:#454a54; }
+    .g  { font-family:Helvetica,Arial,sans-serif; font-size:9.5px; font-weight:bold; letter-spacing:.06em; }
+  </style>
+
+  <rect class="lay1" x="30" y="24" width="680" height="96" rx="4"/>
+  <text class="g" x="46" y="45" fill="#a6210f">COUCHE 1 — MATÉRIELLE · GARANTIE ABSOLUE</text>
+  <text class="h" x="46" y="68">Coupe-circuit physique · Canal 8 de la radiocommande · Relais</text>
+  <text class="d" x="46" y="87">Coupent le courant. N'exigent aucun programme en état de marche, aucun réseau, aucune Jetson.</text>
+  <text class="d" x="46" y="104">Fonctionnent même si tout le reste a brûlé. C'est le seul véritable arrêt d'urgence.</text>
+
+  <rect class="lay2" x="30" y="140" width="680" height="96" rx="4"/>
+  <text class="g" x="46" y="161" fill="#8a5a00">COUCHE 2 — FIRMWARE DU PICO · GARANTIE FORTE</text>
+  <text class="h" x="46" y="184">Failsafes temporels · Fenêtre d'armement 2000 ms · Arbitrage des modes</text>
+  <text class="d" x="46" y="203">Exige que le Pico tourne, rien d'autre. Ramène au neutre quand les ordres cessent d'arriver.</text>
+  <text class="d" x="46" y="220">Peut restreindre ce que le logiciel demande. Ne peut jamais étendre ce que la radio autorise.</text>
+
+  <rect class="lay3" x="30" y="256" width="680" height="96" rx="4"/>
+  <text class="g" x="46" y="277" fill="#0b4f8f">COUCHE 3 — JETSON, ROS, INTERFACE · AUCUNE GARANTIE</text>
+  <text class="h" x="46" y="300">Navigation autonome · Bouton « Couper la propulsion » · Commandes de mode</text>
+  <text class="d" x="46" y="319">Peut planter, se figer, perdre le réseau, être redémarrée. Rien ici n'est un dispositif de sécurité.</text>
+  <text class="d" x="46" y="336">Tout ce que cette couche fait est une demande. Les couches du dessus décident si elle est accordée.</text>
+
+  <text class="d" x="370" y="378" text-anchor="middle" font-style="italic">Une couche ne peut jamais accorder plus d'autorité que celle du dessus.</text>
+</svg>
+<figcaption>
+  <strong>Trois couches, trois niveaux de garantie.</strong> La lecture se fait
+  de haut en bas : chaque couche dépend de plus de choses que celle du dessus,
+  donc promet moins. Le bouton de l'interface est en bas, dans la couche qui ne
+  garantit rien — et c'est délibéré.
+</figcaption>
+</figure>
+
+<h3>Canal 8 et canal 7</h3>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Correction — la première édition inversait les deux</span>
+  <p style="margin-bottom:0">
+    Elle annonçait le canal 8 comme une simple autorisation de propulsion et le
+    canal 7 comme le sélecteur de mode. C'est l'inverse, et la lecture du
+    firmware ne laisse aucune ambiguïté : <code>const int CH_ARM = 6; // Ch7</code>
+    et <code>const int CH_MODE = 7; // Ch8</code>. Les indices sont à partir de
+    zéro dans le tableau SBUS, d'où le décalage d'un entre le nom du canal et
+    son numéro.
+  </p>
+</div>
+
+<p>
+  <strong>Le canal 8 est le sélecteur de mode, à trois positions.</strong> Il ne
+  dit pas « propulsion permise ou non » : il choisit lequel des trois modes le
+  bateau occupe. Le firmware lit la valeur SBUS brute et la découpe en trois
+  zones :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Canal 8 (valeur SBUS brute)</th><th>Mode</th><th>Ce que ça veut dire</th></tr>
+  <tr>
+    <td>&lt; 700</td>
+    <td><strong><code>MODE_ESTOP</code></strong></td>
+    <td>Arrêt. Désarmement forcé, relais ouvert, feu rouge. Aucun logiciel ne peut en sortir.</td>
+  </tr>
+  <tr>
+    <td>700 – 1400</td>
+    <td><strong><code>MODE_MANUAL</code></strong></td>
+    <td>L'opérateur pilote aux manettes. Les ordres série ne sont même pas lus.</td>
+  </tr>
+  <tr>
+    <td>&gt; 1400</td>
+    <td><strong><code>MODE_AUTONOMOUS</code></strong></td>
+    <td>Le logiciel peut commander les moteurs — à condition d'être armé, et en v3 c'est la seule condition.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  <strong>Le canal 7 est l'armement, à deux positions</strong> : au-dessus de
+  1000 (<code>ARM_THRESHOLD</code>), armé ; en dessous, désarmé. Désarmé, le
+  relais s'ouvre et les moteurs sont au neutre quoi qu'il arrive. Le firmware
+  refuse par ailleurs d'armer en ESTOP :
+  <code>want_armed = arm_high &amp;&amp; (new_mode != MODE_ESTOP)</code>.
+</p>
+
+<p>
+  Les valeurs brutes vont de <strong>172 à 1811</strong>, avec 991 au centre —
+  c'est l'échelle SBUS standard sur 11 bits, expliquée en
+  <a href="#s4-sbus">§5.3</a>. Les seuils 700 et 1400 découpent donc la course
+  en trois tiers à peu près égaux, ce qui correspond à un inverseur trois
+  positions ordinaire.
+</p>
+
+<div class="bloc danger">
+  <span class="etiquette">Conséquence pour l'interface : la pastille « Ch8 » ment sur son unité</span>
+  <p style="margin-bottom:0">
+    Côté interface, le champ s'appelle <code>rc_channel8_raw_pct</code> et passe
+    en alarme sous 25 %, comme s'il s'agissait d'un pourcentage. Le firmware
+    n'envoie jamais de pourcentage : il envoie le compte SBUS brut, entre 172 et
+    1811. Un bateau parfaitement sain afficherait donc « 1811 % ». C'est un des
+    trois défauts de <code>pico_state.py</code> détaillés en
+    <a href="#s6-bug">§7.3</a> — et celui-là est silencieux, parce qu'une valeur
+    trop grande ne déclenche aucune alarme.
+  </p>
+</div>
+
+<h3>Les deux failsafes temporels</h3>
+
+<p>
+  Un <em>failsafe</em> ici est un chronomètre : si rien n'arrive avant qu'il
+  n'expire, on prend une décision sûre. Il y en a deux, et ils ne font pas la
+  même chose.
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Délai</th><th>Déclencheur</th><th>Action</th><th>Pourquoi cette action</th></tr>
+  <tr>
+    <td><strong>500 ms</strong><br><code>SBUS_FAILSAFE_TIMEOUT_MS</code></td>
+    <td>Plus de trame SBUS — <em>et seulement hors mode autonome</em></td>
+    <td><code>trigger_estop("SBUS timeout")</code> : désarmement, relais ouvert</td>
+    <td>Hors autonome, c'est la radio qui pilote. Si la radio se tait, plus personne ne pilote. On coupe.</td>
+  </tr>
+  <tr>
+    <td><strong>500 ms</strong><br><code>SERIAL_FAILSAFE_TIMEOUT_MS</code></td>
+    <td>Plus d'ordre moteur frais — <em>et seulement en mode autonome</em></td>
+    <td>Poussée ramenée au neutre (1500 µs). <strong>Le relais reste fermé.</strong></td>
+    <td>Le bateau ne doit pas continuer sur sa lancée parce qu'un programme s'est figé. Mais couper le courant ferait perdre la radio aussi, et il faut deux secondes pour réarmer les ESC. On s'arrête, on reste armé, on attend.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  <strong>Les deux valent 500 ms, dans les deux firmwares.</strong> Ils ne se
+  déclenchent jamais en même temps parce qu'ils s'excluent par le mode : le
+  premier ne regarde que hors-autonome, le second que l'autonome. Et les deux
+  sont sous un <code>if (armed)</code> — désarmé, il n'y a rien à protéger.
+</p>
+
+<p>
+  La différence d'action est la partie intéressante. Perdre la radio est grave :
+  c'est la seule autorité souveraine, donc on coupe le courant. Perdre la Jetson
+  l'est moins : la radio est toujours là, l'opérateur peut basculer en manuel en
+  tournant un inverseur. Ramener au neutre suffit, et couper le relais serait
+  <em>moins</em> sûr, puisqu'il faudrait ensuite ré-attendre la fenêtre de deux
+  secondes avant de pouvoir manœuvrer.
+</p>
+
+<div class="bloc danger">
+  <span class="etiquette">Correction — il n'y a pas de « divergence 500 / 600 ms »</span>
+  <p>
+    La première édition de ce document présentait un écart entre 500 et 600 ms
+    comme une contradiction entre deux documents, et concluait que
+    <em>« deux documents qui donnent des chiffres différents pour le même
+    mécanisme sont un défaut en soi »</em>. C'était faux, et pour une raison qui
+    mérite d'être dite : <strong>les deux chiffres sont exacts, ils ne
+    décrivent simplement pas le même firmware.</strong>
+  </p>
+  <p>
+    Le 600 ms est <code>HEARTBEAT_TIMEOUT_MS</code>, et il n'existe <strong>que
+    dans la version FOXGLOVE</strong>. Ce n'est même pas un failsafe : c'est la
+    fenêtre pendant laquelle FOXGLOVE considère la Jetson « vivante »
+    (<code>serial_link_live()</code>), ce qui conditionne le droit de passer en
+    autonome. Dans la v3 flashée, ni la constante ni la fonction ni la notion
+    n'existent.
+  </p>
+  <p style="margin-bottom:0">
+    Le commentaire de <code>pico_bridge.py</code> — <em>« ≥ 2 Hz requis
+    (timeouts Pico 500/600 ms) »</em> — est donc correct… pour FOXGLOVE. C'est
+    une trace de plus du fait que le code Jetson a été écrit contre une version
+    qui n'est pas dans le Pico.
+  </p>
+</div>
+
+<div class="bloc danger">
+  <span class="etiquette">Et le battement de cœur ne bat pas, sur la v3</span>
+  <p>
+    <code>pico_bridge</code> émet un <strong>battement de cœur</strong> en
+    continu à 20 Hz : quand il n'a pas de consigne fraîche, il envoie quand même
+    <code>PING</code>. L'intention est juste. Sur la v3, elle ne produit rien,
+    pour deux raisons superposées.
+  </p>
+  <p>
+    <strong>D'abord, la v3 ne lit le port série que dans un cas très étroit.</strong>
+    Sa boucle principale contient littéralement :
+  </p>
+  <pre style="margin:.6rem 0"><code>if (current_mode == MODE_AUTONOMOUS &amp;&amp; armed) handle_serial_input();</code></pre>
+  <p>
+    Hors de ce cas — désarmé, en manuel, en ESTOP — <em>rien n'est lu du
+    tout</em>. Les lignes envoyées par la Jetson s'accumulent dans le tampon USB
+    au lieu d'être consommées. Ce qu'il advient ensuite dépend de la profondeur
+    du tampon TinyUSB, qui ne se lit pas dans le fichier <code>.ino</code> : ou
+    bien l'écriture côté Jetson finit par bloquer, ou bien des octets sont
+    perdus, ou bien les premières lignes lues après le passage en autonome sont
+    des ordres <em>périmés</em>. Les trois sont mauvais et aucun n'est
+    documenté. <strong>À mettre sur le banc avant l'eau</strong> : brancher,
+    laisser <code>pico_bridge</code> tourner deux minutes en manuel, puis
+    basculer en autonome et regarder si le premier ordre appliqué est le bon.
+  </p>
+  <p style="margin-bottom:0">
+    <strong>Ensuite, <code>PING</code> n'est pas un battement de cœur pour la v3.</strong>
+    Elle ne connaît aucun verbe : <code>handle_serial_input()</code> passe toute
+    ligne à <code>process_motor_command()</code>, qui cherche deux nombres.
+    <code>PING</code> n'en contient pas, donc la fonction échoue, le Pico répond
+    <code>Invalid cmd: PING</code>, et surtout
+    <code>last_serial_command_ms</code> <strong>n'est pas rafraîchi</strong>.
+    Autrement dit : sur la v3, seul un vrai ordre moteur repousse le failsafe
+    série. Un bateau autonome qui attend sagement à l'arrêt, avec
+    <code>pico_bridge</code> en train de pinguer à 20 Hz, verrait son failsafe
+    série expirer au bout de 500 ms — sans conséquence visible ici, puisque
+    l'action est justement « rester au neutre », mais la logique ne fait pas ce
+    qu'on croit. Dans FOXGLOVE, à l'inverse, <em>toute</em> ligne valide compte
+    comme battement de cœur, y compris <code>PING</code>, et c'est exactement
+    l'écart que la v3 ne rattrape pas.
+  </p>
+</div>
+
+<h3>La fenêtre d'armement de 2000 ms</h3>
+
+<p>
+  Confirmé par le dépôt, dans <code>pico_bridge.py</code> :
+  <em>« Moteurs appliqués côté Pico SEULEMENT si armé + AUTONOMOUS + 2 s après
+  relais. »</em>
+</p>
+
+<p>
+  Trois conditions cumulatives, dont un délai de deux secondes après la fermeture
+  du relais. Ce délai existe pour une raison électrique : quand un ESC est mis
+  sous tension, il exécute sa séquence d'initialisation — il lit le signal, le
+  reconnaît comme neutre, émet ses bips. Pendant ce temps, lui envoyer une
+  consigne de poussée produit au mieux un refus, au pire un démarrage brutal.
+  Deux secondes couvrent largement l'initialisation de tous les ESC courants.
+</p>
+
+<p>
+  Conséquence opérationnelle : <strong>entre la fermeture du relais et le moment
+  où les moteurs peuvent tourner, il s'écoule deux secondes.</strong> Ce n'est
+  pas une panne. Quelqu'un qui arme et pousse la manette immédiatement croira
+  que le bateau ne répond pas.
+</p>
+
+<h3>Le verrou de coupure et son déverrouillage</h3>
+
+<p>
+  Une coupure de propulsion est un <strong>verrou</strong> (<i>latch</i>) : une
+  fois déclenchée, elle reste active. Elle ne se relâche pas parce que la cause
+  a disparu.
+</p>
+
+<p>
+  C'est délibéré, et c'est une règle générale des systèmes de sécurité. Si un
+  arrêt se déverrouillait tout seul dès que la condition disparaissait, un
+  contact intermittent ferait redémarrer les hélices toutes seules pendant que
+  quelqu'un a les mains dans l'eau. <strong>Le déverrouillage doit être un acte
+  humain délibéré</strong>, jamais une conséquence automatique.
+</p>
+
+<h3>La règle d'arbitrage : restreindre, jamais étendre</h3>
+
+<div class="bloc bon">
+  <span class="etiquette">Le principe, en une phrase</span>
+  <p style="margin-bottom:0">
+    <strong>Le logiciel peut restreindre ce que la radiocommande autorise. Il ne
+    peut jamais l'étendre.</strong>
+  </p>
+</div>
+
+<p>Concrètement, quand le Pico reçoit des ordres de deux sources :</p>
+
+<ul>
+  <li>
+    Radio dit « propulsion interdite » (canal 8 bas), logiciel dit « avance » →
+    <strong>interdit</strong>. La radio gagne.
+  </li>
+  <li>
+    Radio dit « propulsion autorisée », logiciel dit « arrête-toi » →
+    <strong>arrêt</strong>. La restriction gagne.
+  </li>
+  <li>
+    Radio dit « mode manuel », logiciel dit « passe en autonome » →
+    <strong>reste manuel</strong>. Le logiciel ne peut pas s'accorder une
+    autorité que l'opérateur ne lui a pas donnée.
+  </li>
+</ul>
+
+<p>
+  L'intérêt de formuler la règle ainsi plutôt que par une table de vérité :
+  elle reste vraie quand on ajoute une source. Le jour où un troisième organe
+  veut donner des ordres, la question à poser n'est pas « où l'insérer dans la
+  table » mais « restreint-il, ou étend-il ? ». S'il étend, la réponse est non.
+</p>
+
+<h4>Comment chaque firmware l'applique réellement</h4>
+
+<p>
+  La règle est respectée dans les deux versions, mais elles n'ont pas le même
+  nombre de sources à arbitrer, et c'est toute la différence.
+</p>
+
+<p>
+  <strong>La v3, flashée, n'arbitre rien — parce qu'il n'y a qu'une source.</strong>
+  Son <code>update_state()</code> tient en trois lignes : il lit le canal 8, en
+  déduit le mode, lit le canal 7, en déduit l'armement. La Jetson n'a
+  <em>aucun</em> mot à dire sur le mode. Elle ne peut pas demander l'autonome ;
+  c'est l'opérateur qui la lui accorde en tournant l'inverseur. La règle
+  « restreindre, jamais étendre » est donc satisfaite trivialement : le logiciel
+  ne peut rien étendre puisqu'il ne peut rien demander.
+</p>
+
+<p>
+  <strong>FOXGLOVE ajoute la deuxième source, et l'arbitre explicitement.</strong>
+  C'est la version qui mérite d'être lue, parce qu'elle montre la règle à
+  l'œuvre. Son <code>update_state()</code> découpe le canal 8 en trois zones,
+  comme la v3, mais la troisième n'accorde plus l'autonomie d'office :
+</p>
+
+<pre><code>if (mode_ch &lt; MODE_LOW_MAX) {
+  new_mode = MODE_ESTOP;           // ZONE 1 : ESTOP matériel, priorité absolue
+} else if (mode_ch &lt; MODE_MID_MAX) {
+  new_mode = MODE_MANUAL;          // ZONE 2 : MANUEL forcé. La Jetson ne peut rien ici.
+} else {
+  // ZONE 3 : autonomie PERMISE — pas accordée. Manuel par défaut,
+  // jusqu'à ce que la Jetson la demande, et seulement tant qu'elle est vivante.
+  if (serial_wants_auto &amp;&amp; serial_link_live()) new_mode = MODE_AUTONOMOUS;
+  else                                          new_mode = MODE_MANUAL;
+}
+if (sbus_failsafe_flag) new_mode = MODE_ESTOP;</code></pre>
+
+<p>
+  Trois choses à y voir. La zone 3 dit <em>permise</em>, pas <em>accordée</em> :
+  l'opérateur ouvre une porte, il ne pousse pas le bateau à travers. La
+  condition est un <strong>et</strong> : vouloir l'autonome ne suffit pas, il
+  faut aussi que la liaison soit fraîche, sinon un plantage de la Jetson
+  laisserait le bateau en autonome sans personne aux commandes. Et la dernière
+  ligne écrase tout le reste — c'est la forme même de « restreindre, jamais
+  étendre » : elle ne peut que dégrader le mode, jamais l'améliorer, et elle est
+  écrite <em>après</em> pour qu'aucune branche ne puisse la contourner.
+</p>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Ce que ça veut dire pour vous, aujourd'hui</span>
+  <p style="margin-bottom:0">
+    Le bouton de mode de l'interface, le topic
+    <code>/pico/mode_request</code>, les lignes <code>MODE AUTO</code> et
+    <code>MODE MANUAL</code> de <code>pico_bridge</code> : toute cette chaîne
+    existe et fonctionne côté Jetson, et <strong>tombe dans le vide</strong> sur
+    le Pico tel qu'il est flashé. Elle attend FOXGLOVE. Tant que la v3 est dans
+    le microcontrôleur, la seule façon de mettre le bateau en autonome est de
+    tourner l'inverseur du canal 8 sur la radiocommande.
+  </p>
+</div>
+
+<h3>Ce que le bouton « Couper la propulsion » fait réellement</h3>
+
+<div class="bloc danger">
+  <span class="etiquette">Question ouverte — votre décision</span>
+  <p>
+    <strong>Une précision d'abord, parce que la première édition de ce document
+    disait le contraire.</strong> Elle affirmait qu'il n'existe « aucun arrêt
+    d'urgence logiciel dans le firmware ». C'est mal formulé :
+    <code>MODE_ESTOP</code> existe bel et bien, dans les deux versions, avec
+    désarmement, ouverture du relais et feu rouge. Ce qui n'existe pas, c'est un
+    <em>chemin série</em> pour y entrer. L'ESTOP est réel, mais on n'y accède
+    qu'en tournant le canal 8 sur la radiocommande. Et c'est délibéré : voir les
+    trois couches, plus haut.
+  </p>
+  <p>
+    Côté Jetson, <code>pico_bridge</code> n'accepte que deux mots :
+    <code>AUTO</code> et <code>MANUAL</code>. Tout le reste est journalisé comme
+    avertissement et jeté. Le bouton de l'interface n'a donc rien d'autre à
+    envoyer.
+  </p>
+  <p>
+    En attendant votre arbitrage, il demande <code>MANUAL</code>. C'est ce qu'il
+    y a de plus sûr parmi ce qui existe, pour une raison précise : le Pico
+    n'applique les ordres moteur que s'il est armé <em>et</em> en AUTONOMOUS.
+    Demander MANUAL retire donc toute autorité logicielle sur les propulseurs et
+    rend la main au pilote RC. <strong>Cela n'arrête pas le bateau.</strong>
+  </p>
+  <p>
+    Et l'interface le dit. Le bouton ne s'appelle pas « Couper la propulsion »
+    face à cette pile : il affiche <strong>« Repasser en MANUEL »</strong>, avec
+    l'effet réel écrit dessous. Le serveur déclare sa capacité, et l'interface
+    lit cette déclaration au lieu de supposer. Un bouton portant « Couper la
+    propulsion » qui se contenterait de changer le mode serait la chose la plus
+    dangereuse de tout l'écran.
+  </p>
+  <div class="bloc danger" style="margin:1rem 0">
+    <span class="etiquette">Sur la v3, il fait encore moins que ça</span>
+    <p style="margin-bottom:0">
+      Le raisonnement ci-dessus suppose que le Pico comprend
+      <code>MODE MANUAL</code>. La v3 ne le comprend pas : elle passe la ligne à
+      <code>process_motor_command()</code>, qui n'y trouve pas de nombre et
+      renvoie <code>Invalid cmd: MODE MANUAL</code>. Et elle ne l'aurait de
+      toute façon pas lue, puisqu'elle ne lit le port série qu'en autonome et
+      armé — c'est-à-dire précisément le cas où l'on voudrait que le bouton
+      serve. <strong>Aujourd'hui, ce bouton ne fait rien du tout.</strong>
+      L'interface ne ment pas pour autant : elle attendra une confirmation qui
+      n'arrivera pas et affichera un échec, ce qui est le comportement correct.
+      Mais il faut le savoir avant de compter dessus sur une plage.
+    </p>
+  </div>
+  <p style="margin-bottom:0">
+    Les deux options — ajouter un vrai <code>MODE ESTOP</code> au firmware et au
+    pont, ou assumer définitivement la bascule de mode — sont détaillées dans
+    <code>INTEGRATION_STATUS.md</code> §7. Je ne les ai délibérément pas
+    tranchées. Il y en a maintenant une troisième, plus simple et gratuite :
+    <strong>flasher FOXGLOVE</strong>, qui rend au moins la bascule de mode
+    fonctionnelle. Elle ne donne toujours pas d'ESTOP logiciel.
+  </p>
+</div>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+<h2 id="s6">7. Le protocole série entre le Pico et la Jetson</h2>
+
+<h3 id="s6-protocole">7.1 Ce qu'est un protocole série, et pourquoi du texte</h3>
+
+<p>
+  Un câble série transporte des octets, l'un après l'autre. Rien de plus. Il ne
+  sait pas ce qu'est un message, ni où l'un finit et où le suivant commence. Un
+  <em class="terme">protocole</em> est la convention que les deux bouts
+  acceptent de respecter pour se comprendre.
+</p>
+
+<p>
+  Ici la convention est aussi simple que possible : <strong>une ligne de texte
+  ASCII, terminée par un saut de ligne (<code>\n</code>), à
+  115200 bauds</strong>. Chaque ligne est un message complet.
+</p>
+
+<p>Il y avait deux autres options, et il vaut la peine de dire pourquoi elles ont perdu :</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Approche</th><th>Avantages</th><th>Pourquoi pas ici</th></tr>
+  <tr>
+    <td><strong>Binaire</strong> (structures compactes, somme de contrôle)</td>
+    <td>Compact, rapide à analyser, détection d'erreur intégrée</td>
+    <td>Illisible à l'œil. Il faut un outil pour voir ce qui passe, et les deux
+        côtés doivent s'accorder au bit près. Un décalage d'un octet donne des
+        valeurs plausibles et fausses.</td>
+  </tr>
+  <tr>
+    <td><strong>Texte</strong> (ce qui est fait)</td>
+    <td>Lisible avec n'importe quel terminal. Débogable sur une plage. Tolérant
+        à l'ajout de champs.</td>
+    <td>Plus verbeux, plus lent à analyser. À 115200 bauds pour quelques dizaines
+        d'octets par ligne, aucune importance.</td>
+  </tr>
+  <tr>
+    <td><strong>Un vrai protocole</strong> (MAVLink, CANopen…)</td>
+    <td>Éprouvé, outillé, versionné</td>
+    <td>Très lourd pour six champs. Et il faudrait le porter sur le Pico.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  Le choix du texte est <strong>bon</strong>, et il est justifié par le cas
+  d'usage : quelqu'un accroupi devant un bateau, avec un portable, doit pouvoir
+  taper une commande et <em>voir</em> ce que le Pico raconte. Avec du binaire,
+  il verrait des caractères de contrôle.
+</p>
+
+<p>
+  Mais le texte a un défaut qu'il faut regarder en face, et c'est exactement le
+  défaut qui a mordu ici : <strong>rien ne vérifie que les deux côtés
+  s'accordent</strong>. Avec un type de message ROS, une incompatibilité est
+  détectée au démarrage. Avec du texte, un côté écrit une chose, l'autre en
+  attend une autre, et les deux tournent parfaitement — chacun dans le vide.
+</p>
+
+<h3 id="s6-lignes">7.2 Les lignes, dans les deux sens</h3>
+
+<figure>
+<svg viewBox="0 0 740 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Les lignes échangées entre la Jetson et le Pico">
+  <defs>
+    <marker id="d1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,1 L7,4 L0,7 z" fill="#0b4f8f"/></marker>
+    <marker id="d2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,1 L7,4 L0,7 z" fill="#16613a"/></marker>
+  </defs>
+  <style>
+    .box { fill:#f2f1ed; stroke:#1a1c20; stroke-width:1.6; }
+    .n { font-family:Helvetica,Arial,sans-serif; font-size:12.5px; font-weight:bold; fill:#16181d; }
+    .s { font-family:Helvetica,Arial,sans-serif; font-size:9.5px; fill:#454a54; }
+    .m { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10.5px; }
+    .lb{ font-family:Helvetica,Arial,sans-serif; font-size:9px; font-weight:bold; letter-spacing:.06em; }
+    .ad{ stroke:#0b4f8f; stroke-width:1.5; marker-end:url(#d1); }
+    .au{ stroke:#16613a; stroke-width:1.5; marker-end:url(#d2); }
+  </style>
+
+  <rect class="box" x="30" y="20" width="150" height="56" rx="4"/>
+  <text class="n" x="105" y="43" text-anchor="middle">Jetson</text>
+  <text class="s" x="105" y="59" text-anchor="middle">pico_bridge</text>
+
+  <rect class="box" x="560" y="20" width="150" height="56" rx="4"/>
+  <text class="n" x="635" y="43" text-anchor="middle">Pico 2</text>
+  <text class="s" x="635" y="59" text-anchor="middle">firmware</text>
+
+  <line x1="105" y1="76" x2="105" y2="300" stroke="#d8d6cf" stroke-width="1.5"/>
+  <line x1="635" y1="76" x2="635" y2="300" stroke="#d8d6cf" stroke-width="1.5"/>
+
+  <text class="lb" x="200" y="98" fill="#0b4f8f">DESCENDANT — 20 FOIS PAR SECONDE</text>
+
+  <line class="ad" x1="107" y1="120" x2="631" y2="120"/>
+  <text class="m" x="200" y="115" fill="#0b4f8f">0.350,-0.120</text>
+  <text class="s" x="440" y="115">poussée gauche, poussée droite (−1 à 1)</text>
+
+  <line class="ad" x1="107" y1="152" x2="631" y2="152"/>
+  <text class="m" x="200" y="147" fill="#0b4f8f">PING</text>
+  <text class="s" x="440" y="147">battement de cœur : pas d'ordre, mais je suis vivant</text>
+
+  <line class="ad" x1="107" y1="184" x2="631" y2="184"/>
+  <text class="m" x="200" y="179" fill="#0b4f8f">MODE AUTO</text>
+  <text class="s" x="440" y="179">compris par FOXGLOVE seulement — la v3 répond « Invalid cmd »</text>
+
+  <text class="lb" x="200" y="216" fill="#16613a">MONTANT — 4 FOIS PAR SECONDE</text>
+
+  <line class="au" x1="633" y1="238" x2="109" y2="238"/>
+  <text class="m" x="200" y="233" fill="#16613a">[STAT] Mode:3 Armed:Y …</text>
+  <text class="s" x="440" y="233">v3 — la version flashée</text>
+
+  <line class="au" x1="633" y1="270" x2="109" y2="270"/>
+  <text class="m" x="200" y="265" fill="#16613a">STATE mode=3 armed=1 …</text>
+  <text class="s" x="440" y="265">FOXGLOVE — la version que la Jetson attend</text>
+
+  <rect x="120" y="286" width="500" height="30" rx="3" fill="#fdf1ef" stroke="#a6210f" stroke-width="1.4"/>
+  <text class="s" x="370" y="305" text-anchor="middle" fill="#a6210f" font-weight="bold">
+    pico_bridge ne garde que « STATE… ». Le Pico dit « [STAT]… ». Aucune ligne ne passe.
+  </text>
+</svg>
+<figcaption>
+  <strong>Le dialogue complet.</strong> Le sens descendant fonctionne : le
+  bateau bouge, parce que la ligne <code>L,R</code> est écrite et lue à
+  l'identique par les deux versions. Le sens montant est inerte, pour la raison
+  en rouge en bas — détaillée juste après.
+</figcaption>
+</figure>
+
+<h4>Jetson → Pico</h4>
+
+<p>Tout est dans <code>pico_bridge.py</code> et vérifiable :</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Ligne</th><th>Quand</th><th>Effet</th></tr>
+  <tr>
+    <td><code>0.350,-0.120</code></td>
+    <td>20 Hz, tant qu'une consigne de moins de 300 ms existe</td>
+    <td>Poussée gauche et droite, normalisées entre −1 et 1. Le Pico convertit :
+        <code>1500 + v × 500</code> µs.</td>
+  </tr>
+  <tr>
+    <td><code>PING</code></td>
+    <td>20 Hz, quand la consigne a plus de 300 ms</td>
+    <td>Censé maintenir la liaison vivante sans rien commander. Vrai sur
+        FOXGLOVE, où toute ligne valide rafraîchit le battement de cœur de
+        600 ms. <strong>Sans effet sur la v3</strong>, qui ne connaît aucun
+        verbe et répond <code>Invalid cmd: PING</code> — voir
+        <a href="#s5">§6</a>.</td>
+  </tr>
+  <tr>
+    <td><code>MODE AUTO</code><br><code>MODE MANUAL</code></td>
+    <td>Sur demande, via <code>/pico/mode_request</code></td>
+    <td>Change de mode — <strong>sur FOXGLOVE uniquement</strong>, qui répond
+        <code>[ACK] MODE AUTO requested</code>. La v3 ne connaît pas ces mots.
+        Et même sur FOXGLOVE, la demande n'est honorée que si le canal 8 est
+        déjà en zone haute. <strong>Aucun autre mot n'est accepté</strong>,
+        dans aucune version.</td>
+  </tr>
+  <tr>
+    <td><code>0,0</code></td>
+    <td>À l'arrêt du nœud</td>
+    <td>Neutre explicite avant de fermer le port.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  Le mélange différentiel est fait côté Jetson, et il est d'une simplicité
+  assumée : <code>gauche = x + z</code>, <code>droite = x − z</code>, puis
+  normalisation seulement si le résultat dépasse 1.
+</p>
+
+<h4>Pico → Jetson</h4>
+
+<div class="bloc provisoire">
+  <span class="etiquette">Correction — la première édition inventait ce tableau</span>
+  <p style="margin-bottom:0">
+    Elle donnait comme exemple
+    <code>[STAT] mode=AUTO armed=1 rc=1 ch8=100 vbat=25.9 ibat=4.2</code> et en
+    détaillait les champs. <strong>Cette ligne ne correspond à aucun des deux
+    firmwares.</strong> Il n'y a nulle part de champ <code>rc</code>, ni
+    <code>vbat</code>, ni <code>ibat</code> ; le mode n'est pas un mot mais un
+    entier ; et la v3 n'utilise pas du tout la syntaxe <code>clé=valeur</code>.
+    Ce qui suit est transcrit des deux sources.
+  </p>
+</div>
+
+<p>
+  Les deux firmwares émettent une ligne d'état <strong>toutes les 250 ms</strong>
+  (soit 4 Hz), depuis la boucle principale, sans qu'on la demande. Mais ils ne
+  l'écrivent pas de la même façon. C'est tout le problème.
+</p>
+
+<h5>v3 — la version flashée</h5>
+
+<pre><code>[STAT] Mode:3 Armed:Y Relay:ON Thr(Ch3):991 Yaw(Ch4):991 Arm(Ch7):1811 Mode(Ch8):1811</code></pre>
+
+<div class="tableau">
+<table>
+  <tr><th>Champ</th><th>Valeurs</th><th>Sens</th></tr>
+  <tr><td><code>Mode:</code></td><td><code>1</code>, <code>2</code>, <code>3</code></td><td>Entier, pas un mot. 1 = ESTOP, 2 = MANUEL, 3 = AUTONOME.</td></tr>
+  <tr><td><code>Armed:</code></td><td><code>Y</code> / <code>N</code></td><td>Armé ou non.</td></tr>
+  <tr><td><code>Relay:</code></td><td><code>ON</code> / <code>OFF</code></td><td>Ce que le Pico <em>croit</em> avoir commandé — le retour réel est désactivé (<a href="#s4-liste">§5.1</a>).</td></tr>
+  <tr><td><code>Thr(Ch3):</code>, <code>Yaw(Ch4):</code></td><td>172 – 1811</td><td>Manettes gaz et lacet, en comptes SBUS bruts.</td></tr>
+  <tr><td><code>Arm(Ch7):</code>, <code>Mode(Ch8):</code></td><td>172 – 1811</td><td>Les deux inverseurs, en comptes SBUS bruts. Seuils en <a href="#s5">§6</a>.</td></tr>
+</table>
+</div>
+
+<h5>FOXGLOVE — la version que la Jetson attend</h5>
+
+<pre><code>STATE mode=3 armed=1 relay=1 wantauto=1 link=1 estoplatch=0 thr=991 yaw=991 ch7=1811 ch8=1811 sbusok=2400 sbusbad=0 sbusfs=0 sbuslost=0</code></pre>
+
+<p>
+  Même information, plus six champs, et une syntaxe <code>clé=valeur</code>
+  délibérément analysable — le commentaire du firmware dit
+  <em>« machine-readable line. Fields are key=value, space separated »</em>.
+  Les champs supplémentaires valent la peine d'être connus, parce que ce sont
+  eux qui rendraient le diagnostic possible depuis la plage :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Champ</th><th>Sens</th><th>Pourquoi il compte</th></tr>
+  <tr><td><code>wantauto</code></td><td>La Jetson a-t-elle demandé l'autonome ?</td><td>Sépare <em>demandé</em> de <em>obtenu</em>. Avec <code>mode</code>, on sait si le refus vient du canal 8 ou de la liaison.</td></tr>
+  <tr><td><code>link</code></td><td>La Jetson est-elle considérée vivante ?</td><td>C'est le battement de cœur de 600 ms vu du Pico. Zéro alors que <code>pico_bridge</code> tourne = problème de câble ou de port.</td></tr>
+  <tr><td><code>estoplatch</code></td><td>Le verrou de coupure est-il actif ?</td><td>Explique un bateau qui refuse de s'armer alors que tout a l'air correct.</td></tr>
+  <tr><td><code>sbusok</code>, <code>sbusbad</code>,<br><code>sbusfs</code>, <code>sbuslost</code></td><td>Compteurs de trames radio : bonnes, corrompues, failsafe, perdues</td><td>La seule mesure de <strong>qualité</strong> de la liaison radio du système. Un <code>sbusbad</code> qui monte annonce une perte de portée avant qu'elle n'arrive.</td></tr>
+</table>
+</div>
+
+<p>
+  <strong>Ce qui n'est dans aucune des deux :</strong> la tension et le courant
+  batterie. Le Pico ne les mesure pas et n'en parle jamais. Le panneau Énergie
+  de l'interface est alimenté par une tout autre source (voir
+  <code>topics.yaml</code>), et si vous cherchiez la batterie du côté du Pico,
+  elle n'y est pas. Il n'y a pas non plus de lignes d'événement — pas de
+  <code>[EVT]</code>, pas de journal d'armement : l'état périodique est tout ce
+  que le Pico dit de lui-même.
+</p>
+
+<h4>Les commandes <code>CMD</code> : elles n'existent pas</h4>
+
+<div class="bloc danger">
+  <span class="etiquette">Recherché, et non trouvé</span>
+  <p>
+    Une commande <code>CMD MODE …</code>, une fonction d'arbitrage dédiée et un
+    accumulateur série non bloquant devaient avoir été écrits par une session
+    précédente et commités quelque part, probablement sous <code>firmware/</code>.
+    <strong>Ils n'y sont pas.</strong> J'ai cherché dans tous les commits de
+    toutes les branches des deux dépôts : la chaîne <code>CMD MODE</code>
+    n'apparaît nulle part, et le seul <code>.ino</code> de tout l'historique est
+    le FOXGLOVE de la branche <code>GPS_Fix_and_Task</code>.
+  </p>
+  <p>
+    Le plus proche de ce souvenir est FOXGLOVE, et la ressemblance est
+    trompeuse. Elle a bien une <strong>fonction d'arbitrage</strong> — le
+    <code>update_state()</code> à trois zones montré en <a href="#s5">§6</a>, et
+    c'est du bon travail. Mais ses verbes sont <code>MODE AUTO</code> et
+    <code>MODE MANUAL</code>, pas <code>CMD MODE …</code>. Et elle lit toujours
+    le port série avec <code>Serial.readStringUntil('\n')</code>, qui est
+    bloquant : <strong>il n'y a pas d'accumulateur non bloquant</strong>.
+    L'en-tête de la v3 annonce pourtant <em>« Non-blocking throughout: no
+    delay() anywhere, millis() only »</em> — ce qui est vrai des temporisations
+    et faux de la lecture série.
+  </p>
+  <p style="margin-bottom:0">
+    Si ce patch existe, il est sur une machine et pas dans un dépôt. C'est le
+    genre de chose qui se perd. En attendant, voici la forme qu'un tel mécanisme
+    doit avoir, parce qu'elle ne dépend pas du vocabulaire : un identifiant
+    unique par commande, un accusé qui le cite, et un délai au-delà duquel
+    l'absence d'accusé est traitée comme un <strong>échec</strong> — jamais
+    comme un succès. C'est exactement ce que l'interface fait déjà pour les
+    changements de mode (voir <a href="#s7">§8</a>) ; c'est le Pico qui ne tient
+    pas encore sa part.
+  </p>
+</div>
+
+<h3 id="s6-bug">7.3 Le bug <code>[STAT]</code> / <code>STATE</code></h3>
+
+<p>
+  Voici l'histoire complète, parce qu'elle enseigne plus que n'importe quel
+  avertissement abstrait.
+</p>
+
+<div class="bloc info">
+  <span class="etiquette">Ce n'est pas une faute de frappe, c'est un décalage de version</span>
+  <p style="margin-bottom:0">
+    La première édition de ce document présentait le problème comme une erreur
+    isolée dans une ligne de <code>pico_bridge.py</code>. La lecture des deux
+    firmwares montre autre chose, et de plus instructif : <strong>le code Jetson
+    est parfaitement correct — pour FOXGLOVE.</strong> Le préfixe
+    <code>STATE</code>, la syntaxe <code>clé=valeur</code>, le battement de cœur
+    de 600 ms, les verbes <code>MODE AUTO</code> / <code>MODE MANUAL</code> :
+    les quatre correspondent exactement à ce que FOXGLOVE fait, et à rien de ce
+    que la v3 fait. Personne n'a mal recopié un mot. Quelqu'un a écrit la
+    Jetson contre une version du firmware, et quelqu'un d'autre en a flashé une
+    autre. <strong>Le vrai défaut est qu'aucun des deux ne peut s'en
+    apercevoir</strong>, parce que rien n'annonce sa version et rien ne compte
+    les lignes rejetées.
+  </p>
+</div>
+
+<h4>Ce que fait le code</h4>
+
+<p>
+  <code>pico_bridge.py</code> lit le port série, découpe en lignes, et décide
+  quoi republier. Voici la ligne exacte, telle qu'elle est dans le dépôt :
+</p>
+
+<pre><code>while b"\n" in self._rx:
+    raw, self._rx = self._rx.split(b"\n", 1)
+    line = raw.decode(errors="replace").strip()
+    <strong>if line.startswith("STATE"):</strong>
+        self._status_pub.publish(String(data=line))</code></pre>
+
+<p>
+  La v3 émet <code>[STAT] Mode:3 …</code>. Le pont cherche <code>STATE…</code>.
+  Et <code>"[STAT] Mode:3 Armed:Y".startswith("STATE")</code> est
+  <strong>faux</strong> — la ligne commence par un crochet. Deux caractères
+  suffisent : le <code>[</code>, et le <code>E</code> manquant de
+  <code>STAT</code>.
+</p>
+
+<p>
+  Donc : chaque ligne d'état arrive correctement sur le câble, est correctement
+  découpée, correctement décodée… et jetée. Silencieusement. Sans compteur, sans
+  journal, sans alarme. <code>/pico/status</code> ne publie jamais rien.
+</p>
+
+<h4>Pourquoi c'est grave</h4>
+
+<p>
+  <strong>Tout le sens montant est inerte.</strong> Ce qui veut dire, dans
+  l'interface :
+</p>
+
+<ul>
+  <li>Le mode affiché ne vient de nulle part — le bateau ne dit jamais dans quel mode il est.</li>
+  <li>L'état armé/désarmé est inconnu.</li>
+  <li>La position des deux inverseurs de la radiocommande est inconnue, donc la pastille « Ch8 » n'affiche rien.</li>
+  <li>L'état du relais, le verrou de coupure et la qualité de la liaison radio sont inconnus.</li>
+  <li>Et surtout : <strong>la règle de sécurité n° 4 — « l'état affiché est toujours l'état confirmé » — ne peut pas être satisfaite</strong>, parce qu'aucune confirmation n'arrive jamais. Un changement de mode partirait et resterait « en attente » indéfiniment, puis échouerait.</li>
+</ul>
+
+<h4>Pourquoi c'est resté invisible</h4>
+
+<p>Quatre raisons se sont additionnées. Aucune n'est stupide isolément :</p>
+
+<ol>
+  <li>
+    <strong>Le sens descendant marche.</strong> On envoie <code>L,R</code>, le
+    bateau avance. Quand on teste « est-ce que le pont fonctionne ? », on pousse
+    une manette et on regarde les hélices. Elles tournent. Test réussi.
+  </li>
+  <li>
+    <strong>Le rejet est silencieux.</strong> Le <code>if</code> jette la ligne
+    sans rien dire. Il n'y a ni compteur de lignes ignorées, ni message de
+    journal, ni même un commentaire. Rien, nulle part, ne signale l'anomalie.
+  </li>
+  <li>
+    <strong>Personne n'écoutait.</strong> <code>/pico/status</code> n'apparaît
+    même pas dans le tableau des topics du README du club. Jusqu'à l'arrivée de
+    l'interface, <em>aucun</em> programme ne s'y abonnait. Un topic sans
+    auditeur qui ne publie rien est rigoureusement indiscernable d'un topic sans
+    auditeur qui publie correctement.
+  </li>
+  <li>
+    <strong>Et le nœud n'est de toute façon pas lancé.</strong> Découverte faite
+    en écrivant ce document : <code>njord.launch.py</code> ne démarre pas
+    <code>pico_bridge</code>, et <code>launch_all.py</code> non plus. Il faut le
+    lancer à la main. Donc même un développeur curieux qui aurait fait
+    <code>ros2 topic echo /pico/status</code> aurait vu… rien, et conclu que le
+    bateau n'était pas branché.
+  </li>
+</ol>
+
+<div class="bloc danger">
+  <span class="etiquette">Et il y a une deuxième occurrence du même bug, plus trois autres</span>
+  <p>
+    L'analyseur que j'ai écrit côté interface,
+    <code>gui_backend/core/pico_state.py</code>, commence par :
+  </p>
+  <pre style="margin:.6rem 0"><code>if not body.upper().startswith("STATE"):
+    return state   # non reconnue</code></pre>
+  <p>
+    <strong>Exactement la même hypothèse.</strong> Il a été écrit contre le
+    <code>pico_bridge</code> existant, qui filtrait sur <code>STATE</code>, donc
+    il en a hérité. Corriger <code>pico_bridge</code> seul ne suffira pas : les
+    lignes traverseraient alors le pont et seraient rejetées un cran plus loin.
+    <strong>Les deux fichiers doivent être corrigés ensemble.</strong>
+  </p>
+  <p>
+    Mais la vérification contre le vrai FOXGLOVE — celui pour lequel cet
+    analyseur était pourtant écrit — en révèle trois de plus. C'est-à-dire que
+    <strong>même en flashant FOXGLOVE demain, l'interface serait encore
+    fausse.</strong> Voici ce qui se passe, champ par champ, sur une vraie ligne
+    FOXGLOVE :
+  </p>
+  <div class="tableau">
+  <table>
+    <tr><th>Ce qui arrive</th><th>Ce que l'analyseur en fait</th><th>Gravité</th></tr>
+    <tr>
+      <td><code>mode=3</code></td>
+      <td>Il cherche un <em>mot</em> — <code>AUTO</code>, <code>MANUAL</code>… —
+          et reçoit un entier. Aucune correspondance, le champ part dans
+          <code>unknown_keys</code> et <code>mode</code> reste <code>None</code>.</td>
+      <td><strong>Grave.</strong> Le mode est le champ le plus important de tout
+          le flux. L'interface afficherait « inconnu » en permanence, et aucun
+          changement de mode ne pourrait jamais être confirmé — le symptôme
+          serait <em>identique</em> à celui du bug de préfixe, ce qui rend le
+          diagnostic trompeur.</td>
+    </tr>
+    <tr>
+      <td><code>ch8=1811</code></td>
+      <td>Rangé tel quel dans un champ nommé
+          <code>rc_channel8_raw_pct</code>, qui alarme sous 25.</td>
+      <td><strong>Grave et silencieux.</strong> Un compte SBUS lu comme un
+          pourcentage. 1811 ne déclenche jamais l'alarme — pas même quand le
+          canal descend à 200, ce qui est la position ESTOP. L'alarme est donc
+          non seulement fausse : elle est <em>muette précisément dans le cas
+          qu'elle doit signaler</em>.</td>
+    </tr>
+    <tr>
+      <td><code>relay</code>, <code>link</code>,
+          <code>wantauto</code>, <code>estoplatch</code>,
+          <code>thr</code>, <code>yaw</code>, <code>ch7</code>,
+          <code>sbus*</code></td>
+      <td>Aucun alias ne les reconnaît. Tous rangés dans
+          <code>unknown_keys</code> et jamais affichés.</td>
+      <td><strong>Occasion manquée.</strong> Onze champs jetés, dont les quatre
+          compteurs SBUS qui sont la seule mesure de qualité radio du système, et
+          <code>estoplatch</code> qui explique à lui seul le « pourquoi il refuse
+          de s'armer » le plus fréquent. Rien n'est cassé — c'est juste inutilisé.</td>
+    </tr>
+    <tr>
+      <td><code>vbat</code>, <code>ibat</code></td>
+      <td>Attendus par l'analyseur, et n'arrivent jamais.</td>
+      <td><strong>Inoffensif, par construction.</strong> Ils restent
+          <code>None</code>, voyagent en <code>null</code> et s'affichent « non
+          transmis » — jamais zéro, jamais une panne. C'est le seul endroit de
+          cette liste où le principe « absent ≠ zéro ≠ défaut » a fait son
+          travail tout seul.</td>
+    </tr>
+  </table>
+  </div>
+  <p style="margin-bottom:0">
+    Une remarque sur le troisième défaut, parce qu'elle est presque plus
+    importante que lui : l'analyseur considère la ligne comme
+    <strong>correctement analysée</strong> dès qu'<em>un seul</em> champ a été
+    compris. Sur une ligne FOXGLOVE, <code>armed=1</code> suffit. Le résultat
+    serait donc <code>parsed=True</code>, avec un mode inconnu et un canal 8
+    absurde — une ligne déclarée bonne qui ne l'est pas. Le drapeau devrait
+    exiger que les champs <em>essentiels</em> aient été lus, pas n'importe
+    lesquels.
+  </p>
+</div>
+
+<h4>Pourquoi le simulateur ne pouvait structurellement pas l'attraper</h4>
+
+<p>C'est la partie la plus instructive.</p>
+
+<p>
+  <code>asket_sim</code> simule le Pico. Mais il le simule <strong>au mauvais
+  niveau</strong> : il publie directement un message structuré
+  <code>asket_interfaces/PicoStatus</code> sur <code>/pico/status</code>. Il ne
+  fabrique <em>jamais</em> une ligne de texte, ne l'envoie jamais sur un port
+  série, et rien ne l'analyse.
+</p>
+
+<figure>
+<svg viewBox="0 0 740 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Comparaison entre le chemin réel et le chemin simulé">
+  <style>
+    .bb { fill:#ffffff; stroke:#1a1c20; stroke-width:1.4; }
+    .bbad { fill:#fdf1ef; stroke:#a6210f; stroke-width:1.8; }
+    .bbs { fill:#eef7f1; stroke:#16613a; stroke-width:1.4; }
+    .tx { font-family:Helvetica,Arial,sans-serif; font-size:10.5px; fill:#16181d; text-anchor:middle; }
+    .tg { font-family:Helvetica,Arial,sans-serif; font-size:10px; font-weight:bold; letter-spacing:.05em; }
+    .ar { stroke:#454a54; stroke-width:1.3; fill:none; marker-end:url(#fl2); }
+  </style>
+  <defs><marker id="fl2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,1 L7,4 L0,7 z" fill="#454a54"/></marker></defs>
+
+  <text class="tg" x="20" y="26" fill="#454a54">CHEMIN RÉEL — 5 ÉTAPES</text>
+  <rect class="bb" x="20" y="38" width="120" height="40" rx="3"/><text class="tx" x="80" y="62">Firmware Pico</text>
+  <rect class="bb" x="164" y="38" width="120" height="40" rx="3"/><text class="tx" x="224" y="56">ligne texte</text><text class="tx" x="224" y="70">[STAT] …</text>
+  <rect class="bbad" x="308" y="38" width="130" height="40" rx="3"/><text class="tx" x="373" y="56" fill="#a6210f" font-weight="bold">filtre « STATE »</text><text class="tx" x="373" y="70" fill="#a6210f">rejette tout</text>
+  <rect class="bb" x="462" y="38" width="120" height="40" rx="3"/><text class="tx" x="522" y="62">/pico/status</text>
+  <rect class="bb" x="606" y="38" width="114" height="40" rx="3"/><text class="tx" x="663" y="62">interface</text>
+  <path class="ar" d="M140,58 L160,58"/><path class="ar" d="M284,58 L304,58"/>
+  <path class="ar" d="M438,58 L458,58"/><path class="ar" d="M582,58 L602,58"/>
+  <text class="tx" x="373" y="96" fill="#a6210f" font-weight="bold">↑ le bug est ici</text>
+
+  <text class="tg" x="20" y="150" fill="#16613a">CHEMIN SIMULÉ — 2 ÉTAPES</text>
+  <rect class="bbs" x="20" y="162" width="180" height="40" rx="3"/><text class="tx" x="110" y="180">asket_sim</text><text class="tx" x="110" y="194">PicoStatus structuré</text>
+  <rect class="bb" x="462" y="162" width="120" height="40" rx="3"/><text class="tx" x="522" y="186">/pico/status</text>
+  <rect class="bb" x="606" y="162" width="114" height="40" rx="3"/><text class="tx" x="663" y="186">interface</text>
+  <path class="ar" d="M200,182 L458,182"/>
+  <path class="ar" d="M582,182 L602,182"/>
+  <text class="tx" x="330" y="172" fill="#16613a">les trois étapes du milieu n'existent pas</text>
+  <text class="tx" x="330" y="216" fill="#16613a" font-weight="bold">le simulateur ne peut pas tester une couche qu'il remplace</text>
+</svg>
+<figcaption>
+  <strong>Pourquoi aucun test ne pouvait échouer.</strong> Le simulateur ne
+  remplace pas le Pico : il remplace le Pico <em>et</em> le câble <em>et</em>
+  l'analyseur. La couche où vit le bug n'existe pas en simulation.
+</figcaption>
+</figure>
+
+<div class="bloc bon">
+  <span class="etiquette">La leçon, généralisable</span>
+  <p>
+    <strong>Un simulateur teste ce qui est au-dessus de lui, jamais ce qu'il
+    remplace.</strong> Celui-ci branche une prise structurée à l'endroit exact
+    où le système réel a une couche de texte fragile. Il valide très bien
+    l'interface, les panneaux, les alarmes, la négociation de débit — tout ce
+    qui est au-dessus. Il est structurellement incapable de valider la
+    conversion texte, parce qu'il ne la traverse pas.
+  </p>
+  <p style="margin-bottom:0">
+    La correction n'est pas « faire plus de tests ». C'est : <strong>soit</strong>
+    faire produire au simulateur de vraies lignes de texte sur un vrai port série
+    virtuel — comme <code>asket_sim</code> le fait déjà pour le sonar, où il sert
+    de vraies trames Ping Protocol sur une vraie socket — <strong>soit</strong>
+    tester l'analyseur contre des lignes réelles capturées sur le matériel.
+    C'est cette seconde voie qui est ouverte : <code>pico_state.py</code> porte
+    un drapeau <code>FORMAT_VERIFIED = False</code> et le contrôle pré-vol
+    avertit à chaque passage tant qu'il n'est pas levé.
+  </p>
+</div>
+
+<h4>Comment corriger, concrètement</h4>
+
+<p>
+  <strong>Décider d'abord quelle version du firmware fait foi.</strong> Tout le
+  reste en découle, et tant que ce n'est pas tranché, chaque correction risque
+  d'être écrite contre la mauvaise cible.
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Option</th><th>Ce que ça coûte</th><th>Ce que ça donne</th></tr>
+  <tr>
+    <td><strong>Flasher FOXGLOVE</strong></td>
+    <td>Une manipulation, et une relecture de ce qui a changé depuis la v3 —
+        ce n'est pas un firmware que quelqu'un a validé sur l'eau.</td>
+    <td>Le préfixe redevient bon, la bascule de mode depuis l'interface
+        fonctionne, et onze champs de diagnostic apparaissent. Il reste les
+        trois défauts de <code>pico_state.py</code> ci-dessus à corriger.</td>
+  </tr>
+  <tr>
+    <td><strong>Garder la v3</strong> et adapter la Jetson</td>
+    <td>Réécrire le filtre et l'analyseur pour <code>[STAT] Clé:Valeur</code>,
+        et accepter qu'aucune commande de mode ne parte de l'interface.</td>
+    <td>Le sens montant fonctionne. Le bouton de mode doit être retiré ou
+        clairement désactivé, sans quoi il promet ce qu'il ne peut pas tenir.</td>
+  </tr>
+</table>
+</div>
+
+<p>Ensuite, dans cet ordre :</p>
+
+<ol>
+  <li>
+    Sur la Jetson, Pico branché, capturer de vraies lignes en court-circuitant
+    ROS — la commande <code>python3 -c "import serial…"</code> de la
+    <a href="#s8">§9</a>. Deux minutes, et ça règle la question de ce que le
+    Pico dit vraiment, définitivement.
+  </li>
+  <li>
+    Corriger le filtre dans <code>pico_bridge.py</code> : accepter
+    <strong>les deux</strong> préfixes, et surtout <strong>compter</strong> les
+    lignes ignorées et journaliser ce compteur. C'est la correction la plus
+    importante des cinq, parce que c'est la seule qui aurait permis de trouver
+    le problème toute seule.
+  </li>
+  <li>
+    Corriger <code>parse_state_line()</code> : les deux syntaxes, le mode comme
+    entier <em>et</em> comme mot, le canal 8 en comptes SBUS et non en pourcent
+    (renommer le champ, sinon quelqu'un refera l'erreur), et des alias pour les
+    onze champs FOXGLOVE aujourd'hui jetés.
+  </li>
+  <li>
+    Coller les vraies lignes capturées dans <code>test_pico_state.py</code>,
+    vérifier que le seuil d'alarme du canal 8 se déclenche bien en position
+    ESTOP, et passer <code>FORMAT_VERIFIED</code> à <code>True</code>.
+  </li>
+  <li>
+    Décider où <code>pico_bridge</code> doit être démarré, et trancher la
+    question des deux chemins vers les moteurs (<a href="#s3-control">§4.2</a>).
+  </li>
+</ol>
+
+<div class="bloc bon">
+  <span class="etiquette">Et une sixième, qui vaut les cinq autres</span>
+  <p style="margin-bottom:0">
+    <strong>Faire annoncer sa version au firmware.</strong> Une ligne au
+    démarrage, <code>[VER] pico-node 3</code>, et un champ <code>ver=</code>
+    dans l'état périodique. Le pont la lit, l'interface l'affiche à côté du mode,
+    et le contrôle pré-vol échoue si elle ne correspond pas à ce que la Jetson
+    sait analyser. Le problème de toute cette section — deux logiciels qui ne
+    parlent pas la même langue et n'ont aucun moyen de s'en rendre compte —
+    disparaît pour de bon, au lieu d'être corrigé une fois.
+  </p>
+</div>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+
+<h2 id="s7">8. L'interface</h2>
+
+<h3>Trois morceaux, deux machines</h3>
+
+<figure>
+<svg viewBox="0 0 740 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Architecture de l'interface : ROS, serveur, navigateur">
+  <style>
+    .mj { fill:#f2f1ed; stroke:#1a1c20; stroke-width:1.5; }
+    .mg { fill:#f0f5fa; stroke:#0b4f8f; stroke-width:1.6; }
+    .hh { font-family:Helvetica,Arial,sans-serif; font-size:12px; font-weight:bold; fill:#16181d; text-anchor:middle; }
+    .dd { font-family:Helvetica,Arial,sans-serif; font-size:9.5px; fill:#454a54; text-anchor:middle; }
+    .zz { font-family:Helvetica,Arial,sans-serif; font-size:9.5px; font-weight:bold; letter-spacing:.07em; fill:#454a54; }
+    .aa { stroke:#454a54; stroke-width:1.4; fill:none; marker-end:url(#fl3); }
+  </style>
+  <defs><marker id="fl3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,1 L7,4 L0,7 z" fill="#454a54"/></marker></defs>
+
+  <rect x="16" y="30" width="420" height="240" rx="5" fill="none" stroke="#d8d6cf" stroke-dasharray="4 3"/>
+  <text class="zz" x="28" y="24">JETSON — À BORD DU BATEAU</text>
+
+  <rect x="470" y="30" width="254" height="240" rx="5" fill="none" stroke="#d8d6cf" stroke-dasharray="4 3"/>
+  <text class="zz" x="482" y="24">VOTRE PORTABLE — SUR LA PLAGE</text>
+
+  <rect class="mj" x="40" y="50" width="180" height="70" rx="3"/>
+  <text class="hh" x="130" y="74">Les nœuds ROS 2</text>
+  <text class="dd" x="130" y="90">capteurs, navigation,</text>
+  <text class="dd" x="130" y="104">sonar, enregistreur</text>
+
+  <rect class="mg" x="40" y="150" width="380" height="96" rx="3"/>
+  <text class="hh" x="230" y="174">gui_backend — le serveur</text>
+  <text class="dd" x="230" y="192">s'abonne aux topics · garde le dernier message</text>
+  <text class="dd" x="230" y="206">décide quoi envoyer et à quelle cadence</text>
+  <text class="dd" x="230" y="220">sert aussi la page web elle-même</text>
+  <text class="dd" x="230" y="236" font-weight="bold">écoute sur 0.0.0.0:8090</text>
+
+  <path class="aa" d="M130,120 L130,146"/>
+  <text class="dd" x="196" y="138">abonnements ROS</text>
+
+  <rect class="mg" x="494" y="120" width="206" height="80" rx="3"/>
+  <text class="hh" x="597" y="144">asket_gui — la page</text>
+  <text class="dd" x="597" y="161">React · MapLibre</text>
+  <text class="dd" x="597" y="175">dessine, ne calcule rien</text>
+  <text class="dd" x="597" y="189">d'important</text>
+
+  <path class="aa" d="M420,182 L490,166"/>
+  <path class="aa" d="M490,150 L424,168" />
+  <text class="dd" x="455" y="128">WebSocket</text>
+  <text class="dd" x="455" y="214">Wi-Fi ou LTE-M</text>
+</svg>
+<figcaption>
+  <strong>La séparation.</strong> Le serveur doit être sur la Jetson parce que
+  c'est là que ROS existe : ROS 2 n'est pas conçu pour traverser une liaison
+  sans fil instable, et un navigateur ne sait pas parler ROS. La page doit être
+  dans votre navigateur parce que c'est là que sont vos yeux.
+</figcaption>
+</figure>
+
+<h3>Ce qu'est un WebSocket</h3>
+
+<p>
+  Une page web classique fonctionne par questions-réponses : le navigateur
+  demande, le serveur répond, la connexion se ferme. Pour une donnée qui change
+  dix fois par seconde, ce serait absurde — il faudrait redemander sans cesse.
+</p>
+
+<p>
+  Un <strong>WebSocket</strong> est une connexion qui <strong>reste
+  ouverte</strong>, dans les deux sens. Le serveur peut pousser une donnée sans
+  qu'on la lui demande ; le navigateur peut envoyer une commande à tout moment.
+  C'est un tuyau permanent plutôt qu'une série de courriers.
+</p>
+
+<p>
+  C'est le bon choix ici pour une raison précise : <strong>le serveur peut
+  décider</strong> quoi envoyer et quand. Sur une liaison qui se dégrade, c'est
+  le serveur — qui mesure la latence réelle — qui doit arbitrer, pas le
+  navigateur qui n'en sait rien.
+</p>
+
+<h3>Les profils de débit</h3>
+
+<p>
+  Le serveur ne pousse <strong>rien par défaut</strong>. Le navigateur
+  s'abonne à des flux nommés en demandant une cadence, et le serveur
+  répond ce qu'il accorde <em>et pourquoi</em>. Ce refus motivé finit à l'écran :
+  l'opérateur sait toujours si un panneau est vide parce qu'il ne se passe rien,
+  ou parce que la donnée n'est pas transmise.
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Profil</th><th>Liaison</th><th>Budget</th><th>Ce qui passe</th></tr>
+  <tr>
+    <td><strong>Complet</strong></td>
+    <td>Wi-Fi proche</td>
+    <td>200 ko/s</td>
+    <td>Tout, à la cadence maximale de chaque flux : position 10 Hz, lidar 10 Hz, sonar, couverture, diagnostics.</td>
+  </tr>
+  <tr>
+    <td><strong>Réduit</strong></td>
+    <td>4G</td>
+    <td>12 ko/s</td>
+    <td>Position 2 Hz, cap, mode, énergie, couverture au ralenti, alarmes. <strong>Le lidar est abandonné, pas ralenti.</strong></td>
+  </tr>
+  <tr>
+    <td><strong>Balise</strong></td>
+    <td>LTE-M</td>
+    <td>1 ko/s</td>
+    <td>Position 0,2 Hz, mode, batterie, alarmes. Rien d'autre ne tient.</td>
+  </tr>
+</table>
+</div>
+
+<div class="bloc info">
+  <span class="etiquette">Pourquoi le lidar est supprimé plutôt que ralenti</span>
+  <p style="margin-bottom:0">
+    C'est une décision de conception qui mérite d'être comprise. Un lidar
+    rafraîchi une fois par seconde <em>a l'air</em> de fonctionner. Un opérateur
+    le regarderait et croirait voir les obstacles autour du bateau — alors qu'à
+    2 m/s, une seconde représente deux mètres parcourus. Mieux vaut un panneau
+    qui dit clairement « non transmis sur cette liaison » qu'un panneau qui
+    ment joliment. Et de toute façon l'évitement est le travail de la pile de
+    navigation : <strong>l'interface informe, elle n'alerte pas.</strong>
+  </p>
+</div>
+
+<p>
+  Le basculement se fait sur la latence et la qualité <strong>mesurées</strong>,
+  pas sur le nom du porteur : un Wi-Fi à 300 m avec 40 % de pertes est un lien
+  4G du point de vue de l'interface. Et la dégradation est rapide (2 s) tandis
+  que la remontée est lente (8 s) : osciller entre deux profils est pire que
+  d'être dans le mauvais, parce que l'opérateur voit les panneaux apparaître et
+  disparaître.
+</p>
+
+<h3>Les trois principes, et la panne que chacun évite</h3>
+
+<dl>
+  <dt>1. L'état affiché est l'état confirmé</dt>
+  <dd>
+    L'interface ne montre jamais ce qui a été demandé, seulement ce que le
+    bateau rapporte. Un bouton pressé passe en « en attente », visiblement
+    différent, puis devient confirmé <em>quand le flux d'état le dit</em> — ou
+    échoue explicitement.
+    <br><br>
+    <strong>La panne évitée :</strong> vous cliquez « Autonome », l'affichage
+    passe en autonome, vous posez le portable. La commande n'est jamais arrivée.
+    Vous croyez le bateau autonome ; il ne l'est pas. Cet écart entre la
+    croyance et la réalité est le mécanisme d'accident le plus classique des
+    interfaces de supervision.
+  </dd>
+
+  <dt>2. Absent n'est ni zéro ni panne</dt>
+  <dd>
+    Quand le serveur ne transmet pas un champ, l'interface écrit « non
+    transmis » — jamais « 0 », jamais en rouge.
+    <br><br>
+    <strong>La panne évitée :</strong> sur profil réduit, l'état de la liaison
+    RC n'est pas transmis. L'afficher comme « RC perdue » en rouge ferait croire
+    à une panne de sécurité alors que la radio va parfaitement bien. Un
+    opérateur qui apprend à ignorer un voyant rouge est un opérateur qui
+    ignorera le prochain.
+  </dd>
+
+  <dt>3. L'âge de la donnée est toujours visible</dt>
+  <dd>
+    Chaque valeur porte son âge. Au-delà d'un seuil, elle est dégradée
+    visuellement : ambre, puis rouge et barrée. Les seuils s'adaptent à la
+    cadence négociée — une donnée à 0,2 Hz n'est pas périmée à 4 secondes.
+    <br><br>
+    L'âge est calculé sur l'horloge <em>du serveur</em>, estimée par des
+    échanges réguliers, et non sur celle du portable : une horloge fausse côté
+    plage ne doit pas pouvoir faire paraître tout frais.
+    <br><br>
+    <strong>La panne évitée :</strong> la liaison tombe. La dernière position
+    reçue reste à l'écran, parfaitement lisible, et le bateau dérive depuis
+    quatre minutes. Sans indicateur d'âge, rien ne distingue cette image d'une
+    image vivante. C'est aussi pour ça que l'en-tête affiche ce qui a été
+    <em>reçu</em> et non l'état de la connexion : une connexion TCP reste
+    ouverte des dizaines de secondes après la mort du lien.
+  </dd>
+</dl>
+
+<h3>Le mode maquette</h3>
+
+<p>
+  <code>npm run dev:mock</code> lance l'interface seule, avec des données
+  fabriquées dans le navigateur : ni ROS, ni serveur, ni bateau. Un panneau de
+  développement permet d'injecter des pannes — liaison perdue, sonar muet, cap
+  invalide, disque plein, confirmation qui n'arrive jamais.
+</p>
+
+<p>
+  C'est un dispositif <strong>permanent</strong>, pas un échafaudage. Il
+  remplace la socket, jamais les composants : ce que vous voyez en maquette est
+  exactement ce qui tournera sur la plage. Et deux tests le maintiennent
+  honnête — la table de négociation est <em>générée</em> depuis le code Python,
+  et les formes de données sont comparées entre les deux langages en exécutant
+  le JavaScript depuis les tests Python.
+</p>
+
+<p>
+  Notez toutefois la limite, la même qu'en <a href="#s6-bug">§7.3</a> : une
+  maquette valide ce qui est au-dessus d'elle. Elle ne prouve rien sur ROS, ni
+  sur le matériel.
+</p>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+<h2 id="s8">9. Si quelque chose ne va pas</h2>
+
+<p>
+  Cette section est organisée par <strong>symptôme</strong>, parce que c'est
+  comme ça qu'une panne se présente : vous voyez quelque chose d'anormal, vous
+  ne savez pas encore quel composant est en cause.
+</p>
+
+<h3>La trousse à outils</h3>
+
+<p>
+  Six commandes couvrent 90 % des cas. Toutes se tapent sur la Jetson, après
+  avoir sourcé l'espace de travail (<code>source install/setup.bash</code>).
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Commande</th><th>Ce qu'elle dit</th><th>Comment la lire</th></tr>
+  <tr>
+    <td><code>ros2 node list</code></td>
+    <td>Les programmes qui tournent</td>
+    <td>Un nœud absent de la liste n'a pas démarré ou a planté. C'est la
+        première chose à regarder, toujours.</td>
+  </tr>
+  <tr>
+    <td><code>ros2 topic list</code></td>
+    <td>Les canaux qui existent</td>
+    <td>Un topic absent = personne ne l'a créé. Un topic présent ne garantit
+        pas que quelque chose circule dessus.</td>
+  </tr>
+  <tr>
+    <td><code>ros2 topic hz /un/topic</code></td>
+    <td>La fréquence réelle</td>
+    <td>Le plus utile des six. Pas de sortie du tout = rien n'est publié.
+        Une fréquence bien plus basse qu'attendu = surcharge ou capteur en
+        difficulté.</td>
+  </tr>
+  <tr>
+    <td><code>ros2 topic echo /un/topic</code></td>
+    <td>Le contenu, en direct</td>
+    <td>Affiche les messages. S'il reste muet sans rendre la main : le canal
+        existe, personne n'émet.</td>
+  </tr>
+  <tr>
+    <td><code>ros2 topic info -v /un/topic</code></td>
+    <td>Qui publie, qui écoute</td>
+    <td>Montre le nombre d'éditeurs et d'abonnés. Zéro éditeur explique
+        immédiatement un panneau vide.</td>
+  </tr>
+  <tr>
+    <td><code>ros2 node info /un/noeud</code></td>
+    <td>Ce à quoi un nœud est abonné</td>
+    <td>Utile pour vérifier qu'un nœud écoute bien le topic que vous croyez.</td>
+  </tr>
+</table>
+</div>
+
+<div class="bloc info">
+  <span class="etiquette">Avant tout : lancez le pré-vol</span>
+  <p style="margin-bottom:0">
+    Le bouton « Lancer le pré-vol » de l'interface exécute une quinzaine de
+    contrôles et nomme le maillon fautif en langage clair, avec un remède. Il
+    est fait exactement pour ce moment. Faites-le d'abord — il répondra
+    peut-être à la question avant que vous n'ouvriez un terminal. Attendez-vous
+    à <strong>deux avertissements ambre normaux</strong> : la géométrie de
+    montage du sonar et le format des lignes du Pico. Les deux sont légitimes
+    tant que personne n'a mesuré le bateau et capturé une vraie ligne.
+  </p>
+</div>
+
+<h3>Symptôme 1 — Rien n'apparaît dans l'interface</h3>
+
+<p><strong>Ce que vous observez :</strong> la page ne s'ouvre pas, ou s'ouvre vide, ou tous les panneaux disent « non transmis ».</p>
+
+<p><strong>Causes, de la plus probable à la moins probable :</strong></p>
+<ol>
+  <li>
+    <strong>L'interface n'a pas été démarrée.</strong> Elle est à
+    <code>false</code> par défaut. Vérifiez que le lancement comportait bien
+    <code>enable_gui:=true</code>.
+  </li>
+  <li>
+    <strong>Vous n'êtes pas sur le bon réseau</strong>, ou pas la bonne adresse.
+    L'interface est sur le port <strong>8090</strong>, pas 8080 ni 8765.
+  </li>
+  <li>
+    <strong>Un pare-feu.</strong> Le serveur écoute sur <code>0.0.0.0</code>,
+    donc il accepte les connexions extérieures. Si <code>curl</code> depuis la
+    Jetson elle-même fonctionne mais pas depuis le portable, c'est le réseau,
+    pas l'interface.
+  </li>
+  <li>
+    <strong>La page est servie mais aucun nœud ROS ne tourne.</strong> Vous
+    verriez alors l'ossature de l'interface avec tous les panneaux vides.
+  </li>
+</ol>
+
+<pre><code># Sur la Jetson — le serveur écoute-t-il ?
+ss -lntp | grep 8090
+
+# Sur la Jetson — répond-il à lui-même ?
+curl -s http://localhost:8090/api/tiles/info
+
+# Depuis le portable — répond-il au réseau ?
+curl -s http://&lt;ip-jetson&gt;:8090/api/tiles/info</code></pre>
+
+<p>
+  Si la première commande ne renvoie rien, le serveur n'est pas lancé. Si la
+  deuxième marche et pas la troisième, c'est le réseau. Si les trois marchent
+  mais que les panneaux sont vides, passez au symptôme suivant.
+</p>
+
+<h3>Symptôme 2 — Le bateau ne bouge pas</h3>
+
+<p><strong>Ce que vous observez :</strong> les commandes partent, rien ne tourne.</p>
+
+<p>
+  <strong>Commencez par le plus bête, dans cet ordre</strong> — c'est un ordre
+  de probabilité, pas de sophistication :
+</p>
+<ol>
+  <li>
+    <strong>Canal 7 en position basse — le bateau n'est pas armé.</strong>
+    C'est de loin la cause la plus fréquente, et la plus facile à oublier
+    puisque rien à l'écran ne l'affiche aujourd'hui.
+  </li>
+  <li>
+    <strong>Canal 8 en position basse — mode ESTOP.</strong> La radio interdit
+    la propulsion et ouvre le relais. Aucun logiciel n'y peut rien, et c'est
+    voulu.
+  </li>
+  <li>
+    <strong>Coupe-circuit physique enclenché.</strong> Même logique.
+  </li>
+  <li>
+    <strong>Vous êtes dans la fenêtre de 2 secondes</strong> après la fermeture
+    du relais. Attendez, réessayez. Ce n'est pas une panne.
+  </li>
+  <li>
+    <strong>Pas en mode AUTONOMOUS.</strong> Le Pico n'applique les ordres
+    moteur que s'il est armé <em>et</em> autonome.
+  </li>
+  <li>
+    <strong>Le verrou de coupure est actif.</strong> Il ne se relâche pas tout
+    seul ; il faut le déverrouiller explicitement.
+  </li>
+  <li>
+    <strong><code>pico_bridge</code> ne tourne pas</strong> — rappelez-vous
+    qu'aucun fichier de lancement ne le démarre. Sans lui, aucune ligne
+    <code>L,R</code> n'atteint le Pico.
+  </li>
+  <li>
+    <strong>Le port série n'est pas celui que le conteneur voit.</strong> Le
+    piège Podman : il faut le <code>ttyACMn</code> résolu, pas
+    <code>/dev/pico</code>.
+  </li>
+  <li>
+    ESC non armés, batterie de puissance coupée, hélice bloquée.
+  </li>
+</ol>
+
+<pre><code># La commande sort-elle du contrôleur ?
+ros2 topic hz /control/effort
+
+# pico_bridge tourne-t-il ?
+ros2 node list | grep pico
+
+# Le port série existe-t-il, et sous quel nom réel ?
+ls -l /dev/ttyACM* /dev/pico
+
+# Que dit le Pico, en brut ? (hors ROS, très utile)
+# — remplacez ACM0 par le bon port
+python3 -c "import serial; s=serial.Serial('/dev/ttyACM0',115200); [print(s.readline()) for _ in range(20)]"</code></pre>
+
+<p>
+  Cette dernière commande court-circuite entièrement ROS et vous montre ce que
+  le Pico dit réellement. C'est aussi comme ça que vous capturerez les vraies
+  lignes <code>[STAT]</code> pour corriger le bug de la
+  <a href="#s6-bug">§7.3</a>.
+</p>
+
+<h3>Symptôme 3 — Le mode refuse de changer</h3>
+
+<p><strong>Ce que vous observez :</strong> vous confirmez, le bouton passe en « en attente », puis échoue avec « pas de confirmation du bateau ».</p>
+
+<div class="bloc danger">
+  <span class="etiquette">Dans l'état actuel du dépôt, c'est attendu</span>
+  <p style="margin-bottom:0">
+    L'interface n'affiche un mode confirmé que lorsque le flux d'état le
+    rapporte. Ce flux est inerte (<a href="#s6-bug">§7.3</a>). Donc
+    <strong>tout changement de mode échouera systématiquement</strong>, même si
+    la commande est bien partie et que le Pico a obéi. Ce n'est pas un défaut
+    de l'interface : elle refuse d'affirmer un état que personne ne lui a
+    confirmé, ce qui est exactement ce qu'on lui demande.
+  </p>
+</div>
+
+<div class="bloc danger">
+  <span class="etiquette">Et sur la v3, ça échouera même après correction du bug</span>
+  <p style="margin-bottom:0">
+    La v3 flashée ne connaît aucun verbe de mode : elle répond
+    <code>Invalid cmd: MODE AUTO</code>, et ne lit même pas le port série tant
+    qu'elle n'est pas déjà armée en autonome. <strong>Le seul moyen de changer
+    de mode aujourd'hui est l'inverseur du canal 8 sur la radiocommande</strong>
+    (<a href="#s5">§6</a>). Corriger le bug de préfixe rendra l'affichage juste,
+    pas le bouton fonctionnel.
+  </p>
+</div>
+
+<p>Sur FOXGLOVE, et une fois le bug corrigé, les causes redeviennent :</p>
+<ol>
+  <li>Le canal 8 n'est pas en zone haute — il impose ESTOP ou MANUEL, et le logiciel ne peut pas étendre l'autorité.</li>
+  <li>La liaison série est considérée morte par le Pico (<code>link=0</code>), donc l'autonomie est refusée même canal 8 haut.</li>
+  <li>Un mot non reconnu a été envoyé : seuls <code>AUTO</code> et <code>MANUAL</code> passent.</li>
+  <li><code>pico_bridge</code> ne tourne pas.</li>
+</ol>
+
+<pre><code># La demande part-elle vraiment ?
+ros2 topic echo /pico/mode_request
+
+# Une réponse arrive-t-elle ? (aujourd'hui : non, voir §7.3)
+ros2 topic echo /pico/status</code></pre>
+
+<h3>Symptôme 4 — Le sonar est muet</h3>
+
+<ol>
+  <li><strong>Câble Ethernet ou alimentation.</strong> Le sonar a sa propre alimentation.</li>
+  <li><strong>Adresse IP.</strong> 192.168.2.92 par défaut ; la Jetson doit être sur le même sous-réseau.</li>
+  <li><strong><code>omniscan_bridge</code> non démarré</strong> — il est derrière <code>enable_sonar</code>, à <code>false</code> par défaut.</li>
+  <li><strong>L'horloge du sonar dérive.</strong> Le sonar émet, mais le pré-vol échoue et les données seront inexploitables.</li>
+</ol>
+
+<pre><code>ping 192.168.2.92                    # est-il sur le réseau ?
+ros2 node list | grep omniscan       # le pont tourne-t-il ?
+ros2 topic hz /sonar/status          # émet-il ?
+ros2 topic echo /sonar/status --once # écart d'horloge, taux de ping, pertes</code></pre>
+
+<p>
+  Le panneau Sonar distingue les cas : « pas de données » (rien n'arrive),
+  « connecté » avec un taux de ping à zéro (il répond mais ne pingue pas), et
+  une pastille d'horloge séparée. Les trois envoient vers trois problèmes
+  différents.
+</p>
+
+<h3>Symptôme 5 — La position est fausse, ou elle saute</h3>
+
+<ol>
+  <li>
+    <strong>Peu de satellites.</strong> Sous un toit, contre un bâtiment ou un
+    véhicule. Le pré-vol le dit explicitement.
+  </li>
+  <li>
+    <strong>Le fix vient de se faire</strong> et l'EKF n'a pas encore convergé.
+    Quelques dizaines de secondes.
+  </li>
+  <li>
+    <strong>Un saut franc et unique</strong> = passage d'un type de fix à un
+    autre. Normal, mais notez l'heure : ça se verra dans les données.
+  </li>
+  <li>
+    <strong>La position est cohérente mais décalée partout</strong> = c'est la
+    géométrie de montage (Q2), pas le GPS. Le bras de levier entre l'antenne et
+    le transducteur n'a jamais été mesuré, et ce décalage-là ne ressemble pas à
+    du bruit.
+  </li>
+</ol>
+
+<pre><code>ros2 topic echo /gps_driver/gps_raw --once   # regardez status et position_covariance
+ros2 topic hz /odometry/filtered             # l'EKF produit-il ?
+ros2 run tf2_tools view_frames               # l'arbre TF est-il complet ?</code></pre>
+
+<p>
+  Dans <code>NavSatFix</code>, <code>position_covariance[0]</code> est la
+  variance horizontale en m². Sa racine carrée est un écart-type en mètres :
+  4,0 signifie environ 2 m. C'est ce que l'interface affiche, plutôt qu'un HDOP
+  converti avec un facteur inventé.
+</p>
+
+<h3>Symptôme 6 — Le lidar ne montre rien, ou montre des fantômes</h3>
+
+<p>
+  <strong>Le panneau Obstacles répond à la question tout seul.</strong> La ligne
+  « Retours » affiche <em>N sur 360 faisceaux</em> :
+</p>
+
+<div class="tableau">
+<table>
+  <tr><th>Affichage</th><th>Interprétation</th><th>Action</th></tr>
+  <tr><td><code>0 sur 0</code> à 0 Hz</td><td>Le lidar ne tourne pas</td><td>Alimentation, câble USB, moteur bloqué</td></tr>
+  <tr><td><code>0 sur 360</code> à 10 Hz</td><td>Il tourne et ne voit rien</td><td>Normal en eau libre. Ce n'est pas une panne.</td></tr>
+  <tr><td>Beaucoup de retours isolés</td><td>Clapot, reflets, embruns</td><td>Comparez « Filtré » et « Brut »</td></tr>
+</table>
+</div>
+
+<p>
+  Le sélecteur Filtré / Brut est un outil de diagnostic, pas un confort : si le
+  brut montre des points et le filtré rien, le capteur va bien et c'est le
+  filtre qui est trop agressif. Si les deux sont vides, le capteur est en cause.
+</p>
+
+<pre><code>ros2 topic hz /lidar_driver/scan_raw   # le capteur brut
+ros2 topic hz /obstacles/lidar         # après filtrage à 10 m
+ls -l /dev/ttyUSB*                     # le port existe-t-il ?</code></pre>
+
+<h3>Symptôme 7 — L'enregistrement échoue</h3>
+
+<ol>
+  <li>
+    <strong>Pas de clé USB montée.</strong> Une Jetson sans session graphique ne
+    monte rien toute seule : <code>/media/*</code> reste vide. C'est la cause la
+    plus fréquente et elle ressemble à un bug logiciel.
+  </li>
+  <li><strong>Disque plein.</strong></li>
+  <li>
+    <strong>Clé formatée en FAT32.</strong> Les fichiers de mission dépassent la
+    limite de 4 Go par fichier en environ 90 minutes. Formatez en ext4.
+  </li>
+  <li><strong>Clé en lecture seule.</strong></li>
+</ol>
+
+<pre><code># L'outil dédié : dit ce que l'enregistreur voit, et pourquoi il refuse le reste
+python3 -m mission_recorder.check_export_paths
+
+df -h /data                 # place restante
+lsblk -f                    # les périphériques et leurs systèmes de fichiers
+mount | grep media          # ce qui est réellement monté</code></pre>
+
+<p>
+  <code>check_export_paths</code> est fait exactement pour ça : il teste le
+  <em>montage</em>, pas l'existence du dossier. Un dossier qui existe sans être
+  un point de montage est un dossier sur le disque interne — y copier une
+  mission remplirait le disque où les missions vivent déjà.
+</p>
+
+<h3>Symptôme 8 — La liaison tombe</h3>
+
+<p>
+  <strong>D'abord : ce n'est pas une panne, c'est un cas prévu.</strong>
+  L'interface est conçue pour ça.
+</p>
+
+<ul>
+  <li>
+    L'en-tête passe de « Réception » à « Pas de données depuis 12 s ». Il
+    rapporte ce qui a été <em>reçu</em>, pas l'état de la socket — une connexion
+    TCP survit des dizaines de secondes à la mort du lien.
+  </li>
+  <li>
+    Les valeurs se dégradent : ambre, puis rouge et barrées. Elles ne
+    disparaissent pas, mais elles cessent de prétendre être fraîches.
+  </li>
+  <li>
+    Le profil descend automatiquement. Des panneaux passent à « non transmis ».
+    C'est la négociation qui travaille, pas une panne.
+  </li>
+  <li>
+    <strong>À bord, rien ne change.</strong> Le bateau continue sa mission. Si
+    la liaison est perdue en mode autonome, le feu passe au rouge clignotant
+    rapide — visible depuis la plage sans portable.
+  </li>
+</ul>
+
+<p>
+  Le vrai risque n'est pas la perte de liaison : c'est de <strong>croire</strong>
+  qu'on a encore une vue à jour. C'est pour ça que l'âge de la donnée est partout
+  et qu'il est calculé sur l'horloge du serveur.
+</p>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+
+<h2 id="s9">10. Ce qui est vérifié et ce qui ne l'est pas</h2>
+
+<p>
+  C'est probablement la section la plus utile du document. Savoir ce qui n'est
+  pas prouvé vaut mieux que de croire que tout l'est.
+</p>
+
+<h3>L'inventaire</h3>
+
+<div class="tableau">
+<table>
+  <tr><th>Élément</th><th>Niveau de preuve</th><th>Ce que ça veut dire exactement</th></tr>
+  <tr>
+    <td>Logique de l'interface, analyseur sonar, enregistreur, contrôles pré-vol</td>
+    <td><strong>Testé</strong></td>
+    <td>424 tests automatiques passent, sans ROS. Ils couvrent les <code>core/</code>, là où vit la logique.</td>
+  </tr>
+  <tr>
+    <td>Les adaptateurs ROS de l'interface</td>
+    <td><strong>Testés contre des imitations</strong></td>
+    <td>33 tests vérifient les conversions contre des objets qui ont la même forme que les vrais messages. Les types et les champs ont été vérifiés contre les définitions réelles. <strong>Aucune donnée n'a jamais circulé.</strong></td>
+  </tr>
+  <tr>
+    <td>L'interface elle-même</td>
+    <td><strong>Vue en maquette</strong></td>
+    <td>Elle a été ouverte, cliquée, photographiée — sur des données fabriquées dans le navigateur.</td>
+  </tr>
+  <tr>
+    <td>La pile de compétition</td>
+    <td><strong>Testée en Gazebo</strong> par le club</td>
+    <td>La navigation, la perception et l'accostage ont tourné en simulation. Ce n'est pas le même que d'avoir tourné sur l'eau.</td>
+  </tr>
+  <tr>
+    <td><code>colcon build</code> du dépôt fusionné</td>
+    <td class="danger"><strong>Jamais réussi</strong></td>
+    <td>Tenté dans un bac à sable sans GPU, avec un conflit Python 3.11/3.12. Il a échoué sur un paquet de compétition avant d'atteindre le moindre paquet de l'interface — donc il n'a rien dit sur la fusion. À refaire sur la Jetson.</td>
+  </tr>
+  <tr>
+    <td>L'interface contre Gazebo</td>
+    <td class="danger"><strong>Jamais lancée</strong></td>
+    <td>Gazebo ne peut pas tourner utilement sans GPU.</td>
+  </tr>
+  <tr>
+    <td>Les deux firmwares Pico</td>
+    <td><strong>Lus, pas exécutés</strong></td>
+    <td>Les deux <code>.ino</code> ont été lus ligne à ligne, et c'est ce qui a permis de corriger ce document. Mais lire n'est pas mesurer : les temporisations, la profondeur du tampon USB et le comportement du feu restent à vérifier au banc.</td>
+  </tr>
+  <tr>
+    <td>Quoi que ce soit contre le vrai matériel</td>
+    <td class="danger"><strong>Jamais</strong></td>
+    <td>Aucune ligne de ce travail n'a jamais vu un bateau, un Pico, un sonar ou un lidar réel.</td>
+  </tr>
+</table>
+</div>
+
+<h3>Les valeurs provisoires</h3>
+
+<p>Toutes repérables d'une commande :</p>
+
+<pre><code>grep -rn PROVISIONAL src/</code></pre>
+
+<div class="tableau">
+<table>
+  <tr><th>Quoi</th><th>Où</th><th>Ce qu'il faut faire</th></tr>
+  <tr>
+    <td><strong>Format des lignes d'état du Pico</strong></td>
+    <td><code>gui_backend/core/pico_state.py</code><br><code>control/control/pico_bridge.py</code></td>
+    <td>Le plus urgent. Les deux fichiers attendent <code>STATE clé=valeur</code> (FOXGLOVE) ; le Pico émet <code>[STAT] Clé:Valeur</code> (v3). Trancher la version, corriger les deux analyseurs, capturer de vraies lignes, lever <code>FORMAT_VERIFIED</code>. Détail en <a href="#s6-bug">§7.3</a>.</td>
+  </tr>
+  <tr>
+    <td><strong>Codes du feu à éclats</strong></td>
+    <td><code>docs/light_tower.md</code><br><code>config/light_tower.yaml</code></td>
+    <td>Le contrat écrit (bleu, clignotements, éclat vert d'enregistrement) ne correspond à rien de ce que le firmware fait — trois couleurs fixes, pas de bleu. Aligner l'un sur l'autre. Le sens du malentendu est dangereux : voir <a href="#s4-liste">§5.1</a>.</td>
+  </tr>
+  <tr>
+    <td><strong>Géométrie de montage du sonar</strong> (Q2)</td>
+    <td><code>omniscan_bridge/config/mounting.yaml</code></td>
+    <td>Mesurer l'angle et le bras de levier au centimètre depuis le centre de phase de l'antenne. La ligne <code>measured: false</code> déclenche un avertissement à chaque pré-vol.</td>
+  </tr>
+  <tr>
+    <td>Zone de levé et portée sonar (Q1)</td>
+    <td><code>asket_bringup/config/mission_defaults.yaml</code></td>
+    <td>Se règle sur place. La portée est modifiable depuis l'interface en cours de mission.</td>
+  </tr>
+  <tr>
+    <td>Capacité batterie (Q5)</td>
+    <td><code>gui_backend/config/topics.yaml</code></td>
+    <td>1200 Wh supposés. Toute l'estimation d'autonomie en dépend.</td>
+  </tr>
+  <tr>
+    <td>Précision de cap de l'EKF</td>
+    <td><code>asket_common/heading.py</code></td>
+    <td>3° nominaux. L'EKF publie une covariance — vérifier qu'elle est réellement remplie et l'utiliser.</td>
+  </tr>
+  <tr>
+    <td>Disposition <code>OS3D_POINT_SET</code> (Q8)</td>
+    <td><code>omniscan_bridge/core/ping_protocol.py</code></td>
+    <td>Transcrite de la documentation Cerulean, jamais confrontée à un vrai appareil. L'analyseur recoupe le nombre de points annoncé avec la longueur réelle, pour échouer bruyamment plutôt que produire un nuage plausible et faux.</td>
+  </tr>
+  <tr>
+    <td>Rôle des relais et codes ESC (Q7)</td>
+    <td><code>asket_gui/src/lib/hull.js</code></td>
+    <td>La table de noms est <strong>vide exprès</strong> : aucun relais ne reçoit un nom que personne n'a confirmé.</td>
+  </tr>
+</table>
+</div>
+
+<h3>Les questions ouvertes, par ordre d'urgence</h3>
+
+<ol>
+  <li>
+    <strong>Quelle version du firmware fait foi.</strong> La v3 est flashée,
+    FOXGLOVE est celle contre laquelle la Jetson a été écrite. Rien ne peut être
+    corrigé proprement avant que cette question soit tranchée — et c'est une
+    décision de quelques minutes, pas un chantier.
+  </li>
+  <li>
+    <strong>Le bug <code>[STAT]</code> / <code>STATE</code>, aux deux endroits,
+    plus les trois défauts de <code>pico_state.py</code>.</strong> Tant qu'ils
+    sont là, tout le sens montant est mort, aucune commande de mode ne peut être
+    confirmée, et l'alarme du canal 8 reste muette même en position ESTOP.
+  </li>
+  <li>
+    <strong>Qui lance <code>pico_bridge</code>, et les deux chemins vers les
+    moteurs.</strong> Aujourd'hui personne ne le lance, et c'est la seule raison
+    pour laquelle deux organes ne commandent pas les mêmes moteurs. À trancher
+    avant de mettre à l'eau.
+  </li>
+  <li>
+    <strong>Que doit faire « Couper la propulsion ».</strong> Le mode
+    <code>MODE_ESTOP</code> existe dans le firmware, mais seule la
+    radiocommande peut l'atteindre. Ajouter un verbe série qui y mène, ou
+    assumer définitivement la bascule de mode. Décision humaine, documentée dans
+    <code>INTEGRATION_STATUS.md</code> §7.
+  </li>
+  <li>
+    <strong>Aligner <code>light_tower.md</code> et le firmware.</strong> Un feu
+    vert veut dire « autonome, ne pas approcher » pour le Pico et
+    « enregistrement en cours » pour la documentation. Trente minutes, et c'est
+    de la sécurité des personnes.
+  </li>
+  <li>
+    <strong>Mesurer la géométrie de montage.</strong> Trente minutes avec un
+    mètre, et ça ne se rattrape pas après coup.
+  </li>
+  <li>
+    <strong>Régler l'horloge NTP du sonar.</strong> Sans quoi la campagne entière
+    est perdue sans que personne ne s'en aperçoive sur place.
+  </li>
+  <li>
+    <strong>Valider <code>OS3D_POINT_SET</code></strong> contre des données
+    Cerulean réelles.
+  </li>
+  <li>
+    <strong>Verser le firmware du Pico dans un dépôt.</strong> Tant qu'il vit
+    ailleurs, ce document et le code du pont ne peuvent que <em>supposer</em> ce
+    que fait le microcontrôleur.
+  </li>
+</ol>
+
+<h3>Ce que ce document ne prétend pas être</h3>
+
+<p>
+  Il a été écrit en lisant du code, pas en faisant naviguer le bateau. Ce qu'il
+  dit sur ROS, les paquets, l'interface et le Pico est vérifiable dans des
+  fichiers — y compris, depuis cette révision, les deux firmwares. Ce qui reste
+  invérifié n'est plus « ce que le code dit » mais <strong>« ce que le matériel
+  fait »</strong>, et c'est une autre catégorie de doute :
+</p>
+
+<ul>
+  <li>
+    <strong>La profondeur du tampon USB.</strong> La v3 ne lit le port série
+    qu'en autonome et armé ; ce qu'il advient des lignes envoyées le reste du
+    temps ne se lit pas dans le <code>.ino</code>. Voir <a href="#s5">§6</a>.
+  </li>
+  <li>
+    <strong>Le comportement réel du feu.</strong> Le firmware n'allume qu'une
+    couleur fixe à la fois ; il reste à vérifier que les trois broches vont bien
+    aux couleurs annoncées, et qu'elles sont visibles à la distance à laquelle
+    quelqu'un se tiendra.
+  </li>
+  <li>
+    <strong>Les seuils SBUS contre votre radiocommande.</strong> 700 et 1400
+    supposent une échelle 172–1811 standard. Une radio configurée avec des
+    courses réduites pourrait ne jamais atteindre la zone haute — et le symptôme
+    serait « l'autonome ne s'enclenche pas », sans rien à l'écran pour le dire.
+  </li>
+  <li>
+    <strong>Les temporisations mesurées</strong>, plutôt que lues : 500 ms dans
+    le code n'est 500 ms sur l'eau que si la boucle principale tourne assez
+    vite, ce que personne n'a chronométré.
+  </li>
+</ul>
+
+<p>
+  Et une fois le bateau à l'eau, la première chose à faire est de reprendre le
+  tableau ci-dessus et de faire passer des lignes de « jamais » à « vérifié ».
+  C'est la seule façon de le rendre progressivement inutile — ce qui est le but.
+</p>
+
+<hr>
+
+<p style="font-size:.85rem;color:#454a54;font-family:Helvetica,Arial,sans-serif;line-height:1.6">
+  Documents voisins dans ce dépôt : <code>README.md</code> (référence de la pile
+  de compétition), <code>INTEGRATION_STATUS.md</code> (ce qui a été fusionné et
+  comment, la question de l'arrêt, les commandes à lancer sur la Jetson),
+  <code>docs/SETUP.md</code> (les étapes matérielles qui ne peuvent pas être
+  faites depuis le dépôt), <code>docs/safety.md</code> (les règles de sécurité),
+  <code>docs/open_questions.md</code> (les neuf questions et leur état),
+  <code>docs/light_tower.md</code> (les codes du feu à éclats — <strong>à lire
+  avec la réserve de la <a href="#s4-liste">§5.1</a></strong> : le firmware n'en
+  applique aucun).
+</p>
+
+<a class="haut" href="#">↑ Sommaire</a>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,193 @@
+"""The mock's payloads must have the same shape as the real backend's.
+
+Mock mode is how the GUI gets reviewed. If it sends a field the vessel never
+sends, a panel comes to depend on it and works perfectly right up until the
+first time it is pointed at a boat. If it omits one, a real bug goes unnoticed
+because the mock never reproduces it.
+
+So the JavaScript payload builders are run under Node, and their key sets are
+compared with the Python ones, per stream and per detail level. The test skips
+if Node is not installed — it is a cross-language check, not a build dependency.
+"""
+
+import json
+import shutil
+import subprocess
+import textwrap
+from pathlib import Path
+
+import pytest
+from asket_sim.core.world import SimWorld, WorldConfig
+from gui_backend.core import payloads
+from gui_backend.core.sim_source import SimSource
+
+GUI = Path(__file__).resolve().parents[2] / "asket_gui"
+DETAILS = ["full", "reduced", "minimal"]
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("node") is None or not (GUI / "src" / "lib" / "mock").is_dir(),
+    reason="node or the frontend mock is not present",
+)
+
+
+def mock_payload_keys() -> dict:
+    """Run the JS payload builders under Node and return their key sets."""
+    script = textwrap.dedent(
+        f"""
+        const base = '{GUI}/src/lib/mock';
+        const {{ MockWorld }} = await import(base + '/world.js');
+        const P = await import(base + '/payloads.js');
+
+        const world = new MockWorld();
+        // Run it far enough that the vessel is moving: several payloads only
+        // carry their optional fields once there is a speed to divide by.
+        for (let i = 0; i < 900; i += 1) world.step(0.1);
+
+        const context = {{ profile: 'full', manual: false, rateBytesPerS: 1000 }};
+        const out = {{}};
+        for (const detail of ['full', 'reduced', 'minimal']) {{
+          out[detail] = {{
+            vessel: Object.keys(P.vesselPayload(world, detail)),
+            heading: Object.keys(P.headingPayload(world, detail)),
+            pico: Object.keys(P.picoPayload(world, detail)),
+            power: Object.keys(P.powerPayload(world, detail)),
+            sonar: Object.keys(P.sonarPayload(world, detail)),
+            lidar: Object.keys(P.lidarPayload(world, detail)),
+            link: Object.keys(P.linkPayload(world, detail, context)),
+          }};
+        }}
+        console.log(JSON.stringify(out));
+        """
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        pytest.fail(f"node failed:\n{result.stderr}")
+    return json.loads(result.stdout)
+
+
+def python_payload_keys() -> dict:
+    source = SimSource(SimWorld(WorldConfig()), time_scale=10.0)
+    t = 0.0
+    for _ in range(300):
+        t += 0.1
+        source.step(t)
+
+    snapshot = source.world.snapshot()
+    estimate = source._heading_estimate()
+    sonar = source.snapshot("sonar", "full").payload
+
+    class Health:
+        def __init__(self, data):
+            self.__dict__.update(data)
+            self.clock_ok = data["clock_ok"]
+            self.clock_compromised = data["clock_compromised"]
+            self.ping_rate_ok = data["ping_rate_ok"]
+
+    out = {}
+    for detail in DETAILS:
+        entry = {
+            "vessel": list(payloads.vessel_payload(snapshot.vessel, detail)),
+            "heading": list(payloads.heading_payload(estimate, detail)),
+            "pico": list(payloads.pico_payload(snapshot.pico, detail)),
+            "power": list(
+                payloads.power_payload(
+                    snapshot.battery, detail,
+                    survey_remaining_m=source._survey_remaining_m(),
+                    speed_ms=max(0.5, snapshot.vessel.sog_ms),
+                )
+            ),
+            "sonar": list(payloads.sonar_payload(Health(sonar), detail)),
+            "lidar": list(payloads.lidar_payload(snapshot.lidar, detail, 1)),
+            "link": list(
+                payloads.link_payload(
+                    snapshot.link, profile="full", profile_manual=False,
+                    clients=1, rate_bytes_per_s=1000.0, detail=detail,
+                )
+            ),
+        }
+        out[detail] = entry
+    return out
+
+
+@pytest.mark.parametrize("detail", DETAILS)
+def test_mock_payload_keys_match_the_backend(detail):
+    mock = mock_payload_keys()[detail]
+    real = python_payload_keys()[detail]
+
+    for stream in sorted(real):
+        assert set(mock[stream]) == set(real[stream]), (
+            f"{stream} at detail '{detail}' differs.\n"
+            f"  only in mock: {sorted(set(mock[stream]) - set(real[stream]))}\n"
+            f"  only in real: {sorted(set(real[stream]) - set(mock[stream]))}"
+        )
+
+
+def test_detail_levels_actually_shrink_the_mock_payload():
+    """`minimal` must not be `full` with a smaller number in front of it."""
+    keys = mock_payload_keys()
+    for stream in ("vessel", "pico", "power"):
+        full = set(keys["full"][stream])
+        minimal = set(keys["minimal"][stream])
+        assert minimal < full, f"{stream} does not shrink at minimal detail"
+
+
+def test_the_arming_block_wording_matches_across_languages():
+    """The one sentence in this payload that is prose rather than a number.
+
+    ``arming_block`` is computed in Python by
+    ``asket_common.mode_arbitration.arming_block_reason()`` and mirrored in the
+    mock so that mock mode shows a reviewer the wording the boat will actually
+    send. Two copies of a sentence is a drift risk like any other, so the four
+    strings are compared here rather than trusted.
+    """
+    from asket_common import mode_arbitration as ma
+
+    script = textwrap.dedent(
+        f"""
+        const P = await import('{GUI}/src/lib/mock/payloads.js');
+        console.log(JSON.stringify(P.ARM_BLOCK_STRINGS));
+        """
+    )
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    js = json.loads(out)
+
+    assert js["rc_low"] == ma.ARM_BLOCKED_RC_LOW
+    assert js["latched"] == ma.ARM_BLOCKED_LATCHED
+    assert js["unknown"] == ma.ARM_BLOCKED_UNKNOWN
+    assert js["contradictory"] == ma.ARM_BLOCKED_CONTRADICTORY
+
+
+def test_the_mock_agrees_with_python_on_who_is_blocked():
+    """Not just the wording — the decision. A mock that says "blocked" where
+    the backend says "fine" teaches an operator the wrong reflex."""
+    from asket_common.mode_arbitration import arming_block_reason
+
+    cases = [
+        (True, True, False), (True, False, True), (False, False, False),
+        (False, True, True), (False, True, False), (None, False, True),
+        (None, None, None), (False, None, None),
+    ]
+    script = textwrap.dedent(
+        f"""
+        const P = await import('{GUI}/src/lib/mock/payloads.js');
+        const cases = {json.dumps(cases)};
+        console.log(JSON.stringify(cases.map(
+          ([a, r, e]) => P.armingBlockReason(a, r, e)
+        )));
+        """
+    )
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    js = json.loads(out)
+
+    for (armed, rc_high, latched), got in zip(cases, js):
+        want = arming_block_reason(armed, rc_arm_high=rc_high, estop_latched=latched)
+        assert got == want, f"armed={armed} rc={rc_high} latched={latched}"

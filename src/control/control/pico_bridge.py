@@ -9,11 +9,26 @@ Fait 4 choses (un seul noeud car un seul owner de /dev/pico) :
      seul en MANUAL en zone Ch8 HIGH apres 600 ms de silence).
   3. /pico/mode_request (String "AUTO"/"MANUAL") -> "MODE AUTO"/"MODE MANUAL"
      (Foxglove = GUI du quai publie ce topic).
-  4. Lit les lignes "STATE ..." du Pico (250 ms) -> /pico/status.
+  4. Lit les lignes "STATE ..." du Pico (250 ms) -> /pico/status,
+     et COMPTE celles qu'il rejette (voir plus bas : c'est le point).
 
-Protocole firmware : USB CDC 115200, lignes '\n'.
+Protocole firmware : pico-node_v4. USB CDC 115200, lignes '\n'.
   "L,R" norm -1..1 -> 1500 + v*500 us  (norm si |v|<=1.5 -> on clamp a +-1)
   Moteurs appliques cote Pico SEULEMENT si arme + AUTONOMOUS + 2s apres relais.
+
+POURQUOI ON COMPTE LES LIGNES REJETEES
+--------------------------------------
+Le filtre ci-dessous a deja tout jete pendant des mois, en silence. Le firmware
+flashe (v3) emettait "[STAT] ...", ce noeud cherchait "STATE...", aucune ligne
+ne passait, /pico/status ne publiait jamais rien -- et comme le sens descendant
+marchait (le bateau bougeait), rien n'avait l'air casse. Personne n'ecoutait ce
+topic, donc personne n'a rien vu.
+
+Un compteur et un log auraient transforme des mois d'enquete en une ligne de
+journal au premier demarrage. C'est tout ce que fait le code ajoute ici : il ne
+rend PAS le noeud multi-format (un seul format, pico-node_v4, delibere -- deux
+formats acceptes veut dire qu'un des deux n'est jamais teste). C'est un
+detecteur : le jour ou quelqu'un flashe autre chose, il le dit tout de suite.
 """
 import serial
 import rclpy
@@ -54,6 +69,13 @@ class PicoBridge(Node):
         self._z = 0.0
         self._last_cmd = self.get_clock().now()
         self._rx = b""  # buffer de lecture serie
+
+        # Detecteur de desaccord de format. Voir le docstring du module.
+        self._lines_kept = 0
+        self._lines_rejected = 0
+        self._rejected_sample = ""
+        self._warned_rejecting = False
+        self._fw_version = None
 
         self.create_subscription(Twist, "/control/effort", self._on_effort, 10)
         self.create_subscription(String, "/pico/mode_request", self._on_mode, 10)
@@ -114,10 +136,53 @@ class PicoBridge(Node):
             while b"\n" in self._rx:
                 raw, self._rx = self._rx.split(b"\n", 1)
                 line = raw.decode(errors="replace").strip()
+                if not line:
+                    continue
                 if line.startswith("STATE"):
+                    self._lines_kept += 1
                     self._status_pub.publish(String(data=line))
+                    continue
+                if line.startswith("[VER] "):
+                    self._on_version_line(line)
+                    continue
+                # Tout le reste : [ACK], "Invalid cmd:", bruit serie. Compte,
+                # pas jete en silence.
+                self._lines_rejected += 1
+                if not self._rejected_sample:
+                    self._rejected_sample = line[:80]
+            self._check_format()
         except serial.SerialException as e:
             self.get_logger().warn(f"Erreur lecture serie: {e}")
+
+    # --- Detection de desaccord de format ------------------------------------
+    def _on_version_line(self, line):
+        """Le Pico annonce son identite au demarrage : "[VER] pico-node 4"."""
+        parts = line.split()
+        version = parts[-1] if len(parts) >= 2 else ""
+        if version != self._fw_version:
+            self._fw_version = version
+            self.get_logger().info(f"Pico firmware : {' '.join(parts[1:])}")
+
+    def _check_format(self):
+        """Crie une fois si le Pico parle et qu'on ne comprend rien.
+
+        Le seuil (20 lignes rejetees, zero gardee) correspond a environ cinq
+        secondes de STATE a 4 Hz : assez pour ne pas crier sur un fragment de
+        ligne au demarrage, assez peu pour que ce soit dit avant la mise a
+        l'eau.
+        """
+        if self._warned_rejecting or self._lines_kept:
+            return
+        if self._lines_rejected < 20:
+            return
+        self._warned_rejecting = True
+        self.get_logger().error(
+            f"Le Pico emet ({self._lines_rejected} lignes) mais AUCUNE ne "
+            f"commence par 'STATE' : /pico/status ne publiera rien. "
+            f"Exemple : {self._rejected_sample!r}. "
+            f"Firmware attendu : pico-node_v4. Un firmware plus ancien "
+            f"(v3) emet '[STAT] Mode:...' et n'est pas supporte."
+        )
 
     # --- Ecriture serie ------------------------------------------------------
     def _write(self, s):

@@ -570,3 +570,128 @@ bash scripts/deploy-pi.sh
 ```
 
 SSHes into `pi@boat.local`, pulls the latest image from GHCR, sets up systemd services for BlueOS and Njord, and reboots.
+
+---
+
+# Mission GUI (Namibia seabed survey)
+
+Added by the GUI overlay. The club stack above is unchanged; everything here is
+additive, and every package below is new.
+
+A real-time mission cockpit served from the Jetson and opened in a browser on a
+laptop ashore: vessel state, map, obstacle awareness, sensor health, recording
+and mode commands, over a wireless link of variable quality.
+
+It is **not** a sonar analysis tool (no point clouds, meshing or bathymetry —
+that is SonarView's job, post-mission), and it is **not part of the safety
+chain**. The hardware killswitch and RC channel 8 are sovereign; nothing here
+can override, delay or interfere with them. See `docs/safety.md`.
+
+## Running it
+
+Off by default, so nobody working on navigation is made to start a web server:
+
+```bash
+ros2 launch bringup njord.launch.py enable_gui:=true
+```
+
+Then open **http://<jetson>:8090** from the laptop. The backend binds
+`0.0.0.0`; being reachable from another machine is the entire point.
+
+Port 8090 was chosen to stay clear of what this workspace already uses:
+`foxglove_bridge` on 8765, and the (currently commented) `rosbridge_websocket`
+on 9090 and `web_video_server` on 8080. See `docs/SETUP.md`.
+
+The GUI is a separate process from `pico_bridge` and must stay that way.
+`pico_bridge` owns the serial link and runs a 20 Hz heartbeat; if it goes quiet
+for 600 ms the Pico drops to MANUAL on its own. Nothing in the GUI may block or
+starve it.
+
+It can also be launched on its own, without the rest of the stack:
+
+```bash
+ros2 launch gui_backend gui.launch.py
+```
+
+## Developing it without ROS
+
+Two lighter ways to run it, both permanent features rather than scaffolding:
+
+| | Needs | Use it for |
+|---|---|---|
+| `cd src/asket_gui && npm install && npm run dev:mock` | Node only | Developing and reviewing the interface |
+| `python3 -m gui_backend.core.app --sim` | Node + Python | The real backend against simulated sources |
+
+`pytest` at the repository root runs the GUI's whole test suite with no ROS
+installed — every package splits into a ROS-free `core/` and a thin node.
+
+## Packages added
+
+```
+src/
+├── asket_interfaces/  msg/srv shared by the packages below
+├── asket_sim/         simulated sources — a permanent feature, not scaffolding
+├── omniscan_bridge/   Cerulean Ping Protocol -> ROS 2 (Omniscan 3D sonar)
+├── mission_recorder/  mission directories, trajectory logs, .svlog export
+├── system_test/       passive pre-flight built-in test, GO/NO-GO verdict
+├── gui_backend/       FastAPI + WebSocket, subscription & bandwidth negotiation
+└── asket_gui/         React + MapLibre frontend, served by gui_backend
+```
+
+## What the GUI reads
+
+Logical streams are mapped to topics, types and adapter functions in
+`src/gui_backend/config/topics.yaml` — nothing is hard-coded, so pointing a
+stream at a different topic is a config change.
+
+| GUI stream | Topic | Type |
+|---|---|---|
+| Position | `/gps_driver/gps_raw` | `sensor_msgs/NavSatFix` |
+| Position in map frame | `/odometry/gps` | `nav_msgs/Odometry` |
+| Speed, attitude | `/odometry/filtered` | `nav_msgs/Odometry` |
+| IMU | `/imu_driver/imu_raw` | `sensor_msgs/Imu` |
+| Lidar raw | `/lidar_driver/scan_raw` | `sensor_msgs/LaserScan` |
+| Lidar filtered | `/obstacles/lidar` | `sensor_msgs/PointCloud2` |
+| Obstacles fused | `/obstacles/fused` | `sensor_msgs/PointCloud2` |
+| Commanded effort | `/control/effort` | `geometry_msgs/Twist` |
+| Vessel status | `/pico/status` | `std_msgs/String` |
+| Mode request | `/pico/mode_request` | `std_msgs/String` |
+
+The Obstacles panel's raw/filtered toggle is backed by the real pair:
+`scan_raw` against `obstacles/lidar`, which filters beyond 10 m.
+
+## The firmware, and what depends on it
+
+**The Pico runs `firmware/pico-node_v4/`, and the stack refuses to fly against
+anything else.** That is not pedantry. Two firmwares had diverged, the flashed
+one emitted `[STAT] Mode:3 …` while the Jetson filtered for `STATE…`, every
+status line was dropped silently, and the downlink kept working — so the boat
+moved and nothing looked broken, for months.
+
+v4 announces itself (`[VER] pico-node 4` at boot, `ver=4` first in every status
+line), `pico_bridge` logs it and counts lines it rejects, and the pre-flight
+check `pico.firmware_version` **fails** on a mismatch. See
+`firmware/README.md` for how v4 was built and what was deliberately dropped.
+
+**The `STATE` line format is transcribed, not captured.** It is taken field by
+field from the `.ino`, and `asket_sim` now emits it over a real serial port so
+the parser is exercised on every test run. What is still missing is a line read
+off a physical Pico: `FORMAT_VERIFIED` stays `False` and the pre-flight says so
+every run. Do not read a green Pico panel as proof the format is right.
+
+## One thing that is not settled
+
+**"Cut propulsion" cannot cut propulsion.** `pico_bridge` accepts only `AUTO`
+and `MANUAL`. The firmware *does* have `MODE_ESTOP` — disarm, relay open, red
+light — but only the transmitter can reach it, which is deliberate: see
+`docs/safety.md`. The button currently requests `MANUAL`, which removes
+autonomous authority (the Pico drives the thrusters only when armed *and* in
+AUTONOMOUS), and it says exactly that on screen rather than claiming to stop
+the boat. Whether to add a serial path into ESTOP is open, and is a bench
+decision with the boat out of the water.
+
+## Also worth flagging
+
+`scripts/deploy-pi.sh` targets `pi@boat.local` and looks stale — this project
+moved to a Jetson. Left untouched here; it needs somebody who knows the current
+deployment to decide what it should be.

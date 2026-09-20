@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, SetParameter
+from launch_ros.substitutions import FindPackageShare
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import RewrittenYaml
 
@@ -37,6 +38,31 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_perception",    default_value="true"),
         DeclareLaunchArgument("enable_geo_fusion",    default_value="true"),
         DeclareLaunchArgument("enable_control",       default_value="true"),
+        # WHICH ORGAN DRIVES THE MOTORS. Exactly one, chosen here.
+        #
+        # Two complete paths to the thrusters exist in this workspace, and both
+        # subscribe to /control/effort:
+        #
+        #   pico    actuator_driver is NOT started; pico_bridge owns the serial
+        #           link to the Pico, which owns the ESCs. The Pixhawk stays as
+        #           a navigation source (GNSS, IMU, heading) and commands
+        #           nothing. THE DEFAULT, and the configuration the boat flies.
+        #
+        #   pixhawk pico_bridge is NOT started; actuator_driver sends
+        #           OverrideRCIn through MAVROS. Kept because it works and
+        #           because reverting to it must not mean editing a launch file
+        #           under time pressure.
+        #
+        # They did not collide before only because nothing started pico_bridge.
+        # That is not arbitration, it is an accident, and it ends the moment
+        # somebody runs the node by hand to make the GUI work. The conditions
+        # below are mutually exclusive by construction: both read this one
+        # argument, so there is no combination of flags that starts both.
+        DeclareLaunchArgument(
+            "motor_path", default_value="pico",
+            choices=["pico", "pixhawk"],
+            description="Which node commands the thrusters. Exactly one runs.",
+        ),
         DeclareLaunchArgument("enable_mission",       default_value="true"),
         DeclareLaunchArgument("enable_competition",   default_value="true"),
         DeclareLaunchArgument("enable_boat_bt",       default_value="true"),
@@ -44,6 +70,10 @@ def generate_launch_description():
         DeclareLaunchArgument("vision_confidence",    default_value="0.5"),
         DeclareLaunchArgument("camera_device",        default_value="/dev/video0"),
         DeclareLaunchArgument("lidar_device",         default_value="/dev/ttyUSB0"),
+        # Podman resolves symlinks at launch: /dev/pico exists on the host, the
+        # container must be given the resolved ttyACMn. Passing the wrong one
+        # is the most common reason pico_bridge comes up with no serial port.
+        DeclareLaunchArgument("pico_device",          default_value="/dev/ttyACM0"),
         DeclareLaunchArgument("use_sim",         default_value="false"),
         DeclareLaunchArgument(
             "headless",
@@ -54,6 +84,15 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument("enable_foxglove",      default_value="true"),
+        # Mission GUI (Namibia survey overlay). OFF by default: nobody working
+        # on navigation should be made to start a web server. See
+        # gui_backend/launch/gui.launch.py and the GUI section of README.md.
+        DeclareLaunchArgument(
+            "enable_gui",
+            default_value="false",
+            description="Start the mission GUI backend on http://<host>:8090",
+        ),
+        DeclareLaunchArgument("gui_port", default_value="8090"),
         DeclareLaunchArgument("lidar_camera_extrinsic", default_value="",
                               description="Path to lidar_camera_extrinsic.yaml; "
                                           "empty = use URDF nominal TF for lidar→front_camera"),
@@ -263,15 +302,40 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration("enable_control")),
             parameters=[sim_time],
         ),
+        # --- The motor path. Exactly one of the next two nodes starts. ------
+        #
+        # Both conditions test the same `motor_path` argument against different
+        # values, so "both running" is not a state this file can produce. Do
+        # not add a second flag that can also enable one of them: the guarantee
+        # here is structural, and a second input is how it stops being one.
         Node(
             package="control",
             executable="actuator_driver",
             name="actuator_driver",
             condition=IfCondition(PythonExpression([
                 "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
-                LaunchConfiguration("use_sim"), "' != 'true'"
+                LaunchConfiguration("use_sim"), "' != 'true' and '",
+                LaunchConfiguration("motor_path"), "' == 'pixhawk'"
             ])),
             parameters=[sim_time],
+        ),
+        # pico_bridge owns /dev/pico and nothing else may open it. Its 20 Hz
+        # heartbeat is not optional: pico-node_v4 revokes autonomy after 600 ms
+        # of silence, so a bridge that is not running means a boat that will
+        # not accept autonomous commands at all.
+        Node(
+            package="control",
+            executable="pico_bridge",
+            name="pico_bridge",
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration("enable_control"), "' == 'true' and '",
+                LaunchConfiguration("use_sim"), "' != 'true' and '",
+                LaunchConfiguration("motor_path"), "' == 'pico'"
+            ])),
+            parameters=[
+                {"port": LaunchConfiguration("pico_device")},
+                sim_time,
+            ],
         ),
         # Arbitrates between Nav2's own /cmd_vel output (via collision_monitor,
         # remapped to nav2/cmd_vel) and boat_bt's direct docking commands
@@ -470,6 +534,23 @@ def generate_launch_description():
                 ),
             ],
             condition=IfCondition(LaunchConfiguration("use_sim")),
+        ),
+        # Mission GUI — its own launch file, included rather than inlined, so it
+        # stays runnable on its own and this file keeps one line about it. It
+        # runs as a separate process from pico_bridge and must: that node owns
+        # the serial link and its 20 Hz heartbeat is what keeps the Pico out of
+        # MANUAL.
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution(
+                    [FindPackageShare("gui_backend"), "launch", "gui.launch.py"]
+                )
+            ),
+            launch_arguments={
+                "gui_port": LaunchConfiguration("gui_port"),
+                "use_sim": LaunchConfiguration("use_sim"),
+            }.items(),
+            condition=IfCondition(LaunchConfiguration("enable_gui")),
         ),
     ]
 

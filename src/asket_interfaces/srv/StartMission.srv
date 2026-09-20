@@ -1,0 +1,6 @@
+string name          # sanitised server-side; the directory is name_<UTC>
+bool   record_rosbag
+---
+bool   success
+string mission_dir
+string message

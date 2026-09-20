@@ -1,0 +1,5 @@
+string name
+bool   confirm            # must be true; guards against accidental loss
+---
+bool   success
+string message

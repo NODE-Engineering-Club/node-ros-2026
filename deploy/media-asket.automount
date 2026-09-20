@@ -1,0 +1,15 @@
+# Automount for /media/asket — see media-asket.mount.
+#
+# An automount rather than a plain mount so that a boot with no drive plugged
+# in is not a boot with a failed unit. The vessel has to come up and record
+# regardless; only export needs the drive.
+
+[Unit]
+Description=Automount for the Asket survey USB drive
+
+[Automount]
+Where=/media/asket
+TimeoutIdleSec=120
+
+[Install]
+WantedBy=multi-user.target

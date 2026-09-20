@@ -1,0 +1,46 @@
+mission_recorder:
+  ros__parameters:
+    missions_root: "/data/missions"
+
+    # Stop recording rather than fill the disk completely. A full file system
+    # takes the whole Jetson down, not just the recording, and a mission that
+    # stops with a valid manifest is salvageable.
+    min_free_bytes: 1073741824        # 1 GiB
+    low_free_bytes: 5368709120        # 5 GiB — warn the operator here
+
+    # A mission that ends with the power being cut should lose a second, not a
+    # minute.
+    flush_interval_s: 1.0
+
+    trajectory_rate_hz: 10.0
+    diagnostics_rate_hz: 1.0
+
+    # Optional; a full rosbag2 roughly doubles the disk cost.
+    record_rosbag: false
+
+    # Also write a SonarView-readable log as the mission runs, with navigation
+    # already interleaved. The post-mission merge (merge_svlog) is the primary
+    # path; this is belt and braces for the day the trajectory file is lost or
+    # nobody remembers to run the merge. Costs a second copy of the sonar
+    # stream on disk, which is why it is off by default.
+    write_live_svlog: false
+
+    export:
+      # A headless Jetson has no desktop session, so NOTHING auto-mounts a USB
+      # drive and these paths stay empty until the udev rule or mount unit in
+      # deploy/ is installed. See docs/SETUP.md.
+      fast_path_globs:
+        - "/media/asket/*"
+        - "/media/*"
+        - "/media/*/*"
+        - "/mnt/usb*"
+        - "/run/media/*/*"
+      # A directory that exists but is not a mount point is a folder on the
+      # Jetson's own disk. Copying a mission there fills the disk the missions
+      # already live on and stops the next recording.
+      require_mount: true
+      # Never offer the Jetson's own storage, even if it is a mount point.
+      exclude_roots:
+        - "/data"
+        - "/"
+      verify_after_copy: true

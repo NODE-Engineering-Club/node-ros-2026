@@ -1,0 +1,32 @@
+# Simulated world defaults.
+#
+# Every value here is a simulation parameter, not a vessel parameter. Real
+# vessel configuration lives in asket_bringup/config/mission_defaults.yaml.
+/**:
+  ros__parameters:
+    rate_hz: 10.0
+    time_scale: 1.0            # >1 runs the survey faster than real time
+
+    # Walvis Bay. PROVISIONAL — docs/open_questions.md Q1.
+    origin_lat: -22.9576
+    origin_lon: 14.5053
+
+    survey_lines: 6
+    line_length_m: 300.0
+    line_spacing_m: 20.0
+
+    # "magnetometer" reproduces the current hull's throttle-dependent error.
+    # "gnss_compass" previews the UM982. Switch between them to see the
+    # heading-vs-COG panel earn its place.
+    heading_source: magnetometer
+
+    seed: 1
+
+fake_sonar:
+  ros__parameters:
+    host: "127.0.0.1"
+    port: 62312
+    ping_rate_hz: 5.0
+    points_per_ping: 256
+    range_m: 30.0
+    time_scale: 1.0

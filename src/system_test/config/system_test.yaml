@@ -1,0 +1,23 @@
+system_test:
+  ros__parameters:
+    history_path: "/data/system_test.jsonl"
+
+    # Runs automatically at boot so a verdict is waiting as soon as a client
+    # connects. Nobody is aboard the vessel; an operator on the beach should
+    # not have to ask for the first answer.
+    run_at_boot: true
+    # Everything else needs a moment to come up. A pre-flight run against a
+    # half-started system reports a dozen faults that do not exist.
+    boot_delay_s: 15.0
+    # 0 disables periodic re-runs; the GUI can always re-run on demand.
+    periodic_interval_s: 0.0
+
+    disk_path: "/data"
+    # The sonar produces several GB per hour and a slow card drops data
+    # silently. Measuring beats assuming.
+    measure_disk_speed: true
+
+    expected_nodes:
+      - omniscan_bridge
+      - mission_recorder
+      - gui_backend

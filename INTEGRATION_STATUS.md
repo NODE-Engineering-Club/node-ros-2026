@@ -28,8 +28,23 @@
 The mission GUI overlay merged into the Njord workspace on `gui-integration`.
 
 **Read this before merging anywhere.** It says what was verified, what was
-assumed, and what is still open. Two things in here need a human decision and
-one needs a capture from the Jetson.
+assumed, and what is still open.
+
+Since the first version of this document, one round of work has closed the
+largest open item and found several more:
+
+- **§8** — the Pico firmware. Two versions had diverged, the flashed one was not
+  the one the Jetson parsed, and nothing could tell them apart. `pico-node_v4`
+  merges them and announces its version; pre-flight now **fails** on a mismatch.
+- **§9** — the two paths to the motors. Decided: the Pico. Enforced by the
+  launch file, not by luck.
+- **§10** — the simulator now produces real serial text, so the layer where the
+  mismatch lived is exercised by the test suite.
+- **§11** — four other live defects found on the way, including a crash on the
+  first real status line and a channel-8 alarm that could never fire.
+
+One thing still needs a human decision (§7) and one still needs a capture from
+the Jetson (§5.1).
 
 ---
 
@@ -38,9 +53,13 @@ one needs a capture from the Jetson.
 | | State |
 |---|---|
 | Merge, both histories intact | **verified** — 127 club + 15 GUI + 1 merge = 143 commits |
-| GUI Python test suite (no ROS) | **verified** — 424 passed, 1 skipped |
-| Adapter and STATE-parser unit tests | **verified** — 33 tests, written for this integration |
+| GUI Python test suite (no ROS) | **verified** — 517 passed, 1 skipped |
+| Adapter and STATE-parser unit tests | **verified** — rewritten against the real v4 format |
+| Serial path end to end, no hardware | **verified** — real bytes on a pty, parsed by the real parser (§10) |
+| Firmware behaviour, host-compiled | **verified** — `make -C firmware/test`, 23 checks (§8) |
+| Motor-path exclusivity | **verified** — every argument combination, and checked against a reintroduced collision (§9) |
 | Frontend production build | **verified** — builds into `gui_backend/static/` |
+| Firmware against a real Pico | **NOT VERIFIED** — nothing here has been flashed or run on hardware |
 | `colcon build --symlink-install` | **NOT VERIFIED** — see §6 |
 | Gazebo end-to-end | **NOT VERIFIED** — see §6 |
 
@@ -172,24 +191,21 @@ Everything below is greppable:
 grep -rn PROVISIONAL src/
 ```
 
-### 5.1 The Pico `STATE` line format — the important one
+### 5.1 The Pico `STATE` line format — now transcribed, still not captured
 
-`/pico/status` is a `std_msgs/String`. `pico_bridge` reads lines off the serial
-link and republishes anything starting with `STATE` **verbatim, unparsed**. So
-the GUI parses text, and **the format it parses has never been checked against
-real firmware output.**
+The format is no longer a guess. It is transcribed field by field from
+`firmware/pico-node_v4/pico-node_v4.ino`, and the simulator emits it over a real
+serial port so the parser is exercised on every test run (§10).
 
-- Parser: `src/gui_backend/gui_backend/core/pico_state.py` — the only file in
-  the repository that knows the wire format.
+What remains open is narrower but real: **nobody has read a line off a physical
+Pico.** Reading a firmware's source is not the same as reading its output.
+
+- Parser: `src/gui_backend/gui_backend/core/pico_state.py` — still the only file
+  that knows the wire format, and now single-format on purpose.
 - `FORMAT_VERIFIED = False`.
-- Pre-flight check `pico.state_format` returns **WARN on every run** until that
-  flag is set, and **FAIL** if a line arrives that the parser cannot read.
-- The tests deliberately assert *behaviour*, not spelling: never raise on
-  anything a serial link can produce, never invent a value, absent stays absent,
-  and an unreadable line is reported as unreadable rather than quietly becoming
-  a mode. Asserting a guessed format would make it look verified.
-
-**Do not read a green Pico panel as evidence the format is right.**
+- Pre-flight `pico.state_format` returns **WARN every run** until that flag is
+  set, and **FAIL** on a line the parser cannot read.
+- Pre-flight `pico.firmware_version` is **critical and FAILs** on a mismatch.
 
 To close it, on the Jetson with the Pico connected:
 
@@ -197,9 +213,8 @@ To close it, on the Jetson with the Pico connected:
 ros2 topic echo /pico/status --field data
 ```
 
-Paste a few real lines into `src/gui_backend/test/test_pico_state.py` as a new
-test, adjust `_FIELD_ALIASES` or `parse_state_line` to match, and set
-`FORMAT_VERIFIED = True`.
+Paste a few real lines into `src/gui_backend/test/test_pico_state.py`, check
+them against `parse_state_line`, and set `FORMAT_VERIFIED = True`.
 
 ### 5.2 The rest
 
@@ -242,13 +257,24 @@ colcon test --packages-select control perception sensors mission fusion \
 colcon test-result --verbose
 ```
 
-### 6.2 GUI tests without ROS
+### 6.2 Tests without ROS and without hardware
 
 These run anywhere, including a laptop:
 
 ```bash
 pytest                                            # GUI packages only
 python3 -m flake8 --max-line-length=100 src/gui_backend src/system_test
+make -C firmware/test                             # the Pico firmware, host-compiled
+```
+
+The firmware tests need only a C++ compiler — no Pico, no Arduino toolchain.
+See §8.
+
+To watch the simulated Pico talk, without ROS or a boat:
+
+```bash
+python3 -m asket_sim.core.fake_pico_serial        # prints a port
+cat /dev/pts/N                                    # the port it printed
 ```
 
 ### 6.3 Gazebo
@@ -257,6 +283,21 @@ python3 -m flake8 --max-line-length=100 src/gui_backend src/system_test
 source install/setup.bash
 ros2 launch bringup njord.launch.py use_sim:=true enable_vision:=false enable_gui:=true
 ```
+
+### 6.3b Which organ drives the motors
+
+```bash
+ros2 launch bringup njord.launch.py                      # motor_path:=pico, the default
+ros2 launch bringup njord.launch.py motor_path:=pixhawk  # the old path
+```
+
+Inside Podman, pass the **resolved** serial device, not the symlink:
+
+```bash
+ros2 launch bringup njord.launch.py pico_device:=/dev/ttyACM0
+```
+
+See §9.
 
 Then open **http://\<jetson\>:8090** from the laptop.
 
@@ -298,14 +339,21 @@ reachable, it is a firewall, not the GUI.
 
 ## 7. Open question: what should "Cut propulsion" do?
 
-**This needs a decision. It is not mine to make.**
+**This needs a decision. It is not mine to make, and it was explicitly left out
+of this round: a serial ESTOP verb is a safety-chain change and belongs on the
+bench, with the boat out of the water, as its own step.**
 
 ### The problem
 
 `pico_bridge` accepts exactly two mode words — `AUTO` and `MANUAL` — and logs a
-warning for anything else. There is no software ESTOP anywhere in the stack, and
-no `MODE ESTOP` in the firmware bridge. The GUI's "Cut propulsion" button
-therefore has nothing to send.
+warning for anything else. The GUI's "Cut propulsion" button has nothing to
+send.
+
+One correction to how this section used to read: `MODE_ESTOP` **does** exist in
+the firmware, in all three versions, with disarm, relay open and a red light.
+What does not exist is a *serial path into it*. The ESTOP is real; only the
+transmitter can reach it. That is deliberate — see the three layers in
+`docs/safety.md`.
 
 ### What it does in the interim
 
@@ -369,7 +417,186 @@ side.
 
 ---
 
-## 8. Branch conflict warning
+## 8. Firmware, and the version check that closes this class of bug
+
+### What was wrong
+
+Two Pico firmwares had diverged and nobody could tell which was flashed.
+
+| | `pico-node_v3` | `asket_ec_pico` |
+|---|---|---|
+| Header | `[REBUILT]` | `[REBUILT + FOXGLOVE]` |
+| Lives in | `NODE-Engineering-Club/pico-node` | this repo, `GPS_Fix_and_Task`, `920773f` |
+| Status line | `[STAT] Mode:3 Armed:Y …` | `STATE mode=3 armed=1 …` |
+| Flashed? | **yes** | no |
+| What the Jetson expected | — | **this one** |
+
+`pico_bridge` filtered for lines starting `STATE`; the Pico emitted `[STAT]`.
+Every status line was dropped **silently** — no counter, no log — and the
+downlink kept working, so the boat moved and nothing looked broken. Nobody
+subscribed to `/pico/status` before the GUI existed, and nothing launched
+`pico_bridge` anyway.
+
+### What is here now
+
+`firmware/pico-node_v4/` merges the two. Its README has the full derivation;
+the short version:
+
+- **From FOXGLOVE:** `STATE key=value` with all its fields, the three-zone
+  `update_state()`, the heartbeat, `MODE AUTO` / `MODE MANUAL`, and a real SBUS
+  frame-validation fix (below).
+- **From v3:** its comments. Nothing else — `update_motors()`, `updateBeeper()`
+  and `startBeeps()` are byte-identical between the two files, so the pivot,
+  the non-blocking beeper and the proportional mix were already in FOXGLOVE.
+- **New:** `[VER] pico-node 4` at startup and `ver=4` first in every `STATE`
+  line; a non-blocking serial reader.
+- **Dropped:** `BENCH_NO_RC_OVERRIDE`, a FOXGLOVE compile flag that removed the
+  hardware E-stop's authority outright.
+
+### The version check
+
+This is the part that matters more than any individual fix.
+
+| Layer | What it does |
+|---|---|
+| Firmware | `[VER] pico-node 4` at boot, `ver=4` first in every `STATE` line |
+| `pico_bridge` | logs the version; **counts** rejected lines and logs an error if it sees 20 with none kept |
+| `pico_state.py` | `PROTOCOL_VERSION = 4`; sets `version_mismatch` on anything else |
+| Pre-flight | `pico.firmware_version` is **critical** and **FAILs** on a mismatch |
+| GUI | shows the version beside the mode; a mismatch force-opens the Vessel panel |
+
+FAIL rather than WARN, deliberately: a version this software does not know is a
+firmware whose field layout is unknown, so every other row in the report may
+have been read against the wrong layout. A confident GO is then the most
+dangerous output the check could produce.
+
+**If you flash something other than v4, pre-flight will ground the boat.** That
+is intended. Bump `FW_VERSION`, `PROTOCOL_VERSION`, `FIRMWARE_VERSION` in
+`asket_sim/core/pico.py` and `EXPECTED_FIRMWARE_VERSION` in `checks.py`
+together — a test asserts all four agree, and another reads the `.ino` to check
+the thresholds still match.
+
+### The SBUS fix, which was not asked for and is worth knowing about
+
+v3 validated frames with `sbus_frame[24] != 0x00`. Byte 24 is the SBUS **end
+byte**: `0x00` on Futaba, but `0x04` / `0x14` / `0x24` / `0x34` on FrSky and
+others. Against such a receiver v3 rejects **100% of frames**, silently, with
+the channels frozen at their last value.
+
+Demonstrated by compiling v3 against the test stub:
+
+```
+v3, end byte 0x00 -> ch8 decoded as 1811  (frame ACCEPTED)
+v3, end byte 0x04 -> ch8 decoded as 0     (frame REJECTED)
+```
+
+FOXGLOVE had already fixed it. v4 keeps the fix. **Worth checking which end
+byte your receiver actually sends** — if it is not `0x00`, this explains more
+than one past symptom.
+
+---
+
+## 9. Decided: the Pico is the motor path
+
+`actuator_driver` and `pico_bridge` both subscribe to `/control/effort`. They
+never collided only because nothing started `pico_bridge` — which is not
+arbitration, and ends the moment somebody runs it by hand to make the GUI work.
+
+**Decision: the Pico drives the motors.** The Pixhawk stays as a navigation
+source (GNSS, IMU, heading) and commands nothing.
+
+`njord.launch.py` now enforces it with one argument:
+
+```bash
+ros2 launch bringup njord.launch.py                      # motor_path:=pico, the default
+ros2 launch bringup njord.launch.py motor_path:=pixhawk  # the old path, intact
+```
+
+Both nodes' conditions read that one argument and test it for different values,
+so **no combination of launch arguments starts both**. `actuator_driver` is not
+deleted; reverting is one argument, not an edit under time pressure.
+
+`src/system_test/test/test_motor_path_exclusive.py` parses the launch file and
+evaluates both conditions across every combination of the arguments involved.
+It was checked against a deliberately reintroduced collision and fails on it.
+
+`pico_bridge` also gained a `pico_device` launch argument, defaulting to
+`/dev/ttyACM0`. **Podman resolves symlinks at launch: pass the container the
+resolved `ttyACMn`, not `/dev/pico`.**
+
+---
+
+## 10. The simulator now produces real serial text
+
+`asket_sim` published a structured `PicoStatus` straight onto the topic. That is
+exactly why the `[STAT]`/`STATE` mismatch was invisible: the text layer did not
+exist in simulation, so the layer where firmware and Jetson disagreed was never
+exercised.
+
+`asket_sim/core/fake_pico_serial.py` now puts real bytes on a real pty, the way
+`fake_sonar_server` already does for the sonar. It speaks what v4 speaks —
+`[VER]`, `STATE key=value` at 4 Hz, `L,R`, `PING`, `MODE AUTO` / `MODE MANUAL`,
+`[ACK]`, `Invalid cmd:` — and applies the same three-zone arbitration, so the
+GUI cannot pass a test the boat would fail.
+
+```bash
+python3 -m asket_sim.core.fake_pico_serial   # prints a port you can cat
+```
+
+`src/gui_backend/test/test_pico_serial_end_to_end.py` drives the whole chain
+with no ROS and no hardware: pty → line splitting → `STATE` filter → parser →
+payload. It is the test that did not exist.
+
+### Host-side firmware tests
+
+```bash
+make -C firmware/test
+```
+
+Compiles the sketch against a stub Arduino core and drives it with synthetic
+SBUS frames and serial input: mode arbitration in all three Ch8 zones, the
+ESTOP path down to the relay pin, the serial reader on partial and over-long
+lines, the light convention, the shape of the `STATE` line. It says nothing
+about timing, electrical behaviour or the real USB stack.
+
+---
+
+## 11. Other defects found and fixed on the way
+
+Not asked for, found while doing the above, all of them live:
+
+- **`pico_payload` crashed on a real line.** It called
+  `int(sample.rc_channel8_raw_pct)` on a field that is `None` whenever the line
+  did not carry it. The first real `STATE` line would have taken the backend
+  down. `bool(sample.rc_link_ok)` had the matching quieter bug: `bool(None)` is
+  `False`, so a field that was never sent rendered as **"RC lost"** — the worst
+  lie this panel can tell. Both now preserve `None`.
+
+- **The channel 8 alarm never fired.** The field was named
+  `rc_channel8_raw_pct` and the GUI alarmed below 25, but what arrives is a raw
+  SBUS count of 172–1811. Every real value cleared the threshold, *including
+  200*, which is the bottom of the travel and the exact position the alarm
+  existed for. Renamed to `rc_channel8_raw` everywhere (message, payload,
+  parser, checks, mock) and the comparison moved to the firmware's own
+  threshold, `< 700`, made once in `pico_state` rather than re-derived in the
+  GUI.
+
+- **The light tower contract described a tower that does not exist.**
+  `docs/light_tower.md` promised blue, blink patterns and a green recording
+  flash. The firmware has three solid colours. Green meant "recording" in the
+  document and "autonomous and armed, propellers may start" in the firmware —
+  the dangerous direction. Both the document and
+  `asket_bringup/config/light_tower.yaml` now mirror `set_light()`, and the
+  yaml says in its header that it is a mirror and not a source.
+
+- **Mode numbering differs between firmware and GUI.** The firmware counts
+  `ESTOP=1, MANUAL=2, AUTONOMOUS=3`; `PicoStatus.msg` counts from 0. They are
+  bridged by name, never by adding one, and both files now say so. An
+  off-by-one here turns MANUAL into AUTONOMOUS on screen.
+
+---
+
+## 12. Branch conflict warning
 
 Checked against the club repo at time of writing:
 
@@ -384,13 +611,16 @@ integration touches.**
 | `piddebugg`, `Nav2-testing` | 1 | `pico_bridge.py`, `njord.launch.py` |
 
 If `GPS_Fix_and_Task` merges first, expect a conflict in `njord.launch.py`
-(mechanical — my addition is 27 self-contained lines) and **check its
-`pico_bridge` changes against §5.1**, since anything altering the STATE contract
-changes what the parser has to read.
+(mechanical, but larger than before — this round adds the `motor_path` argument
+and a `pico_bridge` node) and **check its `pico_bridge` changes against §5.1 and
+§8**, since anything altering the STATE contract changes what the parser reads.
+
+That branch also carries `firmware/pico/asket_ec_pico.ino`, the FOXGLOVE
+firmware. It is superseded by `firmware/pico-node_v4/`. Do not flash it.
 
 ---
 
-## 9. Also flagged
+## 13. Also flagged
 
 `scripts/deploy-pi.sh` targets `pi@boat.local` and looks stale — this project
 moved to a Jetson. Left untouched: it needs somebody who knows the current

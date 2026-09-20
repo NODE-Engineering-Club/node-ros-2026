@@ -85,18 +85,29 @@ export function headingPayload(world, detail) {
 }
 
 const MODE_NAMES = { 0: 'ESTOP', 1: 'MANUAL', 2: 'AUTONOMOUS' };
+const MODE_AUTONOMOUS = 2;
+
+// Ch8 below this is MODE_ESTOP in the firmware. A raw SBUS count, not a
+// percentage — mirrors CH8_ESTOP_MAX in world.js, pico.py and pico_state.py.
+const CH8_ESTOP_MAX = 700;
 
 export function picoPayload(world, detail) {
   const out = {
     mode: MODE_NAMES[world.mode] || 'UNKNOWN',
     armed: world.armed,
     estop_latched: world.estopLatched,
+    // On every profile, beacon included: a GUI reading a firmware it does not
+    // understand must be able to say so at any bandwidth, because every other
+    // field here is then suspect.
+    firmware_version: world.firmwareVersion,
+    version_mismatch: false,
   };
   if (detail === 'minimal') return out;
 
   Object.assign(out, {
     rc_link_ok: world.rcLinkOk,
-    rc_channel8_raw_pct: world.rcChannel8,
+    rc_channel8_raw: world.rcChannel8,
+    ch8_asserting_estop: world.rcChannel8 < CH8_ESTOP_MAX,
   });
   if (detail === 'reduced') return out;
 
@@ -104,6 +115,13 @@ export function picoPayload(world, detail) {
     relay_states: [world.armed, world.armed, world.armed, world.armed],
     esc_status: [world.armed ? 0 : 1, world.armed ? 0 : 1],
     hardware_killswitch_engaged: false,
+    rc_channel7_raw: world.rcChannel7,
+    mode_requested_auto: world.mode === MODE_AUTONOMOUS,
+    link_live: true,
+    sbus_frames_ok: world.sbusFramesOk,
+    sbus_frames_bad: 0,
+    sbus_failsafe: !world.rcLinkOk,
+    sbus_frame_lost: false,
   });
   return out;
 }

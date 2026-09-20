@@ -29,20 +29,24 @@ export function VesselState({ state }) {
   const mode = pico?.mode ?? 'UNKNOWN';
   const hull = hullSummary(pico);
 
-  // Anything in the folded half that is off-nominal pulls the whole half open.
-  // The RC link and the killswitch are the sovereign path: they are folded away
-  // only while they are healthy.
-  const forced = pico?.estop_latched
-    ? 'propulsion is cut'
-    : pico?.hardware_killswitch_engaged
-      ? 'the hardware killswitch is engaged'
-      : pico?.rc_link_ok === false
-        ? 'the RC link is lost'
-        : hull.alert
-          ? hull.alert
-          : vessel?.num_sats !== undefined && vessel.num_sats < 6
-            ? `only ${vessel.num_sats} satellites`
-            : '';
+  // A firmware this GUI cannot read makes every other field on this panel
+  // suspect, so it outranks everything — including the faults, which may
+  // themselves be misreadings.
+  const forced = pico?.version_mismatch
+    ? `the Pico is running firmware v${pico.firmware_version}, which this GUI does not read`
+    : pico?.estop_latched
+      ? 'propulsion is cut'
+      : pico?.hardware_killswitch_engaged
+        ? 'the hardware killswitch is engaged'
+        : pico?.rc_link_ok === false
+          ? 'the RC link is lost'
+          : pico?.ch8_asserting_estop
+            ? 'channel 8 is in the ESTOP zone'
+            : hull.alert
+              ? hull.alert
+              : vessel?.num_sats !== undefined && vessel.num_sats < 6
+                ? `only ${vessel.num_sats} satellites`
+                : '';
 
   return (
     <Panel
@@ -106,12 +110,33 @@ export function VesselState({ state }) {
         <Chip level={rcLevel(pico?.rc_link_ok)} title={rcTitle(pico?.rc_link_ok)}>
           RC {pico?.rc_link_ok === undefined ? 'not sent' : pico.rc_link_ok ? 'linked' : 'lost'}
         </Chip>
+        {/* The verdict, not the arithmetic. The backend compares against the
+            firmware's own threshold on the firmware's own scale; this renders
+            what it concluded. The previous version compared here, against a
+            field whose name claimed percent while it carried a raw SBUS count,
+            so the alarm never fired — least of all at the bottom of the
+            travel, which is the position it existed to catch. */}
         <Chip
-          level={picoChannelLevel(pico?.rc_channel8_raw_pct)}
-          title="RC channel 8 cuts propulsion in hardware. Nothing in this GUI can move it."
+          level={ch8Level(pico?.ch8_asserting_estop)}
+          title="Channel 8 selects the mode in hardware: bottom third is ESTOP. Nothing in this GUI can move it."
         >
-          Ch8 {int(pico?.rc_channel8_raw_pct, '%')}
+          Ch8 {ch8Text(pico)}
         </Chip>
+        {pico?.version_mismatch && (
+          <Chip level="alarm" title="This GUI parses a different firmware than the Pico is running. Every field on this panel is suspect.">
+            Firmware v{pico.firmware_version} — not readable
+          </Chip>
+        )}
+        {pico?.link_live === false && (
+          <Chip level="warn" title="The Pico is not hearing our heartbeat. It will not grant autonomy while this is so.">
+            Pico hears no heartbeat
+          </Chip>
+        )}
+        {pico?.mode_requested_auto && mode !== 'AUTONOMOUS' && (
+          <Chip level="warn" title="AUTO was requested and is not in effect. Channel 8 must be in its top position, and the Pico must be hearing our heartbeat.">
+            AUTO requested, not granted
+          </Chip>
+        )}
         {pico?.estop_latched && <Chip level="alarm">Propulsion cut</Chip>}
         {pico?.hardware_killswitch_engaged && <Chip level="alarm">Killswitch engaged</Chip>}
       </div>
@@ -161,12 +186,21 @@ export function VesselState({ state }) {
   );
 }
 
-function picoChannelLevel(pct) {
+function ch8Level(asserting) {
   // No level at all when the value was not sent: an uncoloured chip reads as
   // "unknown", which is what it is. Green would claim it is fine and red would
   // claim it is not, and neither is known.
-  if (pct === null || pct === undefined) return '';
-  return pct < 25 ? 'alarm' : 'ok';
+  if (asserting === null || asserting === undefined) return '';
+  return asserting ? 'alarm' : 'ok';
+}
+
+function ch8Text(pico) {
+  const raw = pico?.rc_channel8_raw;
+  if (raw === null || raw === undefined) return 'not sent';
+  // The count is shown as well as the verdict, because 1811 vs 1400 is the
+  // difference between "autonomy permitted" and "manual forced" and an
+  // operator debugging a switch needs the number.
+  return pico.ch8_asserting_estop ? `${raw} — ESTOP` : String(raw);
 }
 
 function rcLevel(ok) {

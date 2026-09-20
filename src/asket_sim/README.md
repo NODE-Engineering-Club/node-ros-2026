@@ -21,11 +21,35 @@ missions.
 
 ## The important design decision
 
+**Simulate at the wire, not at the object.**
+
 The sonar is not injected into `omniscan_bridge` as an object. It is served as
 **real Ping Protocol frames on a real UDP socket** by `fake_sonar_node`. So
 `omniscan_bridge` is byte-for-byte identical in sim and in the field, and the
 socket handling, resync and packet-loss accounting are genuinely exercised
 rather than bypassed by a second code path that nobody tests.
+
+The Pico now works the same way, and it is worth saying why, because it was not
+always so and the cost of that was high.
+
+`PicoSim` used to publish a structured `PicoStatus` message straight onto the
+topic. The real path is *firmware → text line → serial framing →
+`pico_bridge`'s line filter → parser → GUI*, and the simulated path skipped the
+middle four steps. So when the flashed firmware emitted `[STAT] …` and the
+Jetson filtered for `STATE…`, nothing failed anywhere: the layer where they
+disagreed did not exist in simulation. Every status line was dropped silently
+for months while the test suite stayed green.
+
+`core/fake_pico_serial.py` closes that. It puts real bytes on a real pty, so
+the parser, the line splitting and the `STATE` filter are all exercised by
+`pytest` on a laptop. **A format mismatch now fails a test instead of reaching
+the water.**
+
+`PicoSim` still publishes the structured message as well — that is what
+`sim_node` puts on `/pico/status` in `sim:=true`. The two are kept honest by
+`gui_backend/test/test_pico_serial_end_to_end.py`, which drives the text path,
+and by tests asserting the simulator, the parser and the firmware source agree
+on the protocol version and the channel thresholds.
 
 ## Running it
 
@@ -40,6 +64,20 @@ Just the fake sonar, no ROS at all:
 ```bash
 python3 -m asket_sim.core.fake_sonar_server --port 62312
 ```
+
+Just the fake Pico, no ROS at all. It prints the serial port it created; `cat`
+it to watch the `STATE` lines, or point `pico_bridge` at it:
+
+```bash
+python3 -m asket_sim.core.fake_pico_serial
+```
+
+It speaks exactly what `firmware/pico-node_v4/` speaks: `[VER] pico-node 4` on
+open, `STATE key=value` at 4 Hz, and it accepts `L,R`, `PING`, `MODE AUTO` and
+`MODE MANUAL`. It also applies the firmware's three-zone arbitration, so
+autonomy is granted only when channel 8 is in its top position **and** the
+heartbeat is fresh — a simulator that granted it on request alone would let the
+GUI pass a test the boat would fail.
 
 A synthetic `sonar_raw.bin` for parser work:
 

@@ -50,10 +50,19 @@ sources:
     type: geometry_msgs/msg/Twist
     optional: true
   pico_status:
-    # std_msgs/String carrying raw firmware "STATE ..." lines, republished
-    # verbatim and unparsed by pico_bridge. The parser is in
-    # core/pico_state.py and its format is PROVISIONAL — nobody has captured a
-    # real line yet, and the pre-flight says so on every run.
+    # std_msgs/String carrying raw firmware "STATE key=value" lines,
+    # republished verbatim and unparsed by pico_bridge. The parser is in
+    # core/pico_state.py.
+    #
+    # The format is transcribed field by field from
+    # firmware/pico-node_v4/pico-node_v4.ino, and the parser reads THAT VERSION
+    # ONLY. Every line carries ver= first; anything else fails the pre-flight
+    # rather than being half-read. Accepting several formats was considered and
+    # rejected — a parser branch nobody exercises is a parser branch nobody
+    # notices breaking, which is how the previous mismatch survived months.
+    #
+    # Still PROVISIONAL in one narrower sense: no line has been captured off
+    # real hardware, and the pre-flight says so on every run.
     topic: /pico/status
     type: std_msgs/msg/String
     adapter: pico_from_ros
@@ -94,9 +103,11 @@ commands:
 
 # What "Cut propulsion" actually does.
 #
-# There is no software ESTOP anywhere in this stack: pico_bridge accepts AUTO
-# and MANUAL and nothing else, and the firmware has no MODE ESTOP. So the button
-# cannot cut propulsion, and it must not pretend to.
+# There is no software ESTOP *path* in this stack: pico_bridge accepts AUTO and
+# MANUAL and nothing else. The firmware does have MODE_ESTOP — disarm, relay
+# open, red light — but only the transmitter can reach it, which is deliberate
+# (docs/safety.md). So the button cannot cut propulsion, and it must not
+# pretend to.
 #
 # The safest thing available is to drop the Pico out of AUTONOMOUS. Per
 # pico_bridge's own docstring the Pico applies motor commands only when armed

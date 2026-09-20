@@ -143,19 +143,65 @@ def _pico_link(state: dict, t: Thresholds) -> CheckResult:
     return CheckResult("pico.link", "Pico link", PASS, f"Heartbeat {age:.1f} s ago", "", age, "s")
 
 
+#: The firmware protocol this stack is built to read. Kept in step with
+#: ``gui_backend.core.pico_state.PROTOCOL_VERSION`` and with ``FW_VERSION`` in
+#: ``firmware/pico-node_v4/``; a test asserts all three agree.
+EXPECTED_FIRMWARE_VERSION = 4
+
+
+@check("pico.firmware_version", "Pico firmware version", critical=True)
+def _firmware_version(state: dict, t: Thresholds) -> CheckResult:
+    """Is the Pico running the firmware this stack knows how to read?
+
+    This check exists because the answer was once "no" for months, and nothing
+    said so. The Jetson was written against one firmware, the Pico was flashed
+    with another, the status format differed, every line was silently dropped,
+    and the downlink kept working — so the boat looked fine and reported
+    nothing.
+
+    It is **critical** and it **fails** rather than warning. A version this
+    stack does not know is a firmware whose field meanings are unknown, and a
+    vessel panel built from misread fields is worse than an empty one: it looks
+    like knowledge. Nothing downstream can be trusted, so nothing downstream
+    gets the benefit of the doubt.
+    """
+    reported = state.get("pico_firmware_version")
+    if reported is None:
+        return _missing("pico.firmware_version", "Pico firmware version",
+                        "the Pico has not reported a firmware version")
+
+    if int(reported) != EXPECTED_FIRMWARE_VERSION:
+        return CheckResult(
+            "pico.firmware_version", "Pico firmware version", FAIL,
+            f"The Pico is running firmware v{int(reported)}; this software "
+            f"reads v{EXPECTED_FIRMWARE_VERSION}",
+            "Flash firmware/pico-node_v4/ to the Pico, or check out the "
+            "Jetson software that matches what is flashed. Do not fly on a "
+            "mismatch: the fields will be read against the wrong layout and "
+            "the vessel panel will be confidently wrong.",
+            int(reported),
+        )
+
+    return CheckResult(
+        "pico.firmware_version", "Pico firmware version", PASS,
+        f"v{int(reported)}, matching this software", "", int(reported),
+    )
+
+
 @check("pico.state_format", "Pico status format")
 def _state_format(state: dict, t: Thresholds) -> CheckResult:
     """Is the GUI reading the Pico's status, or guessing at it?
 
     ``/pico/status`` is a ``std_msgs/String``: ``pico_bridge`` republishes raw
     firmware ``STATE`` lines verbatim, without parsing them. The GUI parses that
-    text, and the format it parses is transcribed from nobody — no real line has
-    been captured (docs/open_questions.md Q7).
+    text.
 
-    That makes every field in the vessel panel provisional in a way an operator
-    cannot see, because a parser reading the wrong format does not look broken:
-    it looks like a vessel that is not reporting much. So the pre-flight says so
-    on every run until somebody confirms the format.
+    The format is now transcribed field by field from
+    ``firmware/pico-node_v4/pico-node_v4.ino`` rather than guessed — but
+    reading a firmware's source is not the same as reading its output, and no
+    line has yet been captured off real hardware. A parser reading the wrong
+    format does not look broken; it looks like a vessel that is not reporting
+    much. So the pre-flight keeps saying so until somebody looks.
     """
     reported = state.get("pico_state_format_verified")
     if reported is None:
@@ -197,10 +243,19 @@ def _state_format(state: dict, t: Thresholds) -> CheckResult:
     )
 
 
+#: Channel 8 below this forces MODE_ESTOP in the firmware (``MODE_LOW_MAX``).
+#: A **raw SBUS count**, not a percentage: the scale is 172..1811 with 991 at
+#: centre. The previous threshold here was ``< 25``, applied to a field named
+#: ``rc_channel8_raw_pct`` that in fact carried a raw count — so it never fired,
+#: including at the bottom of the travel, which is the one position it exists
+#: to catch.
+CH8_ESTOP_MAX = 700
+
+
 @check("rc.link", "RC link and killswitch")
 def _rc(state: dict, t: Thresholds) -> CheckResult:
     ok = state.get("rc_link_ok")
-    channel8 = state.get("rc_channel8_raw_pct")
+    channel8 = state.get("rc_channel8_raw")
     if ok is None:
         return _missing("rc.link", "RC link and killswitch", "no RC status from the Pico")
     if not ok:
@@ -215,20 +270,21 @@ def _rc(state: dict, t: Thresholds) -> CheckResult:
         return CheckResult(
             "rc.link", "RC link and killswitch", WARN,
             "Transmitter linked, but channel 8 is not being read back",
-            "The killswitch channel cannot be confirmed. Check the Pico's "
-            "channel 8 wiring before launching.",
+            "The mode channel cannot be confirmed. Check the Pico's channel 8 "
+            "wiring before launching.",
         )
-    if channel8 < 25:
+    if channel8 < CH8_ESTOP_MAX:
         return CheckResult(
             "rc.link", "RC link and killswitch", WARN,
-            f"Channel 8 is asserting the kill ({channel8}%)",
-            "Propulsion is cut in hardware. Release the killswitch when ready.",
-            channel8, "%",
+            f"Channel 8 is in the ESTOP zone ({channel8})",
+            "Propulsion is cut in hardware. Move the channel 8 switch out of "
+            "the bottom position when ready.",
+            channel8,
         )
     return CheckResult(
         "rc.link", "RC link and killswitch", PASS,
-        f"Linked, channel 8 reads {channel8}%",
-        "", channel8, "%",
+        f"Linked, channel 8 reads {channel8}",
+        "", channel8,
     )
 
 

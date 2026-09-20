@@ -108,7 +108,7 @@ def test_adapted_records_feed_the_same_payload_builders_as_the_simulator():
     pico = SimpleNamespace(
         header=header(3), mode=2, armed=True, estop_latched=False,
         relay_states=[True, True], esc_status=[0, 0], rc_link_ok=True,
-        rc_channel8_raw_pct=100,
+        rc_channel8_raw=1811, rc_channel7_raw=1811, firmware_version=4,
     )
     payload = payloads.pico_payload(adapters.pico_from_ros(pico), DETAIL_FULL)
     assert payload["mode"] == "AUTONOMOUS"

@@ -469,7 +469,9 @@ class SimSource:
         return {
             "pico_age_s": 0.0,
             "rc_link_ok": snap.pico.rc_link_ok,
-            "rc_channel8_raw_pct": snap.pico.rc_channel8_raw_pct,
+            "rc_channel8_raw": snap.pico.rc_channel8_raw,
+            "rc_channel7_raw": snap.pico.rc_channel7_raw,
+            "pico_firmware_version": snap.pico.firmware_version,
             "num_sats": snap.vessel.num_sats,
             "gnss_fix_type": snap.vessel.gnss_fix_type,
             "hdop": snap.vessel.hdop,

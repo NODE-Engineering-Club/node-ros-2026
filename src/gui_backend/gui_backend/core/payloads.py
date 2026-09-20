@@ -115,24 +115,52 @@ def heading_payload(estimate: HeadingEstimate, detail: str = DETAIL_FULL) -> dic
 MODE_NAMES = {0: "ESTOP", 1: "MANUAL", 2: "AUTONOMOUS"}
 
 
+def _opt_bool(value):
+    """``None`` stays ``None``; anything else becomes a real bool.
+
+    ``bool(None)`` is ``False``, and ``False`` here means "the Pico told us it
+    is not so". Collapsing the two turns a field that was never sent into a
+    confident negative — for ``rc_link_ok`` that reads on screen as "RC lost",
+    which is the single worst lie this panel could tell.
+    """
+    return None if value is None else bool(value)
+
+
+def _opt_int(value):
+    """Same, for counts. ``int(None)`` does not fail quietly — it raises, and
+    it raised here the moment a real STATE line reached this function."""
+    return None if value is None else int(value)
+
+
 def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
     """Confirmed vessel state.
 
     Everything here is what the Pico says the vessel *is* doing. Nothing in this
-    payload ever reflects a request (safety rule 4).
+    payload ever reflects a request (safety rule 4) — with one labelled
+    exception, ``mode_requested_auto``, which is carried precisely so the two
+    can be told apart on screen.
     """
     out = {
         "mode": MODE_NAMES.get(sample.mode, "UNKNOWN"),
-        "armed": bool(sample.armed),
-        "estop_latched": bool(sample.estop_latched),
+        "armed": _opt_bool(sample.armed),
+        "estop_latched": _opt_bool(sample.estop_latched),
+        # Carried on every profile, beacon included. A GUI parsing a firmware
+        # it does not understand must say so at any bandwidth, because every
+        # other field in this payload is then suspect.
+        "firmware_version": _opt_int(getattr(sample, "firmware_version", None)),
+        "version_mismatch": _opt_bool(getattr(sample, "version_mismatch", None)),
     }
     if detail == DETAIL_MINIMAL:
         return out
 
     out.update(
         {
-            "rc_link_ok": bool(sample.rc_link_ok),
-            "rc_channel8_raw_pct": int(sample.rc_channel8_raw_pct),
+            "rc_link_ok": _opt_bool(sample.rc_link_ok),
+            "rc_channel8_raw": _opt_int(getattr(sample, "rc_channel8_raw", None)),
+            # The comparison is made once, against the firmware's own
+            # threshold, in pico_state. The GUI renders the verdict rather than
+            # re-deriving it from a number whose scale it would have to know.
+            "ch8_asserting_estop": _opt_bool(getattr(sample, "ch8_asserting_estop", None)),
         }
     )
     if detail == DETAIL_REDUCED:
@@ -144,9 +172,23 @@ def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
             "esc_status": [int(e) for e in sample.esc_status],
             # Observable, never commandable. Shown so an operator can confirm
             # the sovereign path is where they think it is.
-            "hardware_killswitch_engaged": bool(
-                getattr(sample, "hardware_killswitch_engaged", False)
+            "hardware_killswitch_engaged": _opt_bool(
+                getattr(sample, "hardware_killswitch_engaged", None)
             ),
+            "rc_channel7_raw": _opt_int(getattr(sample, "rc_channel7_raw", None)),
+            # What the Jetson asked for, next to what it got. "I asked for AUTO
+            # and it is still MANUAL" then reads as a refusal by channel 8
+            # rather than as a lost command.
+            "mode_requested_auto": _opt_bool(getattr(sample, "mode_requested_auto", None)),
+            # The Pico's view of our heartbeat. Zero while pico_bridge is
+            # running points at the cable, not the software.
+            "link_live": _opt_bool(getattr(sample, "link_live", None)),
+            # The only measurement of radio *quality* in the system. A rising
+            # bad count warns of range loss before the link actually drops.
+            "sbus_frames_ok": _opt_int(getattr(sample, "sbus_frames_ok", None)),
+            "sbus_frames_bad": _opt_int(getattr(sample, "sbus_frames_bad", None)),
+            "sbus_failsafe": _opt_bool(getattr(sample, "sbus_failsafe", None)),
+            "sbus_frame_lost": _opt_bool(getattr(sample, "sbus_frame_lost", None)),
         }
     )
     return out

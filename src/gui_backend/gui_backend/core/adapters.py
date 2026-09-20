@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 from types import SimpleNamespace
 
+from . import pico_state
 from .pico_state import parse_state_line
 
 
@@ -111,7 +112,8 @@ def pico_from_ros(msg, received_utc_ms: int = 0):
     * ``std_msgs/String`` — what the real ``pico_bridge`` publishes. It reads
       lines off the serial link and republishes any ``STATE ...`` line verbatim,
       unparsed, so the text is parsed here through
-      :mod:`gui_backend.core.pico_state`. That format is **PROVISIONAL**.
+      :mod:`gui_backend.core.pico_state`. The format is ``pico-node_v4``'s, and
+      only that one.
     * ``asket_interfaces/PicoStatus`` — what ``asket_sim`` publishes, a proper
       structured message.
 
@@ -132,10 +134,21 @@ def pico_from_ros(msg, received_utc_ms: int = 0):
         relay_states=list(msg.relay_states),
         esc_status=list(msg.esc_status),
         rc_link_ok=bool(msg.rc_link_ok),
-        rc_channel8_raw_pct=int(msg.rc_channel8_raw_pct),
+        rc_channel8_raw=int(msg.rc_channel8_raw),
+        ch8_asserting_estop=int(msg.rc_channel8_raw) < pico_state.CH8_ESTOP_MAX,
+        rc_channel7_raw=int(getattr(msg, "rc_channel7_raw", 0)) or None,
         hardware_killswitch_engaged=bool(getattr(msg, "hardware_killswitch_engaged", False)),
+        firmware_version=int(getattr(msg, "firmware_version", 0)) or None,
+        version_mismatch=False,
+        mode_requested_auto=None,
+        link_live=None,
+        sbus_frames_ok=None,
+        sbus_frames_bad=None,
+        sbus_failsafe=None,
+        sbus_frame_lost=None,
         state_line="",
         state_parsed=True,
+        state_unknown_keys=[],
         state_format_verified=True,
     )
 
@@ -148,23 +161,40 @@ def _pico_from_state_line(line: str, received_utc_ms: int):
     difference matters most for ``rc_link_ok``: reporting a healthy RC link as
     lost because a text field was missing is exactly the lie this GUI exists to
     avoid.
+
+    The Pico reports one relay, as a boolean. It is presented as a
+    single-element list so the hull panel has one shape to render regardless of
+    source, and an empty list still means "not reported" rather than "no
+    relays". ESC status has no equivalent on this link at all, so it stays
+    empty: the Pico does not talk to the ESCs, it only cuts their power.
     """
     state = parse_state_line(line)
     return SimpleNamespace(
         utc_ms=received_utc_ms,
         mode=_MODE_VALUES.get(state.mode) if state.mode else None,
         armed=state.armed,
-        # There is no ESTOP in the firmware bridge's vocabulary, so the Pico
-        # cannot report one latched. Absent, not False: claiming "not latched"
-        # would be claiming knowledge of something never reported.
-        estop_latched=None,
-        relay_states=[],
+        estop_latched=state.estop_latched,
+        relay_states=[state.relay_closed] if state.relay_closed is not None else [],
         esc_status=[],
         rc_link_ok=state.rc_link_ok,
-        rc_channel8_raw_pct=state.rc_channel8_raw_pct,
+        rc_channel7_raw=state.rc_channel7_raw,
+        rc_channel8_raw=state.rc_channel8_raw,
+        ch8_asserting_estop=state.ch8_asserting_estop,
+        # Not on this link. The Pico measures neither, and the battery panel is
+        # fed from elsewhere — see config/topics.yaml.
+        battery_voltage=None,
+        battery_current=None,
+        # Observable only through the RC channel, which the Pico reports; there
+        # is no separate killswitch line into the microcontroller.
         hardware_killswitch_engaged=None,
-        battery_voltage=state.battery_voltage,
-        battery_current=state.battery_current,
+        firmware_version=state.firmware_version,
+        version_mismatch=state.version_mismatch,
+        mode_requested_auto=state.mode_requested_auto,
+        link_live=state.link_live,
+        sbus_frames_ok=state.sbus_frames_ok,
+        sbus_frames_bad=state.sbus_frames_bad,
+        sbus_failsafe=state.sbus_failsafe,
+        sbus_frame_lost=state.sbus_frame_lost,
         state_line=state.raw,
         state_parsed=state.parsed,
         state_unknown_keys=state.unknown_keys,

@@ -29,7 +29,10 @@
 const RECONNECT_BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 15000];
 const SKEW_WINDOW = 32;
 
-function initialState() {
+// Notices that a single incoming frame disproves.
+const SILENCE_NOTICES = new Set(['no_streams', 'nothing_emitted', 'tick_failed']);
+
+export function initialState() {
   return {
     connected: false,
     connecting: true,
@@ -40,10 +43,24 @@ function initialState() {
     subscriptions: {},
     estimatedBytesPerS: 0,
     streams: {},
+    // The camera, which does not live in `streams` because its payload is a
+    // blob URL rather than a JSON value, and because its age has to survive
+    // the frames stopping.
+    camera: null,
     alarms: [],
     commands: {},
     skewMs: 0,
     lastMessageAt: null,
+    // When the server says it is serving us nothing, and why. The page can
+    // work out that data is not arriving on its own; it cannot work out that
+    // the link profile refused every stream, and that is the half that sends
+    // you to the right place.
+    notice: null,
+    // When the first `data` frame arrived on this socket. Null while a socket
+    // has been open but has never carried a payload — which is the state this
+    // GUI spent an hour in on its first real deployment, indistinguishable
+    // from a quiet vessel.
+    firstDataAt: null,
     // Bumped when the answer to "are there offline tiles" changes, so the map
     // re-asks. Only the mock has cause to change it.
     tileGeneration: 0,
@@ -57,7 +74,7 @@ function initialState() {
 }
 
 export class Connection {
-  constructor(url, { transport, isMock = false, tileInfo = null } = {}) {
+  constructor(url, { transport, isMock = false, tileInfo = null, setupDoc = null } = {}) {
     this.url =
       url ||
       `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
@@ -69,6 +86,10 @@ export class Connection {
     //: answer is supplied instead of fetched. Keeping this on the connection
     //: means the map component asks one place in both modes.
     this.tileInfo = tileInfo;
+    //: Same arrangement for `/api/setup`. The setup page asks the connection
+    //: in both modes, so what is reviewed in mock mode is the page and not a
+    //: second version of it that reads from somewhere else.
+    this.setupDoc = setupDoc;
     this.state = initialState();
     this.listeners = new Set();
     this.desired = [];
@@ -123,7 +144,10 @@ export class Connection {
     this.ws = ws;
 
     ws.onopen = () => {
-      this.#set({ connected: true, connecting: false, attempts: 0, lastError: null });
+      this.#set({
+        connected: true, connecting: false, attempts: 0, lastError: null,
+        firstDataAt: null, notice: null,
+      });
       if (this.desired.length) this.subscribe(this.desired);
     };
 
@@ -207,12 +231,28 @@ export class Connection {
           detail: message.detail,
           receivedAt: now,
         };
-        this.#set({ streams });
+        this.#set({
+          streams,
+          firstDataAt: this.state.firstDataAt ?? now,
+          // A frame arriving disproves every "you are receiving nothing"
+          // notice, so they clear here rather than waiting to be contradicted.
+          // The server re-broadcasts `tick_failed` on a schedule, so if the
+          // fault is ongoing the banner comes straight back — which is better
+          // than one that sticks after the problem has passed and teaches the
+          // crew to ignore the banner.
+          notice: SILENCE_NOTICES.has(this.state.notice?.code)
+            ? null
+            : this.state.notice,
+        });
         break;
       }
 
       case 'alarms':
         this.#set({ alarms: message.active || [] });
+        break;
+
+      case 'notice':
+        this.#set({ notice: message });
         break;
 
       case 'command_result': {
@@ -344,6 +384,78 @@ export class Connection {
       };
     }
   }
+
+  /**
+   * One camera frame, or a header explaining why there is not one.
+   *
+   * `[4 bytes big-endian header length][header JSON][image bytes]` — the
+   * format is defined once, in `gui_backend/core/video_frame.py`, and this is
+   * the only place the browser reads it.
+   *
+   * The object URL is the part worth being careful about. Every frame
+   * allocates one, and at 15 fps an unrevoked URL leaks a 45 kB blob fifteen
+   * times a second until the tab closes. The previous frame's URL is revoked
+   * here rather than in the panel, because the panel can unmount while frames
+   * are still arriving and a leak that only shows up when somebody collapses a
+   * panel is a leak nobody finds.
+   */
+  #handleVideo(buffer) {
+    let header;
+    let image;
+    try {
+      const bytes = new Uint8Array(buffer);
+      const length = new DataView(buffer).getUint32(0, false);
+      if (length > 8192 || bytes.length < 4 + length) return;
+      header = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + length)));
+      image = bytes.subarray(4 + length);
+    } catch {
+      return;
+    }
+
+    const previous = this.state.camera;
+    const now = Date.now();
+
+    if (header.type === 'camera_frame' && image.length > 0) {
+      if (previous?.url) URL.revokeObjectURL(previous.url);
+      this.#set({
+        camera: {
+          url: URL.createObjectURL(
+            new Blob([image], { type: `image/${header.format}` }),
+          ),
+          seq: header.seq,
+          // When the shutter fell, never when this arrived. A frame that spent
+          // four seconds in a queue has to read as four seconds old.
+          sourceUtcMs: header.source_utc_ms,
+          width: header.width,
+          height: header.height,
+          sizeBytes: header.size_bytes,
+          rateHz: header.rate_hz,
+          reason: 'live',
+          statusAt: now,
+        },
+      });
+      return;
+    }
+
+    // A status frame: the vessel is alive and the camera is not. Whatever
+    // picture we already have is KEPT — clearly labelled, it is what the
+    // operator may choose to look at — but `reason` changes and `sourceUtcMs`
+    // does not, so it goes on ageing from when it was taken.
+    //
+    // `statusAt` is what makes the diagnosis possible. While these keep
+    // arriving the link is up and the camera is the problem; when they stop,
+    // the link is. One timestamp could not tell those apart.
+    this.#set({
+      camera: {
+        ...(previous ?? { url: null, seq: null, sourceUtcMs: null }),
+        reason: header.reason,
+        rateHz: header.rate_hz,
+        framesProduced: header.frames_produced,
+        lastFrameUtcMs: header.last_frame_utc_ms,
+        statusAt: now,
+      },
+    });
+  }
 }
 
 // Age of a stream's value, in milliseconds, or null if it has never arrived.
@@ -355,4 +467,30 @@ export function streamAgeMs(state, name) {
 
 export function streamPayload(state, name) {
   return state.streams[name]?.payload ?? null;
+}
+
+/**
+ * Age of the current camera picture in milliseconds, or null if there has
+ * never been one.
+ *
+ * Not `streamAgeMs('camera')`: this stream is not in `state.streams`, and its
+ * age has to keep climbing after the frames have stopped.
+ */
+export function cameraAgeMs(state) {
+  const camera = state.camera;
+  if (!camera?.sourceUtcMs) return null;
+  return Date.now() + state.skewMs - camera.sourceUtcMs;
+}
+
+/**
+ * Milliseconds since the backend last said anything about the camera at all.
+ *
+ * The other half of the diagnosis. A picture going stale while this stays
+ * small means the vessel is talking and the camera is not; both going stale
+ * together means the link has gone. Different problems, different places to
+ * go, and from the shore they look identical without this.
+ */
+export function cameraSilenceMs(state) {
+  const at = state.camera?.statusAt;
+  return at ? Date.now() - at : null;
 }

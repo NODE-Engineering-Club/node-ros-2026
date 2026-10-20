@@ -55,7 +55,7 @@ the Jetson (§5.1).
 | | State |
 |---|---|
 | Merge, both histories intact | **verified** — 150 commits, both parents reachable from `9ff9a15` |
-| GUI Python test suite (no ROS) | **verified** — 562 passed, 1 skipped |
+| GUI Python test suite (no ROS) | **verified** — 1017 passed, 2 skipped, 0 failed. Both skips are environment guards, not disabled tests: one needs a non-root user (root ignores permission bits, so a read-only directory is still writable), the other is a command category covered by a different test in the same file. |
 | Firmware arbitration vs. the Python mirror | **verified** — 448 cells, cell for cell, against the compiled sketch (§14) |
 | Adapter and STATE-parser unit tests | **verified** — rewritten against the real v4 format |
 | Serial path end to end, no hardware | **verified** — real bytes on a pty, parsed by the real parser (§10) |
@@ -63,6 +63,8 @@ the Jetson (§5.1).
 | Motor-path exclusivity | **verified** — every argument combination, and checked against a reintroduced collision (§9) |
 | Frontend production build | **verified** — builds into `gui_backend/static/` |
 | Firmware against a real Pico | **NOT VERIFIED** — nothing here has been flashed or run on hardware |
+| Map tiles end to end | **verified** — rendered in a browser against the live tile servers, with attribution, sea marks and all four degraded states (§12) |
+| Tile behaviour on a real degraded link | **NOT VERIFIED** — the profile gate is unit-tested, but nobody has watched it on a fading 4G link |
 | `colcon build --symlink-install` | **NOT VERIFIED** — see §6 |
 | Gazebo end-to-end | **NOT VERIFIED** — see §6 |
 
@@ -228,7 +230,8 @@ them against `parse_state_line`, and set `FORMAT_VERIFIED = True`.
 | Battery capacity and hotel load (Q5) | `src/gui_backend/config/topics.yaml` | 1200 Wh / 85 W assumed. |
 | EKF heading accuracy | `src/asket_common/asket_common/heading.py` | 3.0° nominal. The EKF publishes a pose covariance — somebody should confirm `robot_localization` is filling it in rather than leaving the default, then use it. Until then the panel marks the figure "assumed". |
 | `OS3D_POINT_SET` layout (Q8) | `src/omniscan_bridge/core/ping_protocol.py` | From Cerulean's published docs, never run against a real device. |
-| Relay and ESC meanings (Q7) | `src/asket_gui/src/lib/hull.js` | `RELAY_LABELS` is empty on purpose — no relay is given a name nobody has confirmed. |
+| ESC status codes beyond 0 (Q7) | `src/asket_gui/src/lib/hull.js` | Still uninterpreted. The firmware reports no ESC code over serial at all — `esc_status` arrives only from `asket_sim`. **The relay is no longer provisional**: there is one, GPIO21, cutting ESC power, confirmed in firmware source and now named. See §16. |
+| **E-stop power feedback** | firmware `ESTOP_FEEDBACK_ENABLED` | **0.** Nothing confirms the ESC rail actually collapsed when the relay was commanded open. Pre-flight `pico.estop_feedback` WARNs every run until it is 1. See §16. |
 
 ---
 
@@ -599,7 +602,53 @@ Not asked for, found while doing the above, all of them live:
 
 ---
 
-## 12. Branch conflict warning
+## 12. The map has a real basemap now
+
+The map rendered a bare coordinate grid, because the GUI was designed on the
+assumption that there is no internet in the field. There is — Namibia has 4G at
+the launch point and usually from the shore station — so that assumption has
+been replaced. `docs/map_tiles.md` is the full account; the parts that matter
+for a review:
+
+**The basemap is not OpenStreetMap's own tile server**, and the reason is
+theirs, not ours. Their policy says *"Offline use is not permitted on
+tile.openstreetmap.org"*, counts as bulk downloading *"any pre-emptive fetching
+of tiles other than those a user is actively viewing"*, and does not recommend
+caching proxies. The caching this GUI needs would breach all three. So the
+basemap is **OpenFreeMap** — same OSM data, no key, no account, "no limits on
+the number of map views or requests", self-hostable, and serving a ten-year
+cache header. The nautical overlay is **OpenSeaMap**, off by default.
+
+**Four sources, in order:** the Jetson's disk cache, the internet, the existing
+`.mbtiles` file, the coordinate graticule. The offline path still works and is
+still the answer for a survey with no coverage.
+
+**Vector rather than raster**, chosen mostly so the basemap can be muted. This
+map already carries five saturated overlay colours; a normal street map fights
+all of them. It also means a 5 km survey box costs ~20 tiles (~250 kB) instead
+of ~120 (~1.8 MB).
+
+**Tiles are fetched only on a `full` link.** On `reduced` and beacon the map
+lives on its cache and says so. One vector tile is fifteen seconds of a beacon
+budget.
+
+**Attribution was switched off** — `attributionControl: false` — which is an
+ODbL breach the moment any OSM-derived tile renders. It is now on, and each
+source carries its own string.
+
+**One promise worth keeping visible:** nothing pre-fetches. There is no
+seed-the-survey-box function and a test asserts there is no function that looks
+like one. A survey box is twenty tiles; the saving is not worth the habit.
+
+Also worth knowing: **the existing `.mbtiles` fallback may never have been
+producible.** Nothing in the repo says where that file comes from, and the
+obvious method — bulk-downloading from OSM — is what their policy forbids.
+`pmtiles extract` against the Protomaps daily build gives a bbox cutout under
+ODbL without scraping anybody. Not implemented; noted in `docs/map_tiles.md`.
+
+---
+
+## 13. Branch conflict warning
 
 Checked against the club repo at time of writing:
 
@@ -623,7 +672,7 @@ firmware. It is superseded by `firmware/pico-node_v4/`. Do not flash it.
 
 ---
 
-## 13. Also flagged
+## 14. Also flagged
 
 `scripts/deploy-pi.sh` targets `pi@boat.local` and looks stale — this project
 moved to a Jetson. Left untouched: it needs somebody who knows the current
@@ -774,3 +823,71 @@ propellers with nobody present, which is what channel 7 exists to prevent.
 it: the Pico does not reboot in that scenario, only the Jetson does, so the arm
 state is live in the firmware throughout. What kills propulsion is the SBUS
 failsafe, not the arming logic.
+
+
+---
+
+## 16. The e-stop path: one unverified claim, and one wrong number
+
+Both of these are about the relay that cuts ESC power, which is the worst place
+in this system to be silent or to be wrong. Neither changes how the boat
+behaves; both change whether somebody can tell what it is doing.
+
+### 16.1 Nothing verifies that the rail actually collapsed
+
+`ESTOP_FEEDBACK_ENABLED` is **0** in `firmware/pico-node_v4/`. The GPIO20
+divider trace is cut for bench testing, so `check_power_feedback()` compiles to
+nothing.
+
+**Commanding the relay open and observing the rail drop are two different
+claims, and only the first is being made.** A green vessel panel is not
+evidence of the second.
+
+The pre-flight check `pico.estop_feedback` now **WARNs on every run** while that
+is true, and says what is not verified rather than reporting that a flag is off
+— a crew reading `ESTOP_FEEDBACK_ENABLED is 0` learns nothing.
+
+It is amber rather than red on purpose. The vessel is not unsafe to operate:
+the hardware killswitch and RC channel 8 both cut propulsion independently.
+It is *unverified*, which is a different claim, and blocking launch on it would
+teach the crew to discount the verdict — the same reasoning as the mounting
+check in §5.2.
+
+To close it: set the firmware flag to 1 **and**
+`ESTOP_FEEDBACK_ENABLED` in `asket_common/mode_arbitration.py` to `True` in the
+same change. The cross-check test (§14) fails if the two disagree, in either
+direction — a stale warning trains people to ignore ambers, and a missing one
+hides a real gap.
+
+### 16.2 There is one relay, not four
+
+The panel read `0/4 relays closed`. There is no fourth relay and there never
+was: the `4` came from `num_relays` in the **simulator's** placeholder config,
+and the GUI faithfully rendered whatever length of array arrived.
+
+The real path was never wrong — `adapters.py` builds `[relay_closed]` from the
+single `relay=` field — so this existed only in simulation and mock mode, which
+is exactly where this GUI gets reviewed. The sentence it formed was about the
+e-stop path: three quarters of a safety mechanism appearing not to exist.
+
+Corrected at both ends (`asket_sim/core/pico.py` and the JS mock) and pinned by
+a cross-language test, because fixing one and not the other would leave sim mode
+and mock mode disagreeing about the e-stop path.
+
+The relay is now **named** — `ESC power`, GPIO21 — because unlike the hull
+wiring its function is confirmed in firmware source rather than guessed, and it
+carries a description saying that open-while-disarmed is correct rather than a
+fault. The summary line says `ESC power open` instead of counting to one.
+
+What stays unnamed is what is still unconfirmed: any further relay this hull
+might grow, and every ESC status code beyond 0. A panel that hedges about
+everything teaches an operator to discount all of it, so the two are described
+differently on purpose.
+
+### 16.3 `ESC_ARM_DELAY_MS`, pinned
+
+Restored as a mirror in `asket_common/mode_arbitration.py` and checked against
+the sketch. It is how long the firmware holds both thrusters at neutral after
+closing the relay, while the ESCs boot — unpinned, it is how software comes to
+read a vessel correctly waiting out its arm window as a vessel ignoring its
+throttle. An unpinned constant is how the next drift starts.

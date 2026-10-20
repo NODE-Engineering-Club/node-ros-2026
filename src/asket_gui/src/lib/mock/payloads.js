@@ -149,7 +149,10 @@ export function picoPayload(world, detail) {
   if (detail === 'reduced') return out;
 
   Object.assign(out, {
-    relay_states: [world.armed, world.armed, world.armed, world.armed],
+    // One relay, matching the firmware and asket_sim. This used to be four,
+    // which rendered as `0/4 relays closed` — a false statement about the
+    // e-stop path, in the mode the GUI gets reviewed in.
+    relay_states: [world.armed],
     esc_status: [world.armed ? 0 : 1, world.armed ? 0 : 1],
     hardware_killswitch_engaged: false,
     rc_channel7_raw: world.rcChannel7,
@@ -272,7 +275,22 @@ export function linkPayload(world, detail, context) {
       capacity_bytes_per_s: round(link.capacityBytesPerS, 0),
       rate_bytes_per_s: round(context.rateBytesPerS, 0),
       connected_clients: 1,
-      distance_m: round(world.distanceFromStationM(), 0),
+      distance_m: round(link.distanceM, 0),
+      // What the radio sees. Null on a bearer the budget does not model, and
+      // null is the honest answer there — a zero would render as "no signal".
+      rssi_dbm: round(link.rssiDbm, 1),
+      rssi_source: link.rssiSource ?? null,
+      expected_rssi_dbm: round(link.expectedRssiDbm, 1),
+      headroom_db: round(link.headroomDb, 1),
+      mcs_index: link.mcsIndex,
+      phy_mbps: round(link.phyMbps, 1),
+      // Geometry, which needs no radio telemetry at all, and which is reported
+      // even when the link is gone — that is when it is worth having.
+      off_boresight_deg: round(link.offBoresightDeg, 1),
+      sector_beamwidth_deg: round(link.sectorBeamwidthDeg, 0),
+      vessel_off_boresight_deg: round(link.vesselOffBoresightDeg, 1),
+      multipath_db: round(link.multipathDb, 1),
+      sea_state_m: round(link.seaStateM, 2),
     });
   }
   return out;

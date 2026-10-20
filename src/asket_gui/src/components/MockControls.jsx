@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { SCENARIOS } from '../lib/mock/scenarios.js';
+import { filledSetupValues } from '../lib/mock/setupProfile.js';
 
 /**
  * The dev control panel. Mock mode only.
@@ -33,6 +34,22 @@ export function MockControls({ connection, open, onOpenChange }) {
     redraw();
   };
 
+  // The one control that is not a toggle: a sequence, run through the ordinary
+  // command path so that what it produces is what pressing the same buttons
+  // produces. Mirrors SimSource.bring_up_healthy() in the backend.
+  const bringUpHealthy = () => {
+    for (const group of SCENARIOS) {
+      for (const item of group.items) {
+        if (item.kind === 'fault' && world.hasFault(item.id)) world.setFault(item.id, false);
+      }
+    }
+    connection.setProfile('auto');
+    connection.command('set_mode', { mode: 'AUTONOMOUS' });
+    connection.command('start_mission', { name: 'demo' });
+    connection.command('run_system_test', {});
+    redraw();
+  };
+
   const toggle = (id) => {
     if (id === 'confirm_slow') {
       world.confirmDelayS = world.confirmDelayS > 1 ? 0.6 : 2.5;
@@ -41,11 +58,16 @@ export function MockControls({ connection, open, onOpenChange }) {
     } else if (id === 'tiles') {
       world.mockTilesAvailable = !world.mockTilesAvailable;
       connection.notifyTilesChanged();
+    } else if (id === 'setup_filled') {
+      world.mockSetupValues = Object.keys(world.mockSetupValues ?? {}).length
+        ? {}
+        : filledSetupValues();
     }
     redraw();
   };
 
   const isOn = (item) => {
+    if (item.kind === 'action') return false;
     if (item.kind === 'fault') return world.hasFault(item.id);
     if (item.kind === 'profile') {
       return item.id === 'auto'
@@ -55,12 +77,16 @@ export function MockControls({ connection, open, onOpenChange }) {
     if (item.id === 'confirm_slow') return world.confirmDelayS > 1;
     if (item.id === 'confirm_fails') return world.confirmAlwaysFails;
     if (item.id === 'tiles') return Boolean(world.mockTilesAvailable);
+    if (item.id === 'setup_filled') {
+      return Object.keys(world.mockSetupValues ?? {}).length > 0;
+    }
     return false;
   };
 
   const act = (item) => {
     if (item.kind === 'fault') toggleFault(item.id);
     else if (item.kind === 'profile') setProfile(item.id);
+    else if (item.kind === 'action') bringUpHealthy();
     else toggle(item.id);
   };
 

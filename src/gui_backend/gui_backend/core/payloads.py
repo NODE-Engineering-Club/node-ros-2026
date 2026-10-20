@@ -41,6 +41,23 @@ def _f(value: float | None, digits: int = 6) -> float | None:
     return round(float(value), digits)
 
 
+def _opt_bool(value):
+    """``None`` stays ``None``; anything else becomes a real bool.
+
+    ``bool(None)`` is ``False``, and ``False`` here means "the Pico told us it
+    is not so". Collapsing the two turns a field that was never sent into a
+    confident negative — for ``rc_link_ok`` that reads on screen as "RC lost",
+    which is the single worst lie this panel could tell.
+    """
+    return None if value is None else bool(value)
+
+
+def _opt_int(value):
+    """Same, for counts. ``int(None)`` does not fail quietly — it raises, and
+    it raised here the moment a real STATE line reached this function."""
+    return None if value is None else int(value)
+
+
 # -- vessel ---------------------------------------------------------------
 
 
@@ -74,8 +91,21 @@ def vessel_payload(sample, detail: str = DETAIL_FULL) -> dict:
             "alt_m": _f(sample.alt, 2),
             "roll_deg": _f(sample.roll_deg, 2),
             "pitch_deg": _f(sample.pitch_deg, 2),
-            "gnss_fix_type": int(sample.gnss_fix_type),
-            "num_sats": int(sample.num_sats),
+            "gnss_fix_type": _opt_int(sample.gnss_fix_type),
+            # Absent, not zero, and therefore not int() either.
+            #
+            # `vessel_from_odometry` sets this to None on purpose: neither
+            # NavSatFix nor Odometry carries a satellite count and this stack
+            # has no MAVROS GPSRAW, so "0 satellites" would read as a GNSS
+            # failure and ground a healthy vessel. int(None) raises, and it
+            # raised on the first real Gazebo fix that reached this function —
+            # killing the hub's tick loop and with it every stream, at every
+            # detail level, for as long as the page stayed open.
+            #
+            # `_opt_int` and `_opt_bool` were written for exactly this in
+            # `pico_payload` and never applied here. SimSource always supplies
+            # a real count, so nothing in sim could reach the branch.
+            "num_sats": _opt_int(sample.num_sats),
             "hdop": _f(sample.hdop, 2),
             "distance_travelled_m": _f(sample.distance_travelled_m, 1),
             "on_survey": bool(sample.on_survey),
@@ -114,23 +144,6 @@ def heading_payload(estimate: HeadingEstimate, detail: str = DETAIL_FULL) -> dic
 # -- vessel systems -------------------------------------------------------
 
 MODE_NAMES = {0: "ESTOP", 1: "MANUAL", 2: "AUTONOMOUS"}
-
-
-def _opt_bool(value):
-    """``None`` stays ``None``; anything else becomes a real bool.
-
-    ``bool(None)`` is ``False``, and ``False`` here means "the Pico told us it
-    is not so". Collapsing the two turns a field that was never sent into a
-    confident negative — for ``rc_link_ok`` that reads on screen as "RC lost",
-    which is the single worst lie this panel could tell.
-    """
-    return None if value is None else bool(value)
-
-
-def _opt_int(value):
-    """Same, for counts. ``int(None)`` does not fail quietly — it raises, and
-    it raised here the moment a real STATE line reached this function."""
-    return None if value is None else int(value)
 
 
 def pico_payload(sample, detail: str = DETAIL_FULL) -> dict:
@@ -347,6 +360,35 @@ def link_payload(sample, profile: str, profile_manual: bool, clients: int,
                 "rate_bytes_per_s": _f(rate_bytes_per_s, 0),
                 "connected_clients": int(clients),
                 "distance_m": _f(sample.distance_m, 0),
+                # What the radio sees. None on a bearer we do not model from
+                # physics, and None is the honest answer there rather than a
+                # zero that would read as "no signal".
+                "rssi_dbm": _f(getattr(sample, "rssi_dbm", None), 1),
+                # "measured" or "predicted". A modelled signal shown as though
+                # it were read off the radio is exactly the lie this interface
+                # exists to prevent, so the panel is told which it has. Nothing
+                # reads the radio yet, so on the real vessel this is
+                # "predicted"; in simulation there is a simulated radio, so it
+                # is "measured" — of a simulated thing, which the dev panel is
+                # never in any doubt about.
+                "rssi_source": getattr(sample, "rssi_source", None),
+                "expected_rssi_dbm": _f(getattr(sample, "expected_rssi_dbm", None), 1),
+                "headroom_db": _f(getattr(sample, "headroom_db", None), 1),
+                "mcs_index": _opt_int(getattr(sample, "mcs_index", None)),
+                "phy_mbps": _f(getattr(sample, "phy_mbps", None), 1),
+                # Geometry, which needs no radio telemetry at all. This is the
+                # half that survives the MikroTik exposing nothing we can read,
+                # and it is the half that turns "the link dropped" into "the
+                # link is going to drop".
+                "off_boresight_deg": _f(getattr(sample, "off_boresight_deg", None), 1),
+                "sector_beamwidth_deg": _f(
+                    getattr(sample, "sector_beamwidth_deg", None), 0
+                ),
+                "vessel_off_boresight_deg": _f(
+                    getattr(sample, "vessel_off_boresight_deg", None), 1
+                ),
+                "multipath_db": _f(getattr(sample, "multipath_db", None), 1),
+                "sea_state_m": _f(getattr(sample, "sea_state_m", None), 2),
             }
         )
     return out

@@ -75,9 +75,31 @@ sources:
     topic: /mission/state
     type: asket_interfaces/msg/MissionState
     optional: true
+  # The pre-flight report, as system_test_node publishes it.
+  #
+  # This used to point at /diagnostics (diagnostic_msgs/DiagnosticArray), which
+  # is a different thing entirely: that topic is the ROS-wide node-health bus,
+  # and system_test_node *subscribes* to it to check which nodes are present.
+  # It carries no GO/NO-GO verdict, no remedies and no check ids, so the Pre-
+  # flight panel could never have been populated from it. Nothing consumed the
+  # entry either way, so nothing complained.
+  preflight_report:
+    topic: /system_test/report
+    type: asket_interfaces/msg/SystemTestReport
+  # The ROS-wide node-health bus, read for one thing only: the mounting
+  # geometry the sonar bridge says it is running on, and its digest.
+  #
+  # The setup page predicts that digest from the numbers it sent and waits for
+  # the bridge to report it. Without this subscription there is nothing to
+  # wait for, and `apply_setup` can only ever report that the vessel is not
+  # saying — which is honest and useless.
+  #
+  # Optional, because a vessel without omniscan_bridge running is a vessel
+  # where this is correctly absent rather than broken.
   diagnostics:
     topic: /diagnostics
     type: diagnostic_msgs/msg/DiagnosticArray
+    optional: true
 
 # Where commands go. Mode requests reach the Pico through pico_bridge, which
 # this repository does not modify, so the interface is named here.
@@ -100,6 +122,14 @@ commands:
   run_system_test:
     service: /system_test/run
     type: asket_interfaces/srv/RunSystemTest
+  # The other half of the setup page. Saving writes the file; this makes the
+  # sonar bridge re-read it, and the bridge answers with the geometry digest it
+  # is now running on — which is what the page waits for before it says a
+  # change took effect. std_srvs/Trigger because there is nothing to send: the
+  # file is the message.
+  apply_setup:
+    service: /omniscan_bridge/reload_mounting
+    type: std_srvs/srv/Trigger
 
 # What "Cut propulsion" actually does.
 #
@@ -127,6 +157,54 @@ estop:
     armed and in AUTONOMOUS, so this removes software authority — it does not
     stop the boat. The hardware killswitch and RC channel 8 are the only things
     that cut propulsion.
+
+# Where the shore station stands, and which way it faces.
+#
+# PROVISIONAL, and deliberately **not configured** by default. The tripod moves
+# between missions and can be turned by hand mid-mission, so there is no
+# surveyed position to fall back on — and a default one would have the panel
+# draw a confident bearing to a station that is somewhere else. While
+# `configured: false` the geometry fields go out as null and the panel says the
+# station has not been entered, which is true and is actionable.
+#
+# Fill this in and the link panel gains range, bearing from the sector's
+# boresight, and a signal *predicted* from the link budget (labelled as
+# predicted — nothing reads the radio yet). The same module and the same
+# arithmetic the simulator uses: asket_common/link_budget.py.
+#
+# These values belong on the mission setup page beside the sonar mounting
+# geometry. This entry is the interim. See docs/open_questions.md Q11.
+shore_station:
+  configured: false
+  lat: 0.0
+  lon: 0.0
+  # Phase centre above the water: the 2.9 m tripod, plus a little.
+  height_m: 2.9
+  # Compass bearing the sector faces.
+  boresight_deg: 0.0
+  antenna:
+    # MikroTik mANTBox ax 15s: 15 dBi, 120 deg azimuth (checked against
+    # MikroTik's own product pages). The elevation figure is a guess — they
+    # publish the pattern as a plot and state no number — and it only matters
+    # very close in, under the tripod.
+    gain_dbi: 15.0
+    azimuth_beamwidth_deg: 120.0
+    elevation_beamwidth_deg: 10.0
+  vessel_radio:
+    # Omnidirectional on the boat: the gain lives ashore where the tripod does
+    # not move during a line. Height is a guess and it is the term that
+    # dominates useful range — the two-ray null structure goes as the product
+    # of the two antenna heights.
+    height_m: 1.0
+  freq_mhz: 5500.0
+  # Every doubling of channel width costs 3 dB of range and buys twice the
+  # throughput. This link's job is a camera and telemetry, and even 20 MHz at a
+  # middling modulation carries more than the video needs.
+  channel_width_mhz: 40.0
+  # Significant wave height. Decides whether the close-in multipath nulls
+  # exist: the Atlantic off Walvis Bay rarely does, a calm morning inshore
+  # does, and that is when somebody is testing at the ramp.
+  wave_height_m: 0.5
 
 # Battery capacity, needed to turn a percentage into an endurance estimate.
 # PROVISIONAL (Q5).

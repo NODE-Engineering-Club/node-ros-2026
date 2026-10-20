@@ -6,6 +6,7 @@ faulty link in thirty seconds rather than an hour.
 
 import pytest
 from system_test.core.checks import (
+    MOUNTING_FIELD,
     CHECKS,
     FAIL,
     PASS,
@@ -26,11 +27,16 @@ HEALTHY = dict(
     lidar_rotation_hz=10.0, lidar_points_per_revolution=400,
     sonar_connected=True, sonar_ping_rate_hz=5.0, sonar_points_per_ping=256,
     clock_offset_ms=12,
+    # The Jetson's own clock against GPS time. A healthy vessel is
+    # disciplined; the check that reads this measures drift rather than
+    # asking whether the NTP daemon says it is locked.
+    gps_time_offset_ms=40, gps_time_age_s=1.0,
     disk_free_bytes=200 * 1024**3, disk_write_mbps=120.0,
     state_of_charge=0.9, battery_voltage=28.0,
     link_rtt_ms=25.0, link_active="wifi",
     expected_nodes=["omniscan_bridge"], present_nodes=["omniscan_bridge"],
     pico_state_format_verified=True, pico_state_parsed=True, pico_state_unknown_keys=[],
+    pico_estop_feedback_enabled=True,
     mounting=dict(
         path="/etc/asket/mounting.yaml", found=True, measured=True,
         measured_by="AD", measured_utc="2026-03-02", error="", unknown_fields=[],
@@ -265,7 +271,13 @@ def test_unmeasured_mounting_geometry_warns_but_does_not_ground_the_vessel():
     result = item(report, "sonar.mounting")
     assert result.status == WARN
     assert "PROVISIONAL" in result.message
-    assert "measured: true" in result.remedy
+    # The remedy names the Setup page, not `measured: true` in a YAML file.
+    # It used to name the file, and that is precisely what did not work: the
+    # same amber warning came back on every run for two weeks because the file
+    # it named lived behind an SSH session nobody in the club has. An
+    # instruction only one person can carry out is not a remedy.
+    assert "Setup page" in result.remedy
+    assert result.setup_field == MOUNTING_FIELD
     # A warning, deliberately: an unmeasured lever arm ruins the survey, it
     # does not endanger the boat. Blocking launch on it would teach the crew to
     # ignore the verdict.
@@ -273,9 +285,26 @@ def test_unmeasured_mounting_geometry_warns_but_does_not_ground_the_vessel():
     assert "warning" in report.summary
 
 
-def test_the_warning_names_the_file_you_have_to_edit():
+def test_the_warning_points_somewhere_the_crew_can_actually_go():
+    """It named the file for months. The file is on the Jetson, behind SSH, and
+    the warning went unactioned for two weeks — so the thing it names now is the
+    field on the Setup page, which anybody with the laptop open can fill in.
+
+    The path has not been thrown away. It still appears wherever the file
+    itself is the problem — unparseable, or holding entries nobody recognises —
+    because there you do need to know which file.
+    """
     report = run_checks(dict(HEALTHY, mounting=dict(
         PROVISIONAL_MOUNTING, path="/opt/asket/config/mounting.yaml")))
+    result = item(report, "sonar.mounting")
+    assert result.setup_field == MOUNTING_FIELD
+    assert "Setup page" in result.remedy
+
+
+def test_a_broken_file_still_names_the_file():
+    report = run_checks(dict(HEALTHY, mounting=dict(
+        PROVISIONAL_MOUNTING, path="/opt/asket/config/mounting.yaml",
+        error="not valid YAML: line 12")))
     assert "/opt/asket/config/mounting.yaml" in item(report, "sonar.mounting").message
 
 
@@ -390,3 +419,53 @@ def test_no_pico_status_at_all_is_unknown_not_a_pass():
     state = dict(HEALTHY)
     del state["pico_state_format_verified"]
     assert item(run_checks(state), "pico.state_format").status == SKIPPED
+
+
+# -- the e-stop feedback that does not exist yet ---------------------------
+
+
+def test_the_estop_feedback_warns_on_every_run_while_it_is_compiled_out():
+    """What the repository ships with today.
+
+    ESTOP_FEEDBACK_ENABLED is 0, so nothing in the firmware confirms the ESC
+    rail actually collapsed when the relay was commanded open. Commanding a
+    relay and observing the rail drop are two different claims and only the
+    first is being made — so the pre-flight says so, every run, until somebody
+    enables it.
+    """
+    report = run_checks(dict(HEALTHY, pico_estop_feedback_enabled=False))
+    result = item(report, "pico.estop_feedback")
+    assert result.status == WARN
+    # The message has to say what is *not verified*, not merely that a flag is
+    # off. A crew reading "ESTOP_FEEDBACK_ENABLED is 0" learns nothing.
+    assert "collapsed" in result.message or "verified" in result.message.lower()
+    assert "relay was commanded open" in result.message
+    assert "ESTOP_FEEDBACK_ENABLED" in result.remedy
+
+    # Amber, not red: the vessel is not unsafe to operate — the hardware
+    # killswitch and RC channel 8 both cut propulsion independently — it is
+    # unverified, which is a different claim. Blocking launch on it would teach
+    # the crew to ignore the verdict.
+    assert report.go
+
+
+def test_the_estop_feedback_passes_once_the_firmware_confirms_the_rail():
+    report = run_checks(dict(HEALTHY, pico_estop_feedback_enabled=True))
+    assert item(report, "pico.estop_feedback").status == PASS
+
+
+def test_a_build_that_does_not_report_the_flag_is_unknown_not_fine():
+    """Unknown is not pass, here as everywhere else."""
+    state = dict(HEALTHY)
+    del state["pico_estop_feedback_enabled"]
+    result = item(run_checks(state), "pico.estop_feedback")
+    assert result.status == SKIPPED
+    assert result.remedy
+
+
+def test_the_shipped_default_is_off_so_the_warning_is_the_normal_case():
+    """If somebody flips the Python mirror without the firmware, this fails —
+    and the cross-check test in asket_common fails alongside it."""
+    from asket_common.mode_arbitration import ESTOP_FEEDBACK_ENABLED
+
+    assert ESTOP_FEEDBACK_ENABLED is False

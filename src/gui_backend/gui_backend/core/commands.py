@@ -49,6 +49,14 @@ CMD_RUN_SYSTEM_TEST = "run_system_test"
 CMD_SET_PROFILE = "set_profile"
 CMD_INJECT_FAULT = "inject_fault"
 CMD_CLEAR_FAULT = "clear_fault"
+#: Save the setup, and make the vessel pick it up.
+#:
+#: Two commands rather than one. Saving is a file write and is reversible;
+#: applying is the vessel changing how it places every sounding, needs the
+#: boat in a known state, and needs confirming afterwards. Collapsing them
+#: would make the dangerous half invisible inside the safe half.
+CMD_SAVE_SETUP = "save_setup"
+CMD_APPLY_SETUP = "apply_setup"
 
 #: Commands that change what the vessel is doing. These get the two-step
 #: confirmation in the UI and the confirmation watch here.
@@ -128,6 +136,52 @@ class CommandManager:
             self._pending[cmd.id] = cmd
         return cmd
 
+    def begin(
+        self,
+        name: str,
+        args: dict,
+        now_utc_ms: int,
+        command_id: str | None = None,
+    ) -> Command:
+        """Register a command the backend resolves itself, within this call.
+
+        `issue` with no predicate settles immediately as "applied", which is
+        right for a profile change — there is nothing to observe and nothing
+        that can go wrong. It is wrong for work that *can* go wrong without a
+        vessel being involved: writing the setup file can be refused by the
+        gate, rejected for a bad value, or fail on a full disk, and each of
+        those is a different sentence the operator needs.
+
+        So this leaves the command pending and the caller must end it with
+        `settle` or `fail` before returning. Every path in such a handler
+        resolves it; one that did not would time out with "no confirmation
+        from the vessel", which would be a lie about where the fault was.
+        """
+        cmd = Command(
+            id=command_id or uuid.uuid4().hex[:12],
+            name=name,
+            args=dict(args),
+            issued_utc_ms=now_utc_ms,
+            timeout_s=self.timeout_s,
+        )
+        self._pending[cmd.id] = cmd
+        return cmd
+
+    def settle(self, cmd: Command, detail: str, now_utc_ms: int) -> Command:
+        """Mark a command done, with what actually happened.
+
+        The counterpart of `fail` for work the backend did itself. `detail` is
+        not decoration: for a setup save it is the difference between "saved,
+        and in use" and "saved, but the sonar bridge is still using the old
+        numbers", and those are the two things somebody most needs told apart.
+        """
+        self._pending.pop(cmd.id, None)
+        cmd.status = STATUS_CONFIRMED
+        cmd.detail = detail
+        cmd.resolved_utc_ms = now_utc_ms
+        self._archive(cmd)
+        return cmd
+
     def fail(self, cmd: Command, detail: str, now_utc_ms: int) -> Command:
         """Mark a command failed at the point of sending."""
         self._pending.pop(cmd.id, None)
@@ -202,6 +256,35 @@ def recording_confirmed(should_be_recording: bool):
         mission = state.get("mission") or {}
         is_recording = mission.get("state") == "RECORDING"
         return is_recording == should_be_recording
+
+    return check
+
+
+def mounting_reloaded(fingerprint: str):
+    """The sonar bridge is now placing soundings with these numbers.
+
+    Safety rule 4 applied to configuration. The page does not say "done" when
+    the file has been written, and not when the reload command was sent — only
+    when the node *reports* the geometry it is using and that geometry is the
+    one somebody just measured.
+
+    The three are genuinely different and the gap between them is where the
+    failure lives: a file can be written while a node carries on with the old
+    lever arm, and a reload can be refused — because the file will not parse —
+    while the page shows a tick. That is the same class of problem as a
+    pre-flight warning naming a YAML nobody can open: it looks finished, and
+    it is not.
+
+    Compared by fingerprint rather than by field, because the question is not
+    "did something change" but "is the vessel on the exact geometry I just
+    sent". A reload that landed on a *different* new value — somebody else
+    saved in between — must read as failed, and a field-by-field comparison
+    with a tolerance would quietly call it success.
+    """
+
+    def check(state: dict) -> bool:
+        mounting = (state.get("mounting") or {})
+        return bool(fingerprint) and mounting.get("fingerprint") == fingerprint
 
     return check
 

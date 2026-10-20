@@ -14,12 +14,21 @@ import {
   MODE_AUTONOMOUS,
   MODE_ESTOP,
   MODE_MANUAL,
+  MODE_NAMES,
   MockWorld,
 } from './world.js';
+import { gateDecision } from '../setup.js';
+import { FIELDS } from './setupProfile.js';
 import { PROFILES, PROFILE_ORDER, STREAMS, estimateBytesPerS, resolve } from './policy.js';
 import * as payloads from './payloads.js';
+import * as VF from './videoFrame.js';
 
 const TICK_MS = 100;
+
+// Mirrors CAMERA_SIZES in gui_backend/core/sim_source.py. 640x480 is the
+// sensor's native resolution — both the real calibration and the Gazebo
+// model say so — and there is no higher rung to offer.
+const CAMERA_SIZES = { full: [640, 480], reduced: [320, 240], minimal: [160, 120] };
 const PING_INTERVAL_MS = 2000;
 const MODE_VALUES = { ESTOP: MODE_ESTOP, MANUAL: MODE_MANUAL, AUTONOMOUS: MODE_AUTONOMOUS };
 
@@ -309,7 +318,91 @@ export class MockTransport {
       return;
     }
 
+    if (name === 'save_setup') {
+      this.#saveSetup(args, result);
+      return;
+    }
+
     result('failed', `command '${name}' is not available in mock mode`);
+  }
+
+  /**
+   * The setup save, in mock mode.
+   *
+   * Worth having rather than failing as "not available": the three guards are
+   * the part of this page most worth reviewing, and two of them — the gate's
+   * refusal and "saved, but the sonar bridge is still using the old numbers" —
+   * can only be judged by pressing the button and reading what comes back.
+   *
+   * The gate is re-evaluated here off the world's own state rather than
+   * trusting what the page sent, which is the arrangement on the vessel: the
+   * Jetson refuses, and a page left open on a laptop cannot talk its way
+   * past it.
+   */
+  #saveSetup(args, result) {
+    const decision = gateDecision({
+      streams: {
+        pico: { payload: { armed: this.world.armed, mode: MODE_NAMES[this.world.mode] } },
+        mission: { payload: { state: this.world.missionState } },
+      },
+    });
+    if (!decision.allowed) {
+      result('failed', `${decision.reason} ${decision.remedy}`);
+      return;
+    }
+    if (!args.confirmed) {
+      result(
+        'failed',
+        'This change was not confirmed. Setup is not written on an unconfirmed request.',
+      );
+      return;
+    }
+    const fields = args.fields || {};
+    const ids = Object.keys(fields);
+    if (ids.length === 0) {
+      result('failed', 'Nothing was changed, so nothing was saved.');
+      return;
+    }
+
+    const specs = new Map(FIELDS.map((spec) => [spec.id, spec]));
+    const values = { ...(this.world.mockSetupValues ?? {}) };
+    const appliedBy = new Set();
+    for (const id of ids) {
+      const spec = specs.get(id);
+      if (!spec) {
+        result('failed', `There is no setup field called '${id}'.`);
+        return;
+      }
+      const raw = fields[id]?.value;
+      let value = raw;
+      if (spec.choices.length === 0 && typeof spec.default !== 'string') {
+        value = Number(raw);
+        if (!Number.isFinite(value)) {
+          result('failed', `${spec.label} has to be a number. '${raw}' is not one.`);
+          return;
+        }
+      }
+      values[id] = {
+        value,
+        provenance: fields[id]?.provenance || 'entered',
+        set_utc_ms: this.world.utcMs,
+        set_by: String(args.by || ''),
+        note: String(fields[id]?.note || ''),
+      };
+      if (spec.takes_effect !== 'immediately') appliedBy.add(spec.applied_by);
+    }
+    this.world.mockSetupValues = values;
+
+    // The same distinction the Python makes, and the reason the page does not
+    // say "done": the file is written, and that is all that has happened.
+    result(
+      'confirmed',
+      appliedBy.size
+        ? `${ids.length === 1 ? 'This value' : `${ids.length} values`} saved, but `
+          + `${[...appliedBy].join(' and ')} ${appliedBy.size === 1 ? 'is' : 'are'} `
+          + 'still using the old ones until they re-read them.'
+        : 'Saved, and in use — every value changed is read live.',
+    );
   }
 
   #updateCommands() {
@@ -508,6 +601,10 @@ export class MockTransport {
     const nowMs = this.world.utcMs;
     for (const [name, sub] of this.subscriptions) {
       if (!sub.resolution.granted) continue;
+      if (name === 'camera') {
+        this.#pushCamera(sub, nowMs);
+        continue;
+      }
       const spec = STREAMS[name];
       let payload;
 
@@ -534,6 +631,69 @@ export class MockTransport {
         payload,
       });
     }
+  }
+
+  /**
+   * Pixels, or a reason there are none — and unlike every other stream, one
+   * or the other on EVERY due tick.
+   *
+   * Saying nothing is the right answer elsewhere; a stream with nothing to
+   * report should let the panel age it out. It is the wrong answer here,
+   * because the panel has to tell a vessel that has stopped sending from a
+   * link that has stopped carrying, and from the shore those are identical.
+   * The status frame is the difference, and it is eighty bytes.
+   */
+  #pushCamera(sub, nowMs) {
+    if (sub.resolution.rate_hz <= 0 || nowMs < sub.nextDueMs) return;
+    sub.nextDueMs = nowMs + 1000 / sub.resolution.rate_hz;
+
+    const camera = this.world.camera;
+    const state = this.world.cameraState();
+    const size = CAMERA_SIZES[sub.resolution.detail] ?? CAMERA_SIZES.full;
+    const frame = state === 'live' ? camera.frame(size[0], size[1]) : null;
+
+    if (frame) {
+      this.#emitBinary(VF.encode(
+        VF.frameHeader({
+          seq: frame.seq,
+          sourceUtcMs: frame.utcMs,
+          serverUtcMs: nowMs,
+          width: frame.width,
+          height: frame.height,
+          format: frame.format,
+          sizeBytes: frame.bytes.length,
+          detail: sub.resolution.detail,
+          rateHz: sub.resolution.rate_hz,
+        }),
+        frame.bytes,
+      ));
+      return;
+    }
+
+    let reason = VF.REASON_NOT_STARTED;
+    if (state === 'dead') reason = VF.REASON_DEAD;
+    else if (state === 'frozen') reason = VF.REASON_FROZEN;
+    else if (camera.framesProduced > 0) {
+      // Live, the shutter is running, and the encoder has not caught up with
+      // this exposure yet. That is not a fault and must not be reported as
+      // one: a single missed tick is what the panel's "late" rung is for, and
+      // claiming "no frames yet" while fourteen have been taken would be a
+      // contradiction on the face of it.
+      return;
+    }
+
+    this.#emitBinary(VF.encode(VF.statusHeader({
+      reason,
+      serverUtcMs: nowMs,
+      rateHz: sub.resolution.rate_hz,
+      lastFrameUtcMs: camera.lastFrameUtcMs,
+      framesProduced: camera.framesProduced,
+    })));
+  }
+
+  #emitBinary(buffer) {
+    if (!this.onmessage || this.readyState !== OPEN) return;
+    this.onmessage({ data: buffer });
   }
 
   #payload(name, sub) {

@@ -46,6 +46,23 @@ class CheckResult:
     units: str = ""
     #: True when the check exercised hardware rather than merely observing it.
     active: bool = False
+    #: The setup field this check is waiting on, if it is waiting on one.
+    #:
+    #: Empty for every check that reports a fault. Set only where the answer is
+    #: "nobody has told us this yet" — which is a different thing from "this is
+    #: broken" and needs a different response from the operator.
+    #:
+    #: The distinction earns its place because of a specific failure.
+    #: ``sonar.mounting`` has returned an amber warning on every run for two
+    #: weeks, naming ``mounting.yaml``, and nothing has happened — the file sits
+    #: behind an SSH session nobody in the club has, so the warning reads as
+    #: background noise rather than as a task. Naming the *field* rather than
+    #: the file is what lets the panel group these separately, and later lets it
+    #: link straight to the setup page with that field in view.
+    #:
+    #: Ids are dotted and tier-first, matching docs/setup_page.md:
+    #: ``vessel.sonar.mounting``, ``deployment.station.position``.
+    setup_field: str = ""
 
     def to_dict(self) -> dict:
         value = self.measured_value
@@ -58,6 +75,7 @@ class CheckResult:
             "measured_value": None if isinstance(value, float) and math.isnan(value) else value,
             "units": self.units,
             "active": self.active,
+            "setup_field": self.setup_field,
         }
 
 
@@ -77,6 +95,19 @@ class Thresholds:
     min_sonar_ping_rate_hz: float = 1.0
     min_sonar_points: int = 32
     max_clock_offset_ms: int = 250
+    #: How far the Jetson's own clock may sit from GPS time before a survey
+    #: recorded on it is worthless. One second.
+    #:
+    #: Deliberately generous, and deliberately a *drift* threshold rather than
+    #: a question about whether the NTP daemon is currently locked. A daemon
+    #: that has not yet achieved lock on a cold GPS start is not a reason to
+    #: refuse a mission — a clock that is wrong is. If the clock is right, it
+    #: does not matter how it got there.
+    max_gps_offset_ms: int = 1000
+    #: How old a GPS time reference may be before it says nothing about the
+    #: clock now. A reference from five minutes ago cannot report on a drift
+    #: that started four minutes ago.
+    max_gps_time_age_s: float = 30.0
     min_disk_free_bytes: int = 20 * 1024**3
     min_disk_write_mbps: float = 20.0
     max_link_rtt_ms: float = 400.0
@@ -240,6 +271,49 @@ def _state_format(state: dict, t: Thresholds) -> CheckResult:
     return CheckResult(
         "pico.state_format", "Pico status format", PASS,
         "Verified against real firmware output", "",
+    )
+
+
+@check("pico.estop_feedback", "E-stop power feedback")
+def _estop_feedback(state: dict, t: Thresholds) -> CheckResult:
+    """Does anything actually verify that ESC power dropped when commanded?
+
+    No. ``ESTOP_FEEDBACK_ENABLED`` is 0 in the firmware — the GPIO20 divider
+    trace is cut for bench testing — so ``check_power_feedback()`` compiles to
+    nothing and the firmware never confirms the relay did what it was told.
+
+    **Commanding the relay open and observing the rail collapse are two
+    different claims, and only the first is being made.** A green vessel panel
+    is not evidence of the second.
+
+    This WARNs on every run until the feedback is enabled, for the same reason
+    the mounting-geometry check does: an assumption nobody is reminded of
+    quietly becomes a belief. It is amber rather than red because the vessel is
+    not unsafe to operate — the hardware killswitch and RC channel 8 both cut
+    propulsion independently — it is unverified, which is a different thing and
+    is worth saying in different words.
+    """
+    enabled = state.get("pico_estop_feedback_enabled")
+    if enabled is None:
+        return _missing("pico.estop_feedback", "E-stop power feedback",
+                        "not reported by this build")
+
+    if not enabled:
+        return CheckResult(
+            "pico.estop_feedback", "E-stop power feedback", WARN,
+            "Not verified: nothing confirms the ESC rail actually collapsed "
+            "when the relay was commanded open",
+            "ESTOP_FEEDBACK_ENABLED is 0 in firmware/pico-node_v4 and the "
+            "GPIO20 divider trace is cut for bench testing. Set it to 1, and "
+            "ESTOP_FEEDBACK_ENABLED in gui_backend/core/pico_state.py to True "
+            "in the same change, once the hardware is ready. Until then the "
+            "hardware killswitch and RC channel 8 are the only propulsion cuts "
+            "with any confirmation behind them.",
+        )
+
+    return CheckResult(
+        "pico.estop_feedback", "E-stop power feedback", PASS,
+        "Enabled: the firmware confirms the rail collapsed", "",
     )
 
 
@@ -487,6 +561,93 @@ def _sonar(state: dict, t: Thresholds) -> CheckResult:
     )
 
 
+@check("clock.gps_offset", "Jetson clock against GPS", critical=True)
+def _gps_clock(state: dict, t: Thresholds) -> CheckResult:
+    """Is the Jetson's own clock right?
+
+    The hop before ``sonar.clock``, and the one nothing was checking. The
+    chain is:
+
+        GPS time -> (NTP daemon) -> Jetson clock -> (NTP) -> sonar clock
+
+    ``sonar.clock`` covers the second arrow. Without this check the two clocks
+    can agree with each other perfectly and both be wrong, which is the worst
+    possible shape for the failure: the sonar log and the trajectory merge
+    without complaint and the whole survey sits in the wrong place in time.
+    Nobody finds out until somebody tries to tie it to anything external.
+
+    **This measures drift, not whether the daemon says it is locked.** A cold
+    GPS start on a Namibian beach can take ten minutes, and a daemon that has
+    not yet converged is not a reason to refuse a mission — a clock that is
+    wrong is. If the clock is right, how it got there is nobody's business. So
+    the wait, when there is one, is a wait for a *fix*, which ``gnss.fix``
+    reports in its own words.
+    """
+    offset = state.get("gps_time_offset_ms")
+    age_s = state.get("gps_time_age_s")
+    fix_type = state.get("gnss_fix_type")
+
+    if fix_type is None:
+        # Nothing is reporting position at all, so there is no fix to say
+        # there is no fix about. Unknown, reported as unknown — the file's own
+        # first principle, and the alternative reads as a specific fault
+        # ("no GPS time reference") when the real situation is that nothing
+        # is running.
+        return _missing(
+            "clock.gps_offset", "Jetson clock against GPS", "no position messages",
+        )
+
+    if fix_type < 3:
+        # No fix, so no GPS time, so nothing to compare against. Reported as
+        # unknown rather than failed: `gnss.fix` already carries this and
+        # saying it twice in different words sends somebody looking for two
+        # problems.
+        return CheckResult(
+            "clock.gps_offset", "Jetson clock against GPS", SKIPPED,
+            "No GPS fix yet, so the clock cannot be checked against one",
+            "Wait for the fix — see the GNSS check. The clock is not known to "
+            "be wrong; it is not yet known to be right.",
+        )
+
+    if offset is None:
+        # There is a fix and still no time reference. Something in the path
+        # that carries GPS time is not working, and a survey would be recorded
+        # on a clock nobody has verified — which is what this check exists to
+        # prevent, so it fails rather than shrugging.
+        return CheckResult(
+            "clock.gps_offset", "Jetson clock against GPS", FAIL,
+            "No GPS time reference, so the Jetson's clock is unverified",
+            "There is a fix but nothing is publishing GPS time "
+            "(/mavros/time_reference). Everything recorded would be timed by "
+            "a clock nobody has checked. See docs/SETUP.md section 1.",
+        )
+
+    if age_s is not None and age_s > t.max_gps_time_age_s:
+        return CheckResult(
+            "clock.gps_offset", "Jetson clock against GPS", FAIL,
+            f"The last GPS time reference is {age_s:.0f} s old",
+            "A reference that old says nothing about the clock now. Check "
+            "that the GPS is still publishing time.",
+            age_s, "s",
+        )
+
+    if abs(offset) > t.max_gps_offset_ms:
+        return CheckResult(
+            "clock.gps_offset", "Jetson clock against GPS", FAIL,
+            f"The Jetson's clock is {offset / 1000.0:+.1f} s from GPS time",
+            "Every point recorded would be placed at the wrong moment, and "
+            "the sonar log and the trajectory would merge without complaint "
+            "into a dataset that is simply wrong. Check the GPS-disciplined "
+            "NTP server on the Jetson — docs/SETUP.md section 1.",
+            offset, "ms",
+        )
+
+    return CheckResult(
+        "clock.gps_offset", "Jetson clock against GPS", PASS,
+        f"Within {abs(offset)} ms of GPS time", "", offset, "ms",
+    )
+
+
 @check("sonar.clock", "Sonar clock (NTP)", critical=True)
 def _clock(state: dict, t: Thresholds) -> CheckResult:
     """The check most likely to save a whole dataset.
@@ -514,6 +675,13 @@ def _clock(state: dict, t: Thresholds) -> CheckResult:
     )
 
 
+#: The setup field ``sonar.mounting`` is waiting on. Vessel tier: measured once
+#: on a given hull and kept, which is also why this check stays amber rather
+#: than becoming a FAIL — it is a thing to do properly once, not a thing that
+#: goes stale.
+MOUNTING_FIELD = "vessel.sonar.mounting"
+
+
 @check("sonar.mounting", "Sonar mounting geometry")
 def _mounting(state: dict, t: Thresholds) -> CheckResult:
     """Has anybody actually measured where the transducer is?
@@ -533,6 +701,23 @@ def _mounting(state: dict, t: Thresholds) -> CheckResult:
                         "mounting configuration not reported")
 
     path = m.get("path") or "mounting.yaml"
+    overlay = m.get("overlay") or {}
+
+    if overlay.get("error"):
+        # Checked before the base file's own error, because this is the file
+        # somebody wrote from the setup page — probably minutes ago, probably
+        # standing next to the boat. "The setup page did not take" is a
+        # different sentence from "mounting.yaml is malformed", and the first
+        # one is the one they can act on.
+        return CheckResult(
+            "sonar.mounting", "Sonar mounting geometry", FAIL,
+            f"The setup file could not be used ({overlay['error']}) — "
+            "anything set on the Setup page is being ignored",
+            f"Open the Setup page and re-enter the mounting geometry. The file "
+            f"at {overlay.get('path') or 'the setup path'} is unreadable, so "
+            "the sonar is running on whatever the package default says.",
+            setup_field=MOUNTING_FIELD,
+        )
 
     if m.get("error"):
         # The worst of the three states: somebody may well have measured the
@@ -545,12 +730,16 @@ def _mounting(state: dict, t: Thresholds) -> CheckResult:
             "and restart omniscan_bridge; do not survey until it loads.",
         )
 
-    if m.get("missing") or not m.get("found"):
+    applied = overlay.get("applied") or []
+
+    if (m.get("missing") or not m.get("found")) and not applied:
         return CheckResult(
             "sonar.mounting", "Sonar mounting geometry", WARN,
             "No mounting file — the sonar's position is a hard-coded guess",
             "Measure the tilt and the lever arm from the GNSS antenna to the "
-            f"transducer, write them into {path}, and set measured: true.",
+            "transducer and enter them on the Setup page. There is no need to "
+            f"edit {path} over SSH.",
+            setup_field=MOUNTING_FIELD,
         )
 
     unknown = m.get("unknown_fields") or []
@@ -566,17 +755,22 @@ def _mounting(state: dict, t: Thresholds) -> CheckResult:
     if not m.get("measured"):
         return CheckResult(
             "sonar.mounting", "Sonar mounting geometry", WARN,
-            f"Mounting geometry is PROVISIONAL — {path} says nobody measured it",
+            "Mounting geometry is PROVISIONAL — nobody has measured this hull",
             "Measure the tilt and the lever arm from the GNSS antenna to the "
-            "transducer, to the centimetre, then set measured: true. Until "
-            "then every sounding carries the same unknown offset.",
+            "transducer, to the centimetre, and enter them on the Setup page "
+            "as measured. Until then every sounding carries the same unknown "
+            "offset.",
+            setup_field=MOUNTING_FIELD,
         )
 
     who = m.get("measured_by") or "unrecorded"
     when = m.get("measured_utc") or "date unrecorded"
+    source = (
+        f"; {len(applied)} value(s) from the Setup page" if applied else ""
+    )
     return CheckResult(
         "sonar.mounting", "Sonar mounting geometry", PASS,
-        f"Measured by {who}, {when}", "",
+        f"Measured by {who}, {when}{source}", "",
     )
 
 

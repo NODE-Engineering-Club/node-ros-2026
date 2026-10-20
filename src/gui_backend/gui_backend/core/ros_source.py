@@ -19,6 +19,15 @@ import math
 import time
 from dataclasses import dataclass
 
+from asket_common.geo import LocalOrigin
+from asket_common.link_budget import (
+    Antenna,
+    Propagation,
+    RadioConfig,
+    ShoreStation,
+    VesselRadio,
+)
+
 from asket_common.heading import (
     SOURCE_EKF,
     SOURCE_NONE,
@@ -26,8 +35,12 @@ from asket_common.heading import (
 )
 
 from . import adapters, payloads
+from omniscan_bridge.core.mounting import mounting_state_from_keyvalues
+
 from .commands import (
     CMD_CUT_PROPULSION,
+    CMD_APPLY_SETUP,
+    CMD_RUN_SYSTEM_TEST,
     CMD_SET_MODE,
     CMD_SET_PING_PARAMETERS,
     CMD_START_MISSION,
@@ -51,6 +64,53 @@ class LatestMessage:
         return time.monotonic() - self.received_monotonic
 
 
+def _radio_from_config(config: dict):
+    """Build the link budget from ``topics.yaml``, or return nothing.
+
+    Nothing is the honest answer when the station has not been entered. The
+    tripod moves between missions and can be turned by hand mid-mission, so
+    there is no surveyed position to fall back on, and a default one would
+    produce a confident bearing for a station that is somewhere else. Every
+    geometry field then goes out as ``null`` and the panel says the station is
+    not configured, which is true and is actionable.
+
+    This is the interim. These values belong on the mission setup page beside
+    the sonar mounting geometry — see ``docs/open_questions.md`` Q11.
+    """
+    station_cfg = (config.get("shore_station") or {})
+    if not station_cfg.get("configured"):
+        return None, None
+
+    origin = LocalOrigin(
+        lat_deg=float(station_cfg["lat"]), lon_deg=float(station_cfg["lon"])
+    )
+    antenna_cfg = station_cfg.get("antenna") or {}
+    station = ShoreStation(
+        east_m=0.0,
+        north_m=0.0,
+        height_m=float(station_cfg.get("height_m", 2.9)),
+        boresight_deg=float(station_cfg.get("boresight_deg", 0.0)),
+        antenna=Antenna(
+            gain_dbi=float(antenna_cfg.get("gain_dbi", 15.0)),
+            azimuth_beamwidth_deg=float(antenna_cfg.get("azimuth_beamwidth_deg", 120.0)),
+            elevation_beamwidth_deg=float(
+                antenna_cfg.get("elevation_beamwidth_deg", 10.0)
+            ),
+        ),
+    )
+    vessel_cfg = station_cfg.get("vessel_radio") or {}
+    radio = RadioConfig(
+        station=station,
+        vessel=VesselRadio(height_m=float(vessel_cfg.get("height_m", 1.0))),
+        propagation=Propagation(
+            freq_mhz=float(station_cfg.get("freq_mhz", 5500.0)),
+            wave_height_m=float(station_cfg.get("wave_height_m", 0.5)),
+            channel_width_mhz=float(station_cfg.get("channel_width_mhz", 40.0)),
+        ),
+    )
+    return radio, origin
+
+
 class RosSource:
     """Reads real topics. Constructed with an already-created ``rclpy`` node."""
 
@@ -63,6 +123,7 @@ class RosSource:
         self._last_track_utc = 0
         self._publishers: dict[str, object] = {}
         self._service_clients: dict[str, object] = {}
+        self._radio, self._station_origin = _radio_from_config(config)
         self._link = adapters.link_from_measurements("wifi", 1.0, 0.0, 800_000.0)
 
         self._subscribe_all()
@@ -194,8 +255,34 @@ class RosSource:
 
     def set_link_measurement(self, active_link: str, quality: float, rtt_ms: float,
                              capacity: float) -> None:
-        """Fed by the node from whatever link telemetry it has."""
-        self._link = adapters.link_from_measurements(active_link, quality, rtt_ms, capacity)
+        """Fed by the node from whatever link telemetry it has.
+
+        The measurements are kept as measurements. What gets added is the
+        geometry: where the boat is against where the tripod is, and what the
+        link budget says that range should be giving. Same module, same
+        arithmetic as the simulator — the boat's position is the only input
+        that differs, and here it comes from the GNSS fix instead of from a
+        simulated vessel.
+        """
+        self._link = adapters.link_from_measurements(
+            active_link, quality, rtt_ms, capacity,
+            radio=self._radio, **self._vessel_enu(),
+        )
+
+    def _vessel_enu(self) -> dict:
+        """The boat in the station's local ENU frame, or nothing.
+
+        Nothing rather than a zero: the origin is where the tripod stands, so
+        a missing fix defaulting to (0, 0) would put the boat on top of it and
+        report a perfect link. Absence has to stay absence all the way down.
+        """
+        if self._radio is None:
+            return {}
+        vessel = self._vessel_record()
+        if vessel is None:
+            return {}
+        east_m, north_m = self._station_origin.to_enu(vessel.lat, vessel.lon)
+        return {"east_m": east_m, "north_m": north_m}
 
     # -- the DataSource interface -----------------------------------------
 
@@ -270,6 +357,19 @@ class RosSource:
                 cursor=len(self._track),
             )
 
+        if stream == "diagnostics":
+            # The Pre-flight panel's only source of data.
+            #
+            # This branch did not exist, so `snapshot("diagnostics")` returned
+            # None on every tick and the panel read "No pre-flight has run yet
+            # in this session" forever — including right after a boot pre-flight
+            # that had run, logged its verdict, and published this very message.
+            msg = self._msg("preflight_report")
+            if msg is None:
+                return None
+            report = adapters.preflight_from_ros(msg)
+            return Sample(stream, report["run_utc_ms"] or self.now_utc_ms(), report)
+
         if stream == "coverage":
             step = {"full": 1, "reduced": 3, "minimal": 10}[detail]
             side = (self.config.get("survey") or {}).get("sonar_side", "starboard")
@@ -297,7 +397,37 @@ class RosSource:
             "sonar": sonar.payload if sonar else {},
             "mission": {"state": "IDLE"},
             "link_sample": self._link,
+            # What the sonar bridge says it is placing soundings by. The
+            # command confirmation for `apply_setup` resolves against this, so
+            # it belongs here and not only in the pre-flight's state — the
+            # predicate reads this dict.
+            "mounting": self._mounting_state() or {},
         }
+
+    def _mounting_state(self) -> dict | None:
+        """The sonar bridge's own report of the geometry it is using.
+
+        Off ``/diagnostics``, and parsed by the module that writes it rather
+        than here. A second hand-written parser would be a reload that confirms
+        for the pre-flight and not for the setup page, or the reverse, and the
+        symptom would point at the reload.
+
+        ``None`` when nothing is reporting it — which the hub treats as "cannot
+        be confirmed" rather than as a mismatch. A vessel that is not saying is
+        not a vessel that disagreed.
+        """
+        msg = self._msg("diagnostics")
+        if msg is None:
+            return None
+        for status in getattr(msg, "status", []):
+            name = getattr(status, "name", "") or ""
+            if "omniscan" not in name:
+                continue
+            kv = {v.key: v.value for v in getattr(status, "values", [])}
+            state = mounting_state_from_keyvalues(kv)
+            if state is not None:
+                return state
+        return None
 
     def alarm_state(self) -> dict:
         state = self.state()
@@ -374,6 +504,36 @@ class RosSource:
 
         if name == CMD_STOP_MISSION:
             return self._call_service("stop_mission", lambda req: None)
+
+        if name == CMD_RUN_SYSTEM_TEST:
+            # The service and its client already existed — `topics.yaml` names
+            # it and `_prepare_commands()` builds the client — and this branch
+            # was simply missing, so the button fell through to "not wired up"
+            # on every press.
+            #
+            # `include_active` is hard false and the consent token stays empty.
+            # Active tests turn motors; they need a consent token and somebody
+            # standing next to the boat, and this panel says in as many words
+            # that it does not offer them. Passing the flag through from the
+            # client would make that promise a client-side one.
+            return self._call_service(
+                "run_system_test",
+                lambda req: (
+                    setattr(req, "only", [str(s) for s in (args.get("only") or [])]),
+                    setattr(req, "include_active", False),
+                    setattr(req, "consent_token", ""),
+                ),
+            )
+
+        if name == CMD_APPLY_SETUP:
+            # `std_srvs/Trigger` takes no fields, so there is nothing to fill.
+            # The setup file on disk is the message; this only says "read it".
+            #
+            # The outcome here is the service having been *called*, which is
+            # not the change having taken effect. The hub does not treat it as
+            # one: the command stays pending until the bridge reports the
+            # geometry digest the page is waiting for.
+            return self._call_service("apply_setup", lambda req: None)
 
         return CommandOutcome(False, f"command {name!r} is not wired up")
 

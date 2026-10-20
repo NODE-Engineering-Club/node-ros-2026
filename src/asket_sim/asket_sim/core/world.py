@@ -22,7 +22,16 @@ from asket_common.survey import SIDE_STARBOARD, SurveyPlan
 from .battery import BatteryConfig, BatterySample, BatterySim
 from .faults import FaultInjector
 from .lidar import LidarConfig, LidarScan, LidarSim, Obstacle
-from .link import LINK_4G, LINK_NONE, LinkConfig, LinkSample, LinkSim
+from .camera import CameraConfig, CameraSim
+from .link import (
+    ALIGNMENT_LOST_DEG,
+    GLASSY_WAVE_HEIGHT_M,
+    LINK_4G,
+    LINK_NONE,
+    LinkConfig,
+    LinkSample,
+    LinkSim,
+)
 from .pico import PicoConfig, PicoSample, PicoSim
 from .sonar import PingSet, SeabedConfig, SonarSim, SonarSimConfig
 from .vessel import VesselConfig, VesselSample, VesselSim
@@ -54,6 +63,7 @@ class WorldConfig:
     battery: BatteryConfig = field(default_factory=BatteryConfig)
     pico: PicoConfig = field(default_factory=PicoConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
 
     #: Static obstacles, in local ENU metres.
     #:
@@ -89,6 +99,8 @@ class WorldSnapshot:
     pico: PicoSample
     battery: BatterySample
     link: LinkSample
+    camera_state: str
+    camera_frames: int
     lidar: LidarScan | None
     ping: PingSet | None
     sonar_pitch_deg: float
@@ -121,6 +133,7 @@ class SimWorld:
         self.battery = BatterySim(cfg.battery)
         self.pico = PicoSim(cfg.pico, seed=cfg.seed + 3)
         self.link = LinkSim(cfg.link, seed=cfg.seed + 4)
+        self.camera = CameraSim(cfg.camera)
 
         self.t = 0.0
         self.start_utc_ms = start_utc_ms if start_utc_ms is not None else int(time.time() * 1000)
@@ -185,6 +198,16 @@ class SimWorld:
         if f.active("disk_full"):
             self.disk_used_bytes = self.cfg.disk_total_bytes - 8 * 1024**2
 
+        # The shore antenna and the weather. Both are set every tick rather
+        # than on the fault's edges: a fault that is injected, cleared and
+        # injected again must not leave the tripod pointing somewhere nobody
+        # asked for.
+        self.link.set_alignment_error(
+            ALIGNMENT_LOST_DEG if f.active("link_alignment_lost") else 0.0
+        )
+        self.link.set_sea_state(GLASSY_WAVE_HEIGHT_M
+                                if f.active("link_glassy_water") else None)
+
     def _forced_link(self) -> str | None:
         if self.faults.active("link_loss"):
             return LINK_NONE
@@ -209,6 +232,16 @@ class SimWorld:
         self.battery.step(dt, throttle)
 
         v = self.vessel
+        # The camera renders nothing here — only a pose is captured, and the
+        # picture is drawn if and when somebody asks for it. A stream with no
+        # subscriber has to cost nothing, and this one costs milliseconds
+        # rather than nanoseconds when it does run.
+        self.camera.step(
+            dt, self.utc_ms, v.east, v.north, v.true_heading,
+            pitch_deg=v.sample(self.utc_ms).pitch_deg,
+            obstacles=self.cfg.obstacles,
+            running=self.camera_state() == "live",
+        )
         if not self.faults.active("lidar_stall") and self.t >= self._next_lidar_t:
             self._next_lidar_t = self.t + 1.0 / max(0.1, self.cfg.lidar.rotation_hz)
             self._last_lidar = self.lidar.scan(
@@ -230,6 +263,21 @@ class SimWorld:
 
     # -- observation ------------------------------------------------------
 
+    def camera_state(self) -> str:
+        """``"live"``, ``"dead"`` or ``"frozen"``.
+
+        Three states rather than a boolean because they send an operator to
+        three different places. A camera that never produced a picture is a
+        cable or a device; one that produced pictures and stopped is the
+        Jetson or the driver; and neither is the link having gone, which the
+        GUI knows about separately and must not confuse with either.
+        """
+        if self.faults.active("camera_dead"):
+            return "dead"
+        if self.faults.active("camera_frozen"):
+            return "frozen"
+        return "live"
+
     def snapshot(self) -> WorldSnapshot:
         utc = self.utc_ms
         vessel = self.vessel.sample(utc)
@@ -240,13 +288,18 @@ class SimWorld:
             vessel=vessel,
             pico=self.pico.sample(utc),
             battery=self.battery.sample(utc),
-            link=self.link.sample(utc, vessel.east_m, vessel.north_m, self._forced_link()),
+            link=self.link.sample(
+                utc, vessel.east_m, vessel.north_m, self._forced_link(),
+                heading_deg=vessel.heading_deg,
+            ),
             lidar=self._last_lidar,
             ping=self._last_ping,
             sonar_pitch_deg=pitch,
             sonar_roll_deg=roll,
             disk_free_bytes=max(0, self.cfg.disk_total_bytes - self.disk_used_bytes),
             disk_total_bytes=self.cfg.disk_total_bytes,
+            camera_state=self.camera_state(),
+            camera_frames=self.camera.frames_produced,
             active_faults=self.faults.names(),
             seabed_depth_m=self.cfg.seabed.depth_at(vessel.east_m, vessel.north_m),
         )

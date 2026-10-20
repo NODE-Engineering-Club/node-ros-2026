@@ -1,6 +1,7 @@
 import { Chip, Panel } from '../components/Panel.jsx';
 import { ConfirmButton } from '../components/ConfirmButton.jsx';
 import { streamPayload } from '../lib/connection.js';
+import { COMMAND_STATUS_LABELS } from '../lib/labels.js';
 
 /**
  * Pre-flight built-in test.
@@ -20,12 +21,40 @@ const STATUS_LABEL = { PASS: 'ok', WARN: 'warn', FAIL: 'fail', SKIPPED: 'unknown
 
 export function DiagnosticsPanel({ state, connection }) {
   const report = streamPayload(state, 'diagnostics');
-  const pending = Object.values(state.commands).some(
-    (c) => c.name === 'run_system_test' && c.status === 'pending',
-  );
+
+  // The most recent press, whatever became of it.
+  //
+  // This panel used to render only `report`, so a command that failed left no
+  // trace on screen at all: the button's pending state went true and false in
+  // the same breath and the panel sat exactly as before. On the Jetson the
+  // command failed every time — `run_system_test` was never dispatched by
+  // RosSource — and the operator's evidence for that was nothing whatsoever.
+  //
+  // A button that produces no visible outcome is the same silence that has
+  // cost this project hours three times over. It now always resolves to
+  // something: a verdict, a refusal, or "the vessel never answered".
+  const lastRun = Object.values(state.commands)
+    .filter((c) => c.name === 'run_system_test')
+    .sort((a, b) => (a.issued_utc_ms || 0) - (b.issued_utc_ms || 0))
+    .pop();
+  const pending = lastRun?.status === 'pending';
+
+  // A report that predates the press has not answered it. Saying "GO" from a
+  // report taken before the button was touched would be the panel answering a
+  // question nobody asked.
+  const answered =
+    lastRun
+    && lastRun.status !== 'pending'
+    && report
+    && report.run_utc_ms >= (lastRun.issued_utc_ms || 0);
 
   const items = report?.items || [];
   const degrading = report?.history?.degrading || [];
+
+  // Checks waiting on a value somebody has to enter, rather than on something
+  // being repaired. A check only carries `setup_field` when the honest answer
+  // is "nobody has told us this yet".
+  const awaiting = items.filter((item) => item.setup_field && item.status !== 'PASS');
 
   // Anything short of a clean GO opens the list. The verdict sentence names the
   // first problem; the list is what you act on, and having to ask for it is one
@@ -72,6 +101,21 @@ export function DiagnosticsPanel({ state, connection }) {
               onConfirm={() => connection.command('run_system_test', {})}
             />
           </div>
+          {lastRun && !answered && (
+            <p
+              className={lastRun.status === 'failed' ? 'errline' : 'hint'}
+              style={{ margin: '6px 0 0' }}
+            >
+              {COMMAND_STATUS_LABELS[lastRun.status] || lastRun.status}
+              {lastRun.detail ? ` — ${lastRun.detail}` : ''}
+              {/* Accepted, and then nothing came back. The request reached the
+                  vessel and no fresh report followed, which is a different
+                  fault from a refusal and sends you somewhere different. */}
+              {lastRun.status === 'confirmed' && !report
+                ? ' — the request was sent, but no report has arrived'
+                : ''}
+            </p>
+          )}
         </>
       }
     >
@@ -79,6 +123,44 @@ export function DiagnosticsPanel({ state, connection }) {
         Passive checks only. Motor tests never run automatically and are not
         available from this panel.
       </p>
+
+      {/*
+        "Nobody has told us this yet" is not the same problem as "this is
+        broken", and until now the panel rendered them identically: both amber,
+        both with a remedy, both easy to read past.
+
+        That is not a theory. `sonar.mounting` has returned the same amber
+        warning on every run for two weeks, naming a YAML file that lives
+        behind an SSH session nobody in the club has, and nothing has happened.
+        Separating the two is the smallest change that could plausibly get it
+        cleared — a missing value is a job somebody can finish, and a list of
+        them is short enough to finish today.
+
+        Each name is a link that opens the setup page with that field in
+        view. That is the half that was missing: naming the field instead of a
+        YAML path only helps if the name lands somewhere.
+      */}
+      {awaiting.length > 0 && (
+        <div className="awaiting-setup">
+          <p className="awaiting-setup-headline">
+            {awaiting.length === 1
+              ? 'One value has never been entered'
+              : `${awaiting.length} values have never been entered`}
+          </p>
+          <p className="hint" style={{ marginTop: 0 }}>
+            Not faults — things nobody has told the vessel yet. They stay amber
+            until somebody does.
+          </p>
+          <ul className="awaiting-setup-list">
+            {awaiting.map((item) => (
+              <li key={item.id}>
+                <SetupFieldLink field={item.setup_field} />
+                <span className="hint"> — {item.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {items.length > 0 && (
         <div style={{ marginTop: 10 }}>
@@ -97,6 +179,11 @@ export function DiagnosticsPanel({ state, connection }) {
                   {item.remedy}
                 </div>
               )}
+              {item.setup_field && item.status !== 'PASS' && (
+                <div className="hint">
+                  Waiting on <SetupFieldLink field={item.setup_field} />
+                </div>
+              )}
               {degrading.includes(item.id) && (
                 <div className="warnline">
                   Drifting across recent runs — still passing, but getting worse.
@@ -107,5 +194,21 @@ export function DiagnosticsPanel({ state, connection }) {
         </div>
       )}
     </Panel>
+  );
+}
+
+/**
+ * A field name that opens the setup page at that field.
+ *
+ * `#setup/<id>` rather than a callback, so the link is a real URL: the back
+ * button works, and somebody can be sent it. The id is the one the check
+ * carries, which is the one `asket_common/setup_profile.py` declares — there
+ * is no table here mapping check ids to page anchors that could fall behind.
+ */
+function SetupFieldLink({ field }) {
+  return (
+    <a className="setup-field" href={`#setup/${encodeURIComponent(field)}`}>
+      {field}
+    </a>
   );
 }

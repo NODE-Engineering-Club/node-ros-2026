@@ -216,6 +216,27 @@ body {
 
 .panel-detail { margin-top: 6px; }
 
+/* Connected and receiving nothing.
+ *
+ * Full width and at the top of the cockpit, above the map, because the failure
+ * it reports is one that otherwise looks exactly like a quiet vessel: the page
+ * renders, the socket stays up, every panel simply says "not sent". */
+.starved-banner {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--alarm);
+  border-left-width: 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--alarm) 10%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.starved-banner strong {
+  color: var(--alarm);
+}
+
 .forced-note {
   margin: 4px 0 0;
   font-size: 12px;
@@ -379,16 +400,31 @@ input[type="range"] { accent-color: var(--info-fill); }
 
 .map { position: absolute; inset: 0; }
 
+/* Clear of the attribution bar along the bottom edge. ODbL attribution is a
+   licence condition, so it is the fixed thing and everything else moves around
+   it — a note that covers the credit is not an option. */
 .map-note {
   position: absolute;
   left: 8px;
-  bottom: 8px;
+  bottom: 30px;
   max-width: 420px;
   background: #fff;
   border: 1px solid var(--line);
   padding: 6px 8px;
   font-size: 12px;
+  z-index: 2;
 }
+
+/* MapLibre's own controls, brought into this GUI's flat black-on-white. The
+   attribution has to stay legible against whatever tile is under it. */
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.92) !important;
+  font-size: 11px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.maplibregl-ctrl-attrib a { color: var(--ink); }
 
 /* The synthetic-basemap warning: purple like everything else that means
    "none of this is real", and top-left so it is read before the map is. */
@@ -413,10 +449,12 @@ input[type="range"] { accent-color: var(--info-fill); }
 
 /* The map legend. Coverage on one side only is the whole reason this map
    exists, and an operator who cannot name the colours cannot read it. */
+/* Above the scale control, which sits bottom-right and used to print its
+   distance straight through the legend text. */
 .map-legend {
   position: absolute;
   right: 8px;
-  bottom: 34px;
+  bottom: 58px;
   background: #fff;
   border: 1px solid var(--line);
   padding: 5px 8px;
@@ -513,3 +551,297 @@ details.advanced { border-top: 1px solid var(--line); margin-top: 6px; }
   font-weight: 700;
 }
 .chip.mock-banner .dot { background: #fff; }
+
+
+/* -- camera ------------------------------------------------------------- */
+/*
+   The staleness treatment is deliberately heavy-handed. A photograph is the
+   one payload a human believes without reading its label, so "this is no
+   longer current" has to be visible from across a beach in sunlight, not a
+   subtle border somebody has to look for.
+*/
+
+.camera-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #10161c;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* No transition on the image itself: a fade would blur the moment the feed
+     went stale into a gradual change, which is the opposite of the point. */
+}
+
+.camera-img.stale {
+  filter: grayscale(0.85) brightness(0.55);
+}
+
+.camera-age {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #d8e2ea;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
+.camera-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px 8px;
+  text-align: center;
+  background: rgba(120, 72, 0, 0.82);
+  color: #ffe9c7;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.camera-blank {
+  padding: 14px;
+  text-align: center;
+  max-width: 34ch;
+}
+
+.camera-blank-headline {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: #e7eef4;
+}
+
+.camera-hide {
+  margin-top: 6px;
+}
+
+
+/* -- checks waiting on a value ------------------------------------------ */
+/*
+   Deliberately not amber. These are not faults and colouring them like faults
+   is how they came to be ignored: two weeks of the same warning taught the
+   club that amber on this panel means nothing.
+*/
+
+.awaiting-setup {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #5b8db2;
+  background: rgba(90, 140, 180, 0.09);
+  border-radius: 0 4px 4px 0;
+}
+
+.awaiting-setup-headline {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+.awaiting-setup-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.awaiting-setup-list li {
+  margin-bottom: 2px;
+}
+
+.setup-field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* -- the setup page -------------------------------------------------------
+ *
+ * A document, not a cockpit. The cockpit is dense because every panel is
+ * competing for a glance; this is read, line by line, by somebody standing
+ * still with a tape measure or a tripod. So it is a single column with
+ * generous line length and the consequence sentence given room, because that
+ * sentence is the whole mechanism by which a value gets measured rather than
+ * guessed.
+ */
+
+.setup-page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 16px;
+  height: 100%;
+  /* Header, scroller, save bar. The bar is a flex sibling of the scrolling
+     area rather than sticky inside it: its height changes with the number of
+     unsaved edits, so no fixed padding can reliably clear it, and what it
+     covers at full scroll is the last field on the page. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.setup-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 24px;
+}
+
+.setup-topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: 0 0 auto;
+  background: var(--bg);
+  padding: 12px 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.setup-topbar h1 { margin: 0; font-size: 1.3rem; }
+.setup-topbar .spacer { flex: 1 1 auto; }
+
+/* The sentence the whole page is organised around. Large, because a page that
+ * buried "five values have never been set" in body text would be a page
+ * somebody scrolls past. */
+.setup-headline {
+  margin: 14px 0 6px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.setup-unknown { margin: 10px 0; }
+.setup-unknown ul { margin: 4px 0; }
+
+.setup-tier { margin-top: 24px; }
+
+.setup-tier > h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.05rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+
+.setup-tier-blurb { margin: 6px 0 12px; max-width: 42rem; }
+
+.setup-fields { display: flex; flex-direction: column; gap: 2px; }
+
+.setup-field {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+
+/* Four states, visibly apart. Collapsing any two of them is how this page
+ * would start lying about what the vessel has been told. */
+.setup-field.outstanding { border-left-color: var(--warn); }
+.setup-field.edited { border-left-color: var(--pending); background: #f7f4ff; }
+.setup-field.focused { outline: 3px solid var(--info-fill); outline-offset: 1px; }
+
+.setup-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.setup-field-head label { font-weight: 600; }
+.setup-field-head .units { font-weight: 400; color: var(--absent); }
+
+.setup-field-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.setup-field-input input,
+.setup-field-input select {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-width: 12rem;
+}
+
+.setup-consequence {
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 40rem;
+}
+
+/* The ones that produce plausible-looking wrong data rather than an obvious
+ * failure. Marked differently because that is the ranking an operator with
+ * limited daylight should work in. */
+.setup-consequence.corrupts { color: var(--warn); }
+
+.setup-field-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.setup-savebar {
+  flex: 0 0 auto;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--pending);
+  background: var(--bg);
+}
+
+.setup-savebar ul { margin: 4px 0 8px; }
+
+.setup-attribution {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.setup-attribution input {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.okline { font-size: 12px; color: var(--ok); font-weight: 700; }
+
+/* The pre-flight's field names, now links into this page. Kept looking like
+ * the code they name rather than like prose, so it is obvious they are
+ * identifiers and not a sentence. */
+a.setup-field {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+button.link,
+.topbar-link {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

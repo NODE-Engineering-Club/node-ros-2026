@@ -20,6 +20,7 @@ from asket_common.heading import (
     SOURCE_MAGNETOMETER,
     evaluate_heading,
 )
+from asket_common.mode_arbitration import ESTOP_FEEDBACK_ENABLED
 from asket_common.survey import swath_half_width_m
 from asket_sim.core.faults import FAULTS
 from asket_sim.core.pico import MODE_NAMES, MODE_VALUES
@@ -42,13 +43,14 @@ from omniscan_bridge.core.status import SonarHealthTracker
 from system_test.core.checks import run_checks
 from system_test.core.history import PreflightHistory
 
-from . import payloads
+from . import payloads, video_frame
 from .commands import (
     CMD_CLEAR_FAULT,
     CMD_CUT_PROPULSION,
     CMD_DELETE_MISSION,
     CMD_EXPORT_MISSION,
     CMD_INJECT_FAULT,
+    CMD_APPLY_SETUP,
     CMD_RUN_SYSTEM_TEST,
     CMD_SET_MODE,
     CMD_SET_PING_PARAMETERS,
@@ -56,7 +58,7 @@ from .commands import (
     CMD_STOP_MISSION,
 )
 from .source import CommandOutcome, Sample
-from .streams import DETAIL_FULL
+from .streams import DETAIL_FULL, DETAIL_MINIMAL, DETAIL_REDUCED
 
 
 def _default_mounting_path():
@@ -74,6 +76,27 @@ def _default_mounting_path():
         if candidate.is_file():
             return candidate
     return None
+
+
+#: What each detail level asks the camera for. The native sensor is 640x480 —
+#: both the real calibration and the Gazebo model say so — and there is no
+#: higher rung to offer, which is worth knowing before somebody designs a 1080p
+#: option. The lower rungs exist for the quality control on the panel rather
+#: than for a profile: `camera` is carried on the full profile only.
+CAMERA_SIZES = {
+    DETAIL_FULL: (640, 480),
+    DETAIL_REDUCED: (320, 240),
+    DETAIL_MINIMAL: (160, 120),
+}
+
+
+#: What the simulated Jetson's clock sits at against GPS, milliseconds.
+#:
+#: Small and well inside the one-second threshold: the simulator models a
+#: vessel whose clock is disciplined, which is the case the healthy baseline
+#: is for. Drifting it is a fault somebody should be able to inject, and that
+#: is not built — when it is, this becomes the value it starts from.
+SIM_GPS_CLOCK_OFFSET_MS = 40
 
 
 class SimSource:
@@ -131,9 +154,13 @@ class SimSource:
         # is the point of sim mode, and the mounting check is the one item on it
         # that a simulated vessel can answer truthfully — the file either says
         # somebody measured the boat or it does not.
-        self._mounting, self._mounting_provenance = load_mounting(
+        # Kept, so a reload reads the same file the first load did. Two
+        # resolutions of this path would be a simulated reload that confirmed
+        # against a different file from the one the page wrote.
+        self._mounting_path = (
             mounting_path if mounting_path is not None else _default_mounting_path()
         )
+        self._mounting, self._mounting_provenance = load_mounting(self._mounting_path)
 
     # -- clock ------------------------------------------------------------
 
@@ -392,6 +419,44 @@ class SimSource:
                 stream, snap.lidar.utc_ms,
                 payloads.lidar_payload(snap.lidar, detail, decimation),
             )
+        if stream == "camera":
+            # Rendered here and nowhere earlier: the world captured a pose when
+            # the shutter fell and draws the picture only because this line
+            # asked for it. An unsubscribed camera costs a few microseconds a
+            # tick, which is the architecture's first rule applied to the one
+            # stream where it is measured in milliseconds.
+            width, height = CAMERA_SIZES[detail]
+            frame = self.world.camera.frame(width, height)
+            if frame is None:
+                return Sample(stream, snap.utc_ms, {
+                    "image": b"",
+                    "reason": (
+                        video_frame.REASON_DEAD if snap.camera_state == "dead"
+                        else video_frame.REASON_NOT_STARTED
+                    ),
+                    "frames_produced": snap.camera_frames,
+                    "last_frame_utc_ms": None,
+                })
+            if snap.camera_state != "live":
+                # A perfectly good picture that is no longer true. The frame is
+                # NOT sent again: re-sending it would make a frozen camera
+                # indistinguishable from a working one on any panel that does
+                # not check the sequence number, and this is exactly the case
+                # that must not depend on the panel being careful.
+                return Sample(stream, frame.utc_ms, {
+                    "image": b"",
+                    "reason": video_frame.REASON_FROZEN,
+                    "frames_produced": snap.camera_frames,
+                    "last_frame_utc_ms": frame.utc_ms,
+                })
+            return Sample(stream, frame.utc_ms, {
+                "image": frame.data,
+                "seq": frame.seq,
+                "width": frame.width,
+                "height": frame.height,
+                "format": frame.image_format,
+            })
+
         if stream == "link":
             # The bearer-side facts only. Profile, client count and the rate
             # actually being pushed are the hub's to know, and it merges them
@@ -472,6 +537,10 @@ class SimSource:
             "rc_channel8_raw": snap.pico.rc_channel8_raw,
             "rc_channel7_raw": snap.pico.rc_channel7_raw,
             "pico_firmware_version": snap.pico.firmware_version,
+            # A firmware compile flag, not a wire field: the Pico cannot tell
+            # us whether its own feedback was compiled in. Mirrored in
+            # pico_state and pinned to the sketch by the cross-check test.
+            "pico_estop_feedback_enabled": ESTOP_FEEDBACK_ENABLED,
             "num_sats": snap.vessel.num_sats,
             "gnss_fix_type": snap.vessel.gnss_fix_type,
             "hdop": snap.vessel.hdop,
@@ -491,6 +560,12 @@ class SimSource:
             "sonar_ping_rate_hz": sonar_payload.get("actual_ping_rate_hz"),
             "sonar_points_per_ping": sonar_payload.get("points_per_ping"),
             "clock_offset_ms": sonar_payload.get("clock_offset_ms"),
+            # The Jetson's own clock against GPS time — the hop before the
+            # sonar's. The simulated vessel runs on a disciplined clock, so
+            # this is small and recent; the fault that drifts it belongs with
+            # the other injectable ones and is not built yet.
+            "gps_time_offset_ms": SIM_GPS_CLOCK_OFFSET_MS,
+            "gps_time_age_s": 1.0,
             "disk_free_bytes": snap.disk_free_bytes,
             # Not measured in sim: reported as unknown rather than invented,
             # which is what makes it a SKIPPED check rather than a false PASS.
@@ -507,6 +582,42 @@ class SimSource:
             "present_nodes": [],
             "mounting": self._mounting_provenance.to_dict(),
         }
+
+    def bring_up_healthy(self, mission_name: str = "demo") -> dict:
+        """Put the simulated vessel into a plausibly working state, at once.
+
+        Every panel on this GUI renders absence gracefully, which is correct and
+        is also why a freshly started simulator looks so much like a broken one:
+        the vessel is in MANUAL and disarmed, nothing is recording, and no
+        pre-flight has run, so three panels read "not sent" and a fourth says no
+        report exists. Nothing is wrong. It just does not look like anything.
+
+        That matters more than convenience. Nobody can judge whether a
+        *degraded* state reads correctly without knowing what the healthy one
+        looks like, and until now the healthy one had never been assembled —
+        every default view of this interface has been a partial one.
+
+        So this is the baseline: autonomous and armed, recording, surveying,
+        pre-flight run. It uses the ordinary command path rather than reaching
+        into the world, so what it produces is what an operator pressing the
+        same three buttons would get, and it cannot drift into being a picture
+        the real controls cannot reach.
+
+        Returns what happened, so a caller can print it rather than assume it.
+        """
+        steps: dict[str, str] = {}
+
+        mode = self.send_command(CMD_SET_MODE, {"mode": "AUTONOMOUS"})
+        steps["mode"] = mode.detail if mode.accepted else f"REFUSED: {mode.detail}"
+
+        recording = self.send_command(CMD_START_MISSION, {"name": mission_name})
+        steps["recording"] = (
+            recording.detail if recording.accepted else f"REFUSED: {recording.detail}"
+        )
+
+        report = self.run_preflight()
+        steps["preflight"] = report.summary
+        return steps
 
     def run_preflight(self, only=None):
         report = run_checks(
@@ -538,6 +649,14 @@ class SimSource:
             "disk_free_bytes": snap.disk_free_bytes,
             "disk_total_bytes": snap.disk_total_bytes,
             "active_faults": snap.active_faults,
+            # The sonar bridge's own account of the geometry it is running on.
+            #
+            # This is the state `mounting_reloaded` resolves against, so it has
+            # to be in *this* dict and not only in the pre-flight's. It was
+            # only in the pre-flight's, which meant the confirmation predicate
+            # could never have fired on a real reload — the predicate existed,
+            # was tested in isolation, and had nothing to read.
+            "mounting": self._mounting_provenance.to_dict(),
         }
 
     def alarm_state(self) -> dict:
@@ -651,6 +770,26 @@ class SimSource:
         if name == CMD_RUN_SYSTEM_TEST:
             report = self.run_preflight(only=args.get("only") or None)
             return CommandOutcome(True, report.summary)
+
+        if name == CMD_APPLY_SETUP:
+            # The same `load_mounting` the bridge calls, against the same two
+            # files. Sim mode exists so the pre-flight and now the setup round
+            # trip can be rehearsed without a boat, and a simulated reload that
+            # merely said "yes" would rehearse nothing — the digest the hub is
+            # waiting for has to come out of the real merge or the confirmation
+            # proves only that this branch exists.
+            self._mounting, self._mounting_provenance = load_mounting(self._mounting_path)
+            prov = self._mounting_provenance
+            if prov.overlay.error:
+                return CommandOutcome(
+                    False,
+                    f"The setup file could not be used ({prov.overlay.error}). "
+                    "Nothing has been applied.",
+                )
+            return CommandOutcome(
+                True,
+                f"Sonar bridge re-read its configuration. [{prov.fingerprint}]",
+            )
 
         if name == CMD_INJECT_FAULT:
             try:

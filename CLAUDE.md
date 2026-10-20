@@ -76,8 +76,17 @@ npm run dev:mock                                # the GUI alone, nothing else in
 npm run build                                   # into gui_backend/gui_backend/static/
 
 python3 -m gui_backend.core.app --sim                # GUI + simulated backend
+python3 -m gui_backend.core.app --sim --healthy      # ...and a vessel that is working
 python3 -m gui_backend.core.app --sim --shape-link   # ...on a genuinely narrow link
 ```
+
+**Start with `--healthy`, or the dev panel's "Everything working".** The
+simulator's default is MANUAL, disarmed and not recording, which is correct and
+looks exactly like a broken vessel: four panels have nothing to say. The
+baseline puts it autonomous, armed, recording and pre-flighted, through the
+same commands an operator would use. Nobody can judge whether a degraded state
+reads correctly without having seen the healthy one, and until recently the
+healthy one had never been assembled.
 
 There are three ways to run this, in increasing order of what has to be
 installed:
@@ -123,6 +132,16 @@ are compared across languages by running the JavaScript under Node.
   software. Where that makes the vessel look broken, say why rather than hiding
   it: `arming_block_reason()` computes the sentence once and the panels render
   it. See `INTEGRATION_STATUS.md` §15.
+- **The `pico.estop_feedback` amber is correct, not a bug to silence.**
+  `ESTOP_FEEDBACK_ENABLED` is 0, so nothing confirms the ESC rail actually
+  collapsed when the relay was commanded open. Clear it by enabling the
+  feedback in the firmware *and* flipping the mirror in
+  `mode_arbitration.py` — never by removing the check. See
+  `INTEGRATION_STATUS.md` §16.
+- **One relay, named `ESC power` (GPIO21).** Its function is confirmed in
+  firmware source, so it is named; ESC status codes beyond 0 are not, so they
+  are not. If you add a source of `relay_states`, it sends one — the panel
+  renders whatever length arrives, which is how `0/4 relays closed` happened.
 - `/pico/status` is a `std_msgs/String` of raw firmware `STATE` lines. The
   parser is isolated in `gui_backend/core/pico_state.py` and is `PROVISIONAL`:
   nobody here has seen a real line. Do not treat a green Pico panel as evidence
@@ -153,6 +172,7 @@ are compared across languages by running the JavaScript under Node.
 | 3 | Lidar, power, sonar health panels | done |
 | 4 | Recording, coverage, diagnostics, export | done |
 | 5 | Degraded link handling | done |
+| — | Mission **setup page** (two tiers, provenance, the overlay into `omniscan_bridge`, save and apply with confirmed state) | done |
 | — | Motor active test **wired to the Pico** (the gate exists and is tested; connecting it is deliberately left for when somebody is standing next to the boat), obstacle tracking, survey planner, NMEA out, RTK | not started |
 
 ## Open questions
@@ -182,10 +202,16 @@ trajectory, so `mission_recorder.merge_svlog` merges the recorded streams into a
 valid `.svlog` afterwards. Option B survives — nothing about the onboard
 recording changed.
 
-**Q2 is answered by a check rather than by a number.** The mounting geometry
-lives in `src/omniscan_bridge/config/mounting.yaml`, whose one significant line
-is `measured:`. Until a human sets it true, the pre-flight returns an amber
-WARN naming the file, on every run.
+**Q2 is answered by a check rather than by a number**, and since the setup page
+it is answerable without SSH. The package default still lives in
+`src/omniscan_bridge/config/mounting.yaml`; the Setup page writes a per-vessel
+file that `omniscan_bridge` reads *on top of* it, field by field, and only
+where somebody has answered. `measured` is now earned by all six geometry
+fields rather than by one flag. Until a human measures the hull the pre-flight
+still returns amber on every run — but it names the **field on the page**, not
+the file. Naming the file is precisely what did not work: it sat amber for two
+weeks because the file is on the Jetson behind an SSH session nobody in the
+club has. See `docs/setup_page.md`.
 
 ## Before deploying
 

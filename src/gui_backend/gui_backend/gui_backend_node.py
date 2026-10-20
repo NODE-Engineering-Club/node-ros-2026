@@ -42,6 +42,14 @@ class GuiBackendNode(Node):
         self.declare_parameter("topics_config", "")
         self.declare_parameter("link_profiles_config", "")
         self.declare_parameter("tiles_path", "/data/maps/survey.mbtiles")
+        # Where downloaded tiles are kept. One SQLite file, so it can be copied
+        # to another machine or kept between deployments — a cache from a
+        # previous survey is a basemap that is already there at first boot.
+        self.declare_parameter("tile_cache_path", "/data/maps/tile-cache.sqlite")
+        # Set false to restore the pre-internet behaviour: offline file and
+        # coordinate grid only, nothing fetched. This is the switch to use if a
+        # tile provider ever asks us to stop.
+        self.declare_parameter("online_tiles", True)
         self.declare_parameter("static_dir", str(DEFAULT_STATIC))
         self.declare_parameter("tick_hz", 20.0)
 
@@ -64,6 +72,8 @@ class GuiBackendNode(Node):
             self.hub,
             static_dir=self.get_parameter("static_dir").value,
             tiles_path=self.get_parameter("tiles_path").value or None,
+            tile_cache_path=self.get_parameter("tile_cache_path").value or None,
+            online_tiles=bool(self.get_parameter("online_tiles").value),
             ping_interval_s=float(profiles.get("ping_interval_s", 2.0)),
         )
 
@@ -107,9 +117,22 @@ class GuiBackendNode(Node):
 
         # Feed the measurement back so automatic profile selection runs on what
         # the operator's laptop actually experiences.
-        self.source.set_link_measurement(
-            msg.active_link, msg.quality, msg.rtt_ms, 800_000.0
-        )
+        #
+        # Only when there IS a laptop. With no client attached there is nothing
+        # to measure: `quality` above is 1.0-if-clients, so an empty server was
+        # reporting quality 0.0 — "the link is dead" — when the truth is that
+        # nobody has tried it yet. The selector read that as a lost link and
+        # degraded to the `minimal` profile within seconds of boot, so the first
+        # browser to connect was served by the profile meant for a vessel over
+        # the horizon on LTE-M, and had most of its streams refused.
+        #
+        # The hub ignores measurements with no clients too. This is the same
+        # rule stated where the bad number is produced rather than only where
+        # it lands, because a fabricated measurement is worth not making.
+        if self.hub.clients:
+            self.source.set_link_measurement(
+                msg.active_link, msg.quality, msg.rtt_ms, 800_000.0
+            )
 
     def destroy_node(self) -> bool:
         self._server.should_exit = True

@@ -18,8 +18,35 @@ npm install
 npm run dev:mock          # http://localhost:5173
 ```
 
-That is the whole setup. No ROS 2, no backend process, no Jetson, no hardware,
-no internet. Everything on screen is generated in the browser.
+That is the whole setup — Node and nothing else. No ROS 2, no backend process,
+no Jetson, no hardware, no internet, no `colcon build`. Everything on screen is
+generated in the browser. Verified: `node --version` 22, `npm install`,
+`npm run dev:mock`, open the URL it prints.
+
+### Start here: press "Everything working"
+
+The dev panel is the third column, on the right, and it only exists in mock
+mode. Its first control, under **Baseline**, is **Everything working**.
+
+Press it before anything else. A freshly started simulator sits in MANUAL,
+disarmed and idle, so three panels read "not sent" and the pre-flight says no
+report exists — nothing is wrong, and it is indistinguishable from a vessel
+that is switched off. That button puts the boat autonomous, armed, recording
+and pre-flighted, which is what a good day looks like.
+
+It matters in that order. Every other control on the panel makes something
+*worse*, and you cannot tell whether a degraded state reads correctly without
+having seen the healthy one first.
+
+The backend has the same baseline, through the same three commands:
+
+```bash
+python3 -m gui_backend.core.app --sim --healthy    # http://localhost:8080
+```
+
+That one needs Python and the GUI packages on `PYTHONPATH`, but still no ROS
+and no boat. Use it when you want the real payload builders and the real
+WebSocket rather than the browser mock.
 
 **Mock mode is permanent, not a throwaway.** It is how the interface gets
 developed and reviewed without taking the vessel out.
@@ -61,7 +88,7 @@ did not write the GUI can tell whether what they are looking at is right.
 | Sensors | Sonar dropout, heading invalid, GNSS degraded, sonar clock drift, lidar stalled, RC link lost |
 | Resources | Disk full, low battery |
 | Mode commands | Confirmation slow (2.5 s), confirmation never arrives |
-| Map | Offline tiles present / absent |
+| Map | Basemap present / absent |
 | Survey speed | 1× / 4× / 12× — speeds the *vessel*, never the clock |
 | Heading source | Magnetometer vs GNSS compass, to compare seabed error at 50 m |
 
@@ -101,16 +128,31 @@ values that matter, and no low-contrast greys used to carry meaning.
 | 5 — two-step confirmation | `components/ConfirmButton.jsx`. Arm, then confirm; the armed state times out on its own |
 | 7 — data age is always visible | `components/Value.jsx` and `lib/staleness.js`. Stale values are degraded loudly — struck through and red — because nobody notices a slightly different grey in sunlight |
 
-## Offline maps
+## The basemap
 
-There is no internet in the field, so no style, glyph or sprite is fetched from
-a URL. Raster tiles come from the `.mbtiles` file on the Jetson via
-`/tiles/{z}/{x}/{y}.png`.
+There *is* internet in the field — Namibia has 4G at the launch point — so the
+map has a real basemap rather than a coordinate grid. It comes through the
+backend in four steps of preference: the Jetson's tile cache, the internet, a
+local `.mbtiles` file, and a coordinate graticule when there is nothing else.
+`docs/map_tiles.md` has the reasoning, including why the basemap is not
+OpenStreetMap's own tile server.
 
-If that file is missing, or the vessel is outside the area it covers, the map
-draws a **coordinate graticule** and says so in plain words. It never silently
-shows an empty rectangle — an operator would read that as "no map today"
-rather than "fix the tile file".
+No style, glyph or sprite is fetched from a third party by the browser. The
+style is written in `lib/mapStyle.js` and every URL in it points at our own
+backend, so there is one cache and the map works on a laptop with no internet
+of its own.
+
+The basemap is deliberately **grey**. This map carries coverage, planned lines,
+geofence, track, lidar and the vessel in five saturated colours, and a normal
+street map competes with all of them. Land is near-white, water is a
+blue-grey chosen to stay away from the plan's blue, and woodland is grey
+because green is taken. The one exception is the coastline, which gets a
+definite stroke — for a boat it is the most useful line on the map.
+
+When there is no basemap at all the map draws a **coordinate graticule** and
+says so in plain words. It never silently shows an empty rectangle — an
+operator would read that as "no map today" rather than "the link dropped", and
+those need different actions.
 
 The vessel's heading arrow stops rotating and turns red when heading is
 invalid. Pointing an arrow confidently in a direction we do not trust is exactly
@@ -178,6 +220,44 @@ there whatever the scroll position: **battery** (charge and endurance),
 is a summary, not a second source — every value in it reads the same payload as
 the panel that owns it, and `test_gui_single_source.py` fails if that stops
 being true.
+
+## The setup page is a second screen, not a panel
+
+`#setup` replaces the cockpit; `#setup/<field id>` opens it with that field
+outlined and scrolled to, which is what the pre-flight's field names link to.
+The hash rather than component state, so the back button works and a link can
+be sent to somebody.
+
+It is a document, not a cockpit: one column, generous line length, and the
+consequence sentence beside every field given room — because that sentence is
+the mechanism by which a value gets measured rather than guessed, and
+`measured: false` sat true for two weeks while the pre-flight named a YAML
+file nobody could open.
+
+Three things are worth knowing about it:
+
+* **It is not a wizard**, and that is argued out in `docs/setup_page.md`.
+  Somebody arriving on a beach with nothing filled in needs the whole list,
+  *ranked*, to decide what to do with the daylight they have. The page is the
+  checklist.
+* **It holds no copy of the field list.** Labels, units, consequences, tiers
+  and choices all arrive with the document from `/api/setup`, generated from
+  `asket_common/setup_profile.py`. The one thing that *is* reimplemented here
+  is the ranking, in `lib/mock/setupProfile.js`, so mock mode can show the
+  empty-beach case — and `test_mock_setup_profile_matches.py` compares the two
+  headlines word for word.
+* **The gate is shown here and enforced on the Jetson.** `gateDecision` in
+  `lib/setup.js` is why the save button can say "the Pico reports the vessel is
+  armed — disarm with RC channel 7" before anybody presses it. It is not the
+  guard: the backend evaluates the same conditions off the vessel's own report
+  at dispatch, because a page left open on a laptop is the accident the
+  condition exists for. `test_setup_gate_mirror.py` holds the two together.
+
+The dev panel's **Setup filled in** toggle switches between a fresh Jetson
+with nothing answered — the default, and the case the page exists for — and
+every field answered with the Deployment values three days old, so the
+staleness notes are visible. Nobody can judge whether an empty setup reads
+correctly without having seen a filled one.
 
 ## Collapsing detail
 

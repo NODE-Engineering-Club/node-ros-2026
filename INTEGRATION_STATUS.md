@@ -55,7 +55,7 @@ the Jetson (§5.1).
 | | State |
 |---|---|
 | Merge, both histories intact | **verified** — 150 commits, both parents reachable from `9ff9a15` |
-| GUI Python test suite (no ROS) | **verified** — 572 passed, 1 skipped |
+| GUI Python test suite (no ROS) | **verified** — 1017 passed, 2 skipped, 0 failed. Both skips are environment guards, not disabled tests: one needs a non-root user (root ignores permission bits, so a read-only directory is still writable), the other is a command category covered by a different test in the same file. |
 | Firmware arbitration vs. the Python mirror | **verified** — 448 cells, cell for cell, against the compiled sketch (§14) |
 | Adapter and STATE-parser unit tests | **verified** — rewritten against the real v4 format |
 | Serial path end to end, no hardware | **verified** — real bytes on a pty, parsed by the real parser (§10) |
